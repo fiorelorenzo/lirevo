@@ -205,4 +205,16 @@ mod tests {
         assert_eq!(InjectionMethod::Accessibility, InjectionMethod::Accessibility);
         assert_ne!(InjectionMethod::Accessibility, InjectionMethod::Pasteboard);
     }
+
+    #[test]
+    #[ignore = "requires accessibility permission + a focused text field; manual dev box only"]
+    fn injector_real_inject_to_focused_text_field() {
+        // Manual smoke: open TextEdit, click in the document, then run:
+        //   cargo test -p os-integration -- --ignored
+        let inj = Injector::new();
+        let result = inj.inject("[lda-test-injection] ");
+        eprintln!("injection result: {result:?}");
+        // No assertion on success — environment may not be ready;
+        // the test exists to make manual smoke easy.
+    }
 }
