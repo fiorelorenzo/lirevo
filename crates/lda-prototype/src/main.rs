@@ -2,18 +2,24 @@
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::{anyhow, Context, Result};
 use audio_capture::{AudioError, Recorder, RecorderConfig};
 use clap::Parser;
-use http_body_util::{BodyExt, Empty};
+use http_body_util::{BodyExt, Empty, Full};
 use hyper::body::Bytes;
 use hyper::Request;
 use hyper_util::client::legacy::Client as HClient;
 use hyper_util::rt::TokioExecutor;
 use hyperlocal::{UnixConnector, Uri};
-use os_integration::{check_accessibility, prompt_accessibility, Hotkey, HotkeyEvent, HotkeyListener, PermissionStatus};
+use os_integration::{
+    check_accessibility, prompt_accessibility, Hotkey, HotkeyEvent, HotkeyListener,
+    InjectionMethod, Injector, PermissionStatus,
+};
 use serde::Deserialize;
+use serde_json::json;
 
 #[derive(Parser, Debug)]
 #[command(name = "lda-prototype", version, about = "push-to-talk dictation prototype for macOS")]
@@ -36,6 +42,27 @@ struct HealthBody {
     version: String,
     stt_ready: bool,
     llm_ready: bool,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct SttBody {
+    text: String,
+    // present in sidecar response; captured for future use
+    #[serde(default)]
+    #[allow(dead_code)]
+    language: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    duration_ms: u32,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ChatBody {
+    text: String,
+    // present in sidecar response; captured for future use
+    #[serde(default)]
+    #[allow(dead_code)]
+    model: String,
 }
 
 fn resolve_socket(arg: Option<PathBuf>) -> Result<PathBuf> {
@@ -140,7 +167,103 @@ fn parse_hotkey_arg(s: &str) -> Option<Hotkey> {
     }
 }
 
-async fn run_hotkey_loop(cli: Cli, _socket: PathBuf) -> ExitCode {
+async fn http_post_json<T: for<'de> Deserialize<'de>>(
+    socket: &Path,
+    path: &str,
+    content_type: &str,
+    body_bytes: Vec<u8>,
+) -> Result<T> {
+    let connector = UnixConnector;
+    let client: HClient<UnixConnector, Full<Bytes>> =
+        HClient::builder(TokioExecutor::new()).build(connector);
+    let uri: hyper::Uri = Uri::new(socket, path).into();
+    let req = Request::builder()
+        .method("POST")
+        .uri(uri)
+        .header("content-type", content_type)
+        .header("accept", "application/json")
+        .body(Full::new(Bytes::from(body_bytes)))?;
+    let resp = client.request(req).await.context("request failed")?;
+    let (parts, body) = resp.into_parts();
+    let bytes = body.collect().await?.to_bytes();
+    if !parts.status.is_success() {
+        return Err(anyhow!(
+            "HTTP {} body={}",
+            parts.status,
+            String::from_utf8_lossy(&bytes)
+        ));
+    }
+    let parsed: T = serde_json::from_slice(&bytes).context("deserialize response")?;
+    Ok(parsed)
+}
+
+/// Run the full dictation pipeline for one recording.
+///
+/// Failure modes & degradation:
+/// - STT fails → return error, nothing typed, user re-dictates.
+/// - LLM cleanup fails → inject raw STT (better than nothing).
+/// - Inject fails → log error, user sees nothing typed.
+///
+/// All HTTP errors are logged with full context. Timing for each stage
+/// (stt, clean, inject) is logged at info level for performance review.
+async fn post_and_inject(
+    rec: audio_capture::Recording,
+    language: String,
+    injector: Arc<Injector>,
+    socket: PathBuf,
+) -> Result<()> {
+    let t0 = Instant::now();
+    let wav = audio_capture::samples_to_wav(&rec.samples);
+
+    let stt: SttBody = http_post_json(&socket, "/v1/stt", "audio/wav", wav).await?;
+    let t_stt = t0.elapsed();
+
+    let cleaned_req = json!({
+        "system": lda_prompts::build_clean_system_prompt(&language),
+        "user": stt.text,
+        "temperature": 0.2,
+        "max_tokens": 2048,
+    });
+    let chat: ChatBody = match http_post_json(
+        &socket,
+        "/v1/chat",
+        "application/json",
+        serde_json::to_vec(&cleaned_req)?,
+    )
+    .await
+    {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!(error = %e, "LLM cleanup failed; injecting raw STT");
+            ChatBody { text: stt.text.clone(), model: "fallback-raw".into() }
+        }
+    };
+    let t_clean = t0.elapsed() - t_stt;
+
+    let injector_for_blocking = injector.clone();
+    let text_for_inject = chat.text.clone();
+    let method: InjectionMethod = tokio::task::spawn_blocking(move || {
+        injector_for_blocking.inject(&text_for_inject)
+    })
+    .await
+    .context("inject task join")?
+    .context("inject failed")?;
+    let t_inject = t0.elapsed() - t_stt - t_clean;
+
+    tracing::info!(
+        duration_ms = rec.duration_ms,
+        text_len = chat.text.len(),
+        method = ?method,
+        t_stt_ms = t_stt.as_millis() as u64,
+        t_clean_ms = t_clean.as_millis() as u64,
+        t_inject_ms = t_inject.as_millis() as u64,
+        "dictation complete"
+    );
+
+    Ok(())
+}
+
+async fn run_hotkey_loop(cli: Cli, socket: PathBuf) -> ExitCode {
     let hotkey = Hotkey::from_env();
     let hotkey = match cli.hotkey.as_deref() {
         Some(s) => parse_hotkey_arg(s).unwrap_or(hotkey),
@@ -164,6 +287,12 @@ async fn run_hotkey_loop(cli: Cli, _socket: PathBuf) -> ExitCode {
         }
     };
 
+    let injector = Arc::new(if cli.force_pasteboard {
+        Injector::with_force_pasteboard(true)
+    } else {
+        Injector::new()
+    });
+
     eprintln!("lda-prototype ready. Hold {hotkey:?} to dictate. Ctrl+C to quit.");
 
     let mut shutdown = std::pin::pin!(tokio::signal::ctrl_c());
@@ -186,11 +315,14 @@ async fn run_hotkey_loop(cli: Cli, _socket: PathBuf) -> ExitCode {
                     Some(HotkeyEvent::Up) => {
                         match recorder.stop() {
                             Ok(rec) => {
-                                tracing::info!(
-                                    duration_ms = rec.duration_ms,
-                                    device = %rec.device_label,
-                                    "REC stop (pipeline in T19)"
-                                );
+                                let lang = cli.language.clone();
+                                let inj = injector.clone();
+                                let sock = socket.clone();
+                                tokio::spawn(async move {
+                                    if let Err(e) = post_and_inject(rec, lang, inj, sock).await {
+                                        tracing::error!(error = %e, "dictation pipeline failed");
+                                    }
+                                });
                             }
                             Err(AudioError::NotRecording) => {}
                             Err(e) => tracing::warn!(error = %e, "recorder stop failed"),
