@@ -5,6 +5,7 @@ mod backend;
 mod audio;
 mod server;
 mod stub;
+mod stub_llm;
 mod whisper;
 mod wire;
 
@@ -14,7 +15,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 
-use crate::backend::SttBackendHandle;
+use crate::backend::{LlmBackendHandle, SttBackendHandle};
 use crate::stub::StubBackend;
 
 fn socket_path_from_env() -> Result<PathBuf> {
@@ -54,6 +55,23 @@ fn load_stt_backend() -> Option<SttBackendHandle> {
     }
 }
 
+/// Picks the LLM backend at startup based on env.
+/// Precedence: `SIDECAR_LLM_BACKEND=stub` > llama (real backend lands in T11).
+fn load_llm_backend() -> Option<LlmBackendHandle> {
+    let kind = env::var("SIDECAR_LLM_BACKEND").unwrap_or_else(|_| "llama".to_string());
+    match kind.as_str() {
+        "stub" => Some(Arc::new(stub_llm::StubLlmBackend::new()) as LlmBackendHandle),
+        "llama" => {
+            // LlamaBackend wired in T11. Until then, fall back to None.
+            None
+        }
+        other => {
+            tracing::warn!(backend = %other, "unknown SIDECAR_LLM_BACKEND, ignoring");
+            None
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let log_level = env::var("SIDECAR_LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
@@ -63,5 +81,6 @@ async fn main() -> Result<()> {
 
     let socket_path = socket_path_from_env()?;
     let stt = load_stt_backend();
-    server::run(socket_path, stt, None).await
+    let llm = load_llm_backend();
+    server::run(socket_path, stt, llm).await
 }

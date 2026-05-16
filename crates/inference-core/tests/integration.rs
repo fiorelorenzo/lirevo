@@ -338,3 +338,11 @@ async fn healthz_negotiates_msgpack() {
     assert!(!decoded.stt_ready);
     assert!(!decoded.llm_ready);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn healthz_reports_llm_ready_true_with_stub_backend() {
+    let server = TestServer::spawn_with_env(&[("SIDECAR_LLM_BACKEND", "stub")]);
+    let (status, body) = unix_get(&server.socket, "/healthz").await;
+    assert!(status.is_success(), "got {status}");
+    assert!(body.contains("\"llm_ready\":true"), "body: {body}");
+}
