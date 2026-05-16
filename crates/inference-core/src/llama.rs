@@ -42,9 +42,22 @@ pub struct LlamaBackend {
     _backend: Arc<LlamaCppBackend>,
 }
 
-// SAFETY: LlamaContext wraps a raw pointer (*mut llama_context) that is not auto-Send/Sync.
-// Access is exclusively serialised through a std::sync::Mutex, and llama.cpp calls are safe
-// when driven from a single thread at a time.  Arc<LlamaModel> is already Send+Sync.
+// SAFETY: `LlamaContext` is !Send/!Sync upstream because it wraps a raw pointer
+// and holds a `&LlamaModel` borrow. We restore Send+Sync via two invariants:
+//
+// 1. All access to the wrapped context goes through `std::sync::Mutex`, so
+//    only one thread at a time touches the raw llama.cpp state — upholding
+//    the single-threaded-access requirement.
+//
+// 2. The `'static` lifetime on `LlamaContext<'static>` is fabricated via
+//    `std::mem::transmute` from a borrow into the `Arc<LlamaModel>` we own.
+//    Field drop order is forward (model drops before ctx), so the borrow
+//    is technically dangling for the brief window between `Arc<LlamaModel>::drop`
+//    and `LlamaContext::drop`. This is safe because `LlamaContext::drop` only
+//    calls `llama_free(self.context.as_ptr())` and never dereferences
+//    `self.model`, so the dangling reference is never read.
+//
+// `LlamaModel` itself is Send+Sync per llama-cpp-2's own unsafe impl.
 unsafe impl Send for LlamaBackend {}
 unsafe impl Sync for LlamaBackend {}
 
@@ -67,10 +80,15 @@ impl LlamaBackend {
             .with_n_threads(n_threads)
             .with_n_threads_batch(n_threads);
 
-        // SAFETY: model is Arc-owned and lives at least as long as ctx because both
-        // are stored as fields in `LlamaBackend`. We extend the lifetime to 'static
-        // to satisfy the API and rely on Self's Drop order (ctx drops before model
-        // because Rust drops fields in declaration order).
+        // SAFETY: We extend the model borrow's lifetime to 'static to satisfy the
+        // `LlamaContext<'static>` API. The `Arc<LlamaModel>` is stored as a field
+        // alongside the context, so the allocation stays alive for the lifetime of
+        // `LlamaBackend`. Because Rust drops fields in forward declaration order,
+        // `model` drops before `ctx`, leaving the transmuted borrow technically
+        // dangling for a brief window. This is sound because `LlamaContext::drop`
+        // only calls `llama_free(self.context.as_ptr())` and never dereferences
+        // `self.model`, so no read of dangling memory occurs. See also the
+        // Send+Sync safety comment above for the full invariant set.
         let model_ref: &'static LlamaModel = unsafe { std::mem::transmute(model.as_ref()) };
         let ctx = model_ref
             .new_context(&backend, ctx_params)
