@@ -479,3 +479,35 @@ async fn models_lists_both_stt_and_llm_when_both_loaded() {
     assert!(body.contains("\"kind\":\"stt\""), "body: {body}");
     assert!(body.contains("\"kind\":\"llm\""), "body: {body}");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires SIDECAR_LLM_MODEL_PATH pointing to a real GGUF model"]
+async fn chat_real_llama_generates_text() {
+    let model_path = std::env::var("SIDECAR_LLM_MODEL_PATH")
+        .expect("set SIDECAR_LLM_MODEL_PATH to a real GGUF model");
+    assert!(std::path::Path::new(&model_path).exists(), "model not found at {model_path}");
+
+    let server = TestServer::spawn_with_env(&[
+        ("SIDECAR_LLM_BACKEND", "llama"),
+        ("SIDECAR_LLM_MODEL_PATH", model_path.as_str()),
+    ]);
+
+    let req = serde_json::json!({
+        "system": "Be very terse. Answer in one short sentence.",
+        "user": "What is the capital of Italy?",
+        "max_tokens": 50,
+        "temperature": 0.0
+    });
+    let body = serde_json::to_vec(&req).unwrap();
+
+    let (status, body) = unix_post(&server.socket, "/v1/chat", "application/json", body).await;
+    assert!(status.is_success(), "status={status} body={body}");
+
+    // Sanity: extract `text` field and assert non-empty
+    let text_idx = body.find("\"text\":\"").expect("text field present");
+    let after = &body[text_idx + 8..];
+    let end = after.find('"').expect("text close quote");
+    let transcript = &after[..end];
+    assert!(!transcript.is_empty(), "empty response text: {body}");
+    eprintln!("llama response: {transcript}");
+}
