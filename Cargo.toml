@@ -3,6 +3,7 @@ members = [
     "crates/inference-core",
     "crates/lda-cli",
     "crates/lda-prompts",
+    "crates/audio-capture",
 ]
 resolver = "2"
 
