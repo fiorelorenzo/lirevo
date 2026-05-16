@@ -10,6 +10,6 @@ repository.workspace = true
 cpal = "0.17"
 hound = "3"
 rubato = "2"
-audioadapter-buffers = "2"
+audioadapter-buffers = "3"
 thiserror = "2"
 tracing = "0.1"
