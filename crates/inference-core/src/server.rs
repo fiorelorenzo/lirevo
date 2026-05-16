@@ -19,7 +19,10 @@ use tokio::signal::unix::{signal, SignalKind};
 use tracing::{info, warn};
 
 use crate::audio;
-use crate::backend::{LlmBackendHandle, ModelInfo, SttBackendHandle, SttError, SttOptions};
+use crate::backend::{
+    ChatMessage, ChatRequest, ChatRole, LlmBackendHandle, LlmError, ModelInfo, SttBackendHandle,
+    SttError, SttOptions,
+};
 use crate::wire::{error_response, ErrorBody, Wire, WireResponse};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -183,12 +186,136 @@ fn stt_error_to_response(wire: Wire, err: &SttError) -> WireResponse<ErrorBody> 
     error_response(wire, status, code, err.to_string())
 }
 
+// ---------- /v1/chat ----------
+
+const CHAT_BODY_LIMIT_BYTES: usize = 256 * 1024;
+const DEFAULT_TEMPERATURE: f32 = 0.7;
+const DEFAULT_MAX_TOKENS: u32 = 1024;
+
+#[derive(Debug, Deserialize)]
+struct ChatRequestBody {
+    #[serde(default)]
+    system: Option<String>,
+    user: String,
+    #[serde(default)]
+    history: Vec<ChatMessage>,
+    #[serde(default)]
+    temperature: Option<f32>,
+    #[serde(default)]
+    max_tokens: Option<u32>,
+    #[serde(default)]
+    stop: Vec<String>,
+}
+
+async fn chat(
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    body: Bytes,
+) -> Response {
+    let wire = Wire::from_accept(&headers);
+
+    if body.len() > CHAT_BODY_LIMIT_BYTES {
+        return error_response(
+            wire,
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "payload_too_large",
+            format!("body {} bytes exceeds {CHAT_BODY_LIMIT_BYTES}", body.len()),
+        )
+        .into_response();
+    }
+
+    let ct_msgpack = headers
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|s| s.to_ascii_lowercase().starts_with("application/msgpack"));
+
+    let parsed: Result<ChatRequestBody, String> = if ct_msgpack {
+        rmp_serde::from_slice(&body).map_err(|e| format!("msgpack decode: {e}"))
+    } else {
+        serde_json::from_slice(&body).map_err(|e| format!("json decode: {e}"))
+    };
+    let req_body = match parsed {
+        Ok(b) => b,
+        Err(e) => {
+            return error_response(wire, StatusCode::BAD_REQUEST, "bad_request", e)
+                .into_response()
+        }
+    };
+
+    let req = match build_chat_request(req_body) {
+        Ok(r) => r,
+        Err(e) => {
+            return error_response(wire, StatusCode::BAD_REQUEST, "bad_request", e)
+                .into_response()
+        }
+    };
+
+    let Some(llm_handle) = state.llm.clone() else {
+        return error_response(
+            wire,
+            StatusCode::SERVICE_UNAVAILABLE,
+            "llm_unavailable",
+            "model not loaded",
+        )
+        .into_response();
+    };
+
+    match llm_handle.chat(req).await {
+        Ok(resp) => WireResponse::ok(wire, resp).into_response(),
+        Err(e) => llm_error_to_response(wire, &e).into_response(),
+    }
+}
+
+fn build_chat_request(b: ChatRequestBody) -> Result<ChatRequest, String> {
+    if b.user.trim().is_empty() {
+        return Err("`user` field must not be empty".to_string());
+    }
+    for (i, m) in b.history.iter().enumerate() {
+        if matches!(m.role, ChatRole::System) {
+            return Err(format!(
+                "history[{i}].role = system not allowed; pass system prompt via top-level `system` field"
+            ));
+        }
+    }
+    let temperature = b.temperature.unwrap_or(DEFAULT_TEMPERATURE);
+    if !(0.0..=2.0).contains(&temperature) {
+        return Err(format!("temperature {temperature} not in [0.0, 2.0]"));
+    }
+    let max_tokens = b.max_tokens.unwrap_or(DEFAULT_MAX_TOKENS);
+    if max_tokens == 0 {
+        return Err("max_tokens must be >= 1".to_string());
+    }
+    Ok(ChatRequest {
+        system: b.system,
+        user: b.user,
+        history: b.history,
+        temperature,
+        max_tokens,
+        stop: b.stop,
+    })
+}
+
+fn llm_error_to_response(wire: Wire, err: &LlmError) -> WireResponse<ErrorBody> {
+    let (status, code) = match err {
+        LlmError::BadRequest(_) => (StatusCode::BAD_REQUEST, "bad_request"),
+        LlmError::ContextOverflow(_) => (StatusCode::PAYLOAD_TOO_LARGE, "context_overflow"),
+        LlmError::ModelNotLoaded => (StatusCode::SERVICE_UNAVAILABLE, "llm_unavailable"),
+        LlmError::Busy => (StatusCode::SERVICE_UNAVAILABLE, "busy"),
+        LlmError::Llama(_) | LlmError::Internal(_) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "internal",
+        ),
+    };
+    error_response(wire, status, code, err.to_string())
+}
+
 pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
         .route("/version", get(version))
         .route("/v1/models", get(models))
         .route("/v1/stt", axum::routing::post(stt))
+        .route("/v1/chat", axum::routing::post(chat))
         .with_state(state)
         .layer(axum::extract::DefaultBodyLimit::max(MAX_BODY_BYTES))
 }

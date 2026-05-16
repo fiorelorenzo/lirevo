@@ -346,3 +346,19 @@ async fn healthz_reports_llm_ready_true_with_stub_backend() {
     assert!(status.is_success(), "got {status}");
     assert!(body.contains("\"llm_ready\":true"), "body: {body}");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn chat_with_stub_returns_text() {
+    let server = TestServer::spawn_with_env(&[("SIDECAR_LLM_BACKEND", "stub")]);
+    let req = serde_json::json!({
+        "system": "Be terse.",
+        "user": "Hi",
+        "max_tokens": 256
+    });
+    let body = serde_json::to_vec(&req).unwrap();
+    let (status, body) = unix_post(&server.socket, "/v1/chat", "application/json", body).await;
+    assert!(status.is_success(), "status={status} body={body}");
+    assert!(body.contains("\"text\":\"[stub-llm]"), "body: {body}");
+    assert!(body.contains("\"model\":\"stub-llm\""), "body: {body}");
+    assert!(body.contains("\"stopped_by\":\"eos\""), "body: {body}");
+}
