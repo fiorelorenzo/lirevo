@@ -14,6 +14,7 @@ napi = { version = "2", features = ["napi9"] }
 napi-derive = "2"
 audio-capture = { path = "../audio-capture" }
 os-integration = { path = "../os-integration" }
+tokio = { version = "1", features = ["rt", "sync", "macros"] }
 
 [build-dependencies]
 napi-build = "2"

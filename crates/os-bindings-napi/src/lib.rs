@@ -98,3 +98,71 @@ impl Injector {
         })
     }
 }
+
+use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
+
+fn parse_hotkey(s: &str) -> os_integration::Hotkey {
+    match s {
+        "right-option" | "RightOption" => os_integration::Hotkey::RightOption,
+        "left-option" | "LeftOption" => os_integration::Hotkey::LeftOption,
+        "right-command" | "RightCommand" => os_integration::Hotkey::RightCommand,
+        "fn" | "Fn" => os_integration::Hotkey::Fn,
+        "f5" | "F5" => os_integration::Hotkey::F5,
+        _ => os_integration::Hotkey::RightOption,
+    }
+}
+
+#[napi]
+pub struct HotkeyListener {
+    handle: Option<os_integration::HotkeyListener>,
+    drain_task: Option<std::thread::JoinHandle<()>>,
+}
+
+#[napi]
+impl HotkeyListener {
+    #[napi(factory)]
+    pub fn install(
+        hotkey: String,
+        on_event: ThreadsafeFunction<String>,
+    ) -> napi::Result<Self> {
+        let parsed = parse_hotkey(&hotkey);
+        let (listener, mut rx) = os_integration::HotkeyListener::install(parsed)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+
+        let tsfn = on_event.clone();
+        let drain_task = std::thread::Builder::new()
+            .name("hotkey-tsfn-bridge".into())
+            .spawn(move || {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("tokio rt for tsfn bridge");
+                rt.block_on(async move {
+                    while let Some(event) = rx.recv().await {
+                        let payload = match event {
+                            os_integration::HotkeyEvent::Down => "down".to_string(),
+                            os_integration::HotkeyEvent::Up => "up".to_string(),
+                        };
+                        let _ = tsfn.call(Ok(payload), ThreadsafeFunctionCallMode::NonBlocking);
+                    }
+                });
+            })
+            .map_err(|e| napi::Error::from_reason(format!("spawn bridge thread: {e}")))?;
+
+        Ok(Self {
+            handle: Some(listener),
+            drain_task: Some(drain_task),
+        })
+    }
+
+    #[napi]
+    pub fn shutdown(&mut self) -> napi::Result<()> {
+        if let Some(h) = self.handle.take() {
+            h.shutdown();
+        }
+        if let Some(t) = self.drain_task.take() {
+            let _ = t.join();
+        }
+        Ok(())
+    }
+}

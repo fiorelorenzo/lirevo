@@ -1559,6 +1559,7 @@ dependencies = [
  "napi-build",
  "napi-derive",
  "os-integration",
+ "tokio",
 ]
 
 [[package]]
