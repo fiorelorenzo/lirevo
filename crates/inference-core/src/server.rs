@@ -87,10 +87,13 @@ struct ModelsResponse {
 }
 
 async fn models(headers: HeaderMap, State(state): State<AppState>) -> WireResponse<ModelsResponse> {
-    let list = match &state.stt {
-        Some(b) => vec![b.model_info()],
-        None => Vec::new(),
-    };
+    let mut list = Vec::new();
+    if let Some(b) = &state.stt {
+        list.push(b.model_info());
+    }
+    if let Some(b) = &state.llm {
+        list.push(b.model_info());
+    }
     WireResponse::ok(Wire::from_accept(&headers), ModelsResponse { models: list })
 }
 

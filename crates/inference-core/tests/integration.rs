@@ -457,3 +457,25 @@ async fn chat_400_max_tokens_zero() {
     let (status, body) = unix_post(&server.socket, "/v1/chat", "application/json", body).await;
     assert_eq!(status, hyper::StatusCode::BAD_REQUEST, "body: {body}");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn models_lists_stub_llm_only() {
+    let server = TestServer::spawn_with_env(&[("SIDECAR_LLM_BACKEND", "stub")]);
+    let (status, body) = unix_get(&server.socket, "/v1/models").await;
+    assert!(status.is_success(), "body: {body}");
+    assert!(body.contains("\"kind\":\"llm\""), "body: {body}");
+    assert!(body.contains("\"backend\":\"stub\""), "body: {body}");
+    assert!(body.contains("\"ctx_size\":4096"), "body: {body}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn models_lists_both_stt_and_llm_when_both_loaded() {
+    let server = TestServer::spawn_with_env(&[
+        ("SIDECAR_STT_BACKEND", "stub"),
+        ("SIDECAR_LLM_BACKEND", "stub"),
+    ]);
+    let (status, body) = unix_get(&server.socket, "/v1/models").await;
+    assert!(status.is_success(), "body: {body}");
+    assert!(body.contains("\"kind\":\"stt\""), "body: {body}");
+    assert!(body.contains("\"kind\":\"llm\""), "body: {body}");
+}
