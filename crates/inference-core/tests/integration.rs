@@ -142,7 +142,7 @@ async fn version_returns_build_info() {
     let (status, body) = unix_get(&server.socket, "/version").await;
     assert!(status.is_success(), "expected 2xx, got {status}");
     assert!(body.contains("\"version\":\"0.0.1\""), "body: {body}");
-    assert!(body.contains("\"backend\":\"whisper-rs\""), "body: {body}");
+    assert!(body.contains("\"backend\":\"inference-core\""), "body: {body}");
     assert!(body.contains("\"build\":"), "body should contain build field: {body}");
 }
 
@@ -181,6 +181,7 @@ async fn healthz_reports_stt_ready_false_when_no_backend() {
     let (status, body) = unix_get(&server.socket, "/healthz").await;
     assert!(status.is_success(), "got {status}");
     assert!(body.contains("\"stt_ready\":false"), "body: {body}");
+    assert!(body.contains("\"llm_ready\":false"), "body: {body}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -324,7 +325,7 @@ async fn unix_get_with_accept(
 async fn healthz_negotiates_msgpack() {
     use serde::Deserialize;
     #[derive(Deserialize)]
-    struct H { status: String, version: String, stt_ready: bool }
+    struct H { status: String, version: String, stt_ready: bool, llm_ready: bool }
 
     let server = TestServer::spawn();
     let (status, bytes, ct) =
@@ -335,4 +336,5 @@ async fn healthz_negotiates_msgpack() {
     assert_eq!(decoded.status, "ok");
     assert_eq!(decoded.version, "0.0.1");
     assert!(!decoded.stt_ready);
+    assert!(!decoded.llm_ready);
 }

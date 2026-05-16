@@ -63,5 +63,5 @@ async fn main() -> Result<()> {
 
     let socket_path = socket_path_from_env()?;
     let stt = load_stt_backend();
-    server::run(socket_path, stt).await
+    server::run(socket_path, stt, None).await
 }

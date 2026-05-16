@@ -19,7 +19,7 @@ use tokio::signal::unix::{signal, SignalKind};
 use tracing::{info, warn};
 
 use crate::audio;
-use crate::backend::{ModelInfo, SttBackendHandle, SttError, SttOptions};
+use crate::backend::{LlmBackendHandle, ModelInfo, SttBackendHandle, SttError, SttOptions};
 use crate::wire::{error_response, ErrorBody, Wire, WireResponse};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -27,7 +27,7 @@ pub const BUILD_SHA: &str = match option_env!("BUILD_SHA") {
     Some(sha) => sha,
     None => "unknown",
 };
-pub const BACKEND_NAME: &str = "whisper-rs";
+pub const BACKEND_NAME: &str = "inference-core";
 
 const MAX_BODY_BYTES: usize = 50 * 1024 * 1024; // 50 MiB
 
@@ -35,6 +35,7 @@ const MAX_BODY_BYTES: usize = 50 * 1024 * 1024; // 50 MiB
 pub struct AppState {
     pub started_at: Instant,
     pub stt: Option<SttBackendHandle>,
+    pub llm: Option<LlmBackendHandle>,
 }
 
 #[derive(Serialize)]
@@ -43,6 +44,7 @@ struct HealthResponse {
     version: &'static str,
     uptime_ms: u128,
     stt_ready: bool,
+    llm_ready: bool,
 }
 
 #[derive(Serialize)]
@@ -60,6 +62,7 @@ async fn healthz(headers: HeaderMap, State(state): State<AppState>) -> WireRespo
             version: VERSION,
             uptime_ms: state.started_at.elapsed().as_millis(),
             stt_ready: state.stt.is_some(),
+            llm_ready: state.llm.is_some(),
         },
     )
 }
@@ -206,7 +209,11 @@ pub async fn shutdown_signal(socket_path: PathBuf) {
     }
 }
 
-pub async fn run(socket_path: PathBuf, stt: Option<SttBackendHandle>) -> Result<()> {
+pub async fn run(
+    socket_path: PathBuf,
+    stt: Option<SttBackendHandle>,
+    llm: Option<LlmBackendHandle>,
+) -> Result<()> {
     if socket_path.exists() {
         warn!(?socket_path, "removing stale socket file");
         std::fs::remove_file(&socket_path).context("remove stale socket")?;
@@ -215,7 +222,7 @@ pub async fn run(socket_path: PathBuf, stt: Option<SttBackendHandle>) -> Result<
     let listener = UnixListener::bind(&socket_path).context("bind unix listener")?;
     info!(?socket_path, "listening on unix socket");
 
-    let state = AppState { started_at: Instant::now(), stt };
+    let state = AppState { started_at: Instant::now(), stt, llm };
     let app = build_router(state);
 
     let shutdown = shutdown_signal(socket_path.clone());
