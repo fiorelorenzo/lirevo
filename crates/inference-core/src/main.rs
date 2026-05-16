@@ -3,6 +3,7 @@
 
 mod backend;
 mod audio;
+mod llama;
 mod server;
 mod stub;
 mod stub_llm;
@@ -62,8 +63,26 @@ fn load_llm_backend() -> Option<LlmBackendHandle> {
     match kind.as_str() {
         "stub" => Some(Arc::new(stub_llm::StubLlmBackend::new()) as LlmBackendHandle),
         "llama" => {
-            // LlamaBackend wired in T11. Until then, fall back to None.
-            None
+            let Ok(model_path_s) = env::var("SIDECAR_LLM_MODEL_PATH") else {
+                tracing::warn!("SIDECAR_LLM_MODEL_PATH not set; /v1/chat will return 503");
+                return None;
+            };
+            let model_path = PathBuf::from(model_path_s);
+            if !model_path.exists() {
+                tracing::error!(?model_path, "llama model file does not exist; LLM disabled");
+                return None;
+            }
+            let ctx_size: u32 = env::var("SIDECAR_LLM_CTX_SIZE")
+                .ok()
+                .and_then(|s| s.parse::<u32>().ok())
+                .unwrap_or(4096);
+            match llama::LlamaBackend::load(model_path, ctx_size) {
+                Ok(b) => Some(Arc::new(b) as LlmBackendHandle),
+                Err(e) => {
+                    tracing::error!(error = ?e, "failed to load LlamaBackend; LLM disabled");
+                    None
+                }
+            }
         }
         other => {
             tracing::warn!(backend = %other, "unknown SIDECAR_LLM_BACKEND, ignoring");
