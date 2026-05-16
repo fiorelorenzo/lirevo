@@ -348,6 +348,10 @@ async fn main() -> ExitCode {
         .with_writer(std::io::stderr)
         .init();
 
+    if let Some(delay) = cli.paste_delay_ms {
+        std::env::set_var("SIDECAR_INJECT_PASTE_DELAY_MS", delay.to_string());
+    }
+
     let socket = match run_preflight(&cli) {
         Ok(s) => s,
         Err(code) => return code,
