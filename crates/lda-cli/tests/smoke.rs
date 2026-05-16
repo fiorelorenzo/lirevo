@@ -71,3 +71,72 @@ fn lda_cli_stt_with_stub_backend_prints_stub_text() {
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("[stub] 1600 samples"), "stdout: {stdout}");
 }
+
+#[test]
+#[allow(clippy::zombie_processes)] // stt stdout is piped into clean; stt exits naturally when clean drains EOF
+fn lda_cli_stt_pipe_clean_with_stubs() {
+    use std::process::Command;
+    use std::time::Duration;
+
+    let sidecar = workspace_target_debug("inference-core");
+    let cli = workspace_target_debug("lda-cli");
+    assert!(sidecar.exists());
+    assert!(cli.exists());
+
+    let tmp = tempfile::TempDir::new().unwrap();
+    let socket = tmp.path().join("s.sock");
+    let wav = tmp.path().join("input.wav");
+    std::fs::write(&wav, synth_wav_i16_mono_16k(&vec![0_i16; 1600])).unwrap();
+
+    let mut child = Command::new(&sidecar)
+        .env("SIDECAR_SOCKET_PATH", &socket)
+        .env("SIDECAR_STT_BACKEND", "stub")
+        .env("SIDECAR_LLM_BACKEND", "stub")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn sidecar");
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    while std::time::Instant::now() < deadline {
+        if socket.exists() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(socket.exists(), "sidecar socket never appeared");
+
+    // Run `lda-cli stt input.wav | lda-cli clean -`
+    let stt = Command::new(&cli)
+        .arg("--socket")
+        .arg(&socket)
+        .arg("stt")
+        .arg(&wav)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn stt");
+
+    let clean = Command::new(&cli)
+        .arg("--socket")
+        .arg(&socket)
+        .arg("clean")
+        .arg("-") // explicit stdin
+        .stdin(stt.stdout.unwrap())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn clean");
+
+    let out = clean.wait_with_output().expect("wait clean");
+    let _ = child.kill();
+    let _ = child.wait();
+
+    assert!(out.status.success(), "lda-cli clean failed: status={:?}", out.status);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("[stub-llm]"), "stdout: {stdout}");
+    assert!(
+        stdout.contains("[stub] 1600 samples"),
+        "should preserve stt output as user input: {stdout}"
+    );
+}

@@ -24,6 +24,8 @@ rubato = "0.16"
 # whisper-rs 0.16 dropped the `accelerate` feature (now baked in for arm64 builds).
 # On macOS arm64 we use metal + coreml. accelerate is no longer a selectable feature.
 whisper-rs = { version = "0.16", features = ["metal", "coreml"] }
+llama-cpp-2 = { version = "0.1", features = ["metal"] }
+num_cpus = "1"
 
 [dev-dependencies]
 tempfile = "3"

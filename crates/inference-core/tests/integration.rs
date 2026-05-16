@@ -142,7 +142,7 @@ async fn version_returns_build_info() {
     let (status, body) = unix_get(&server.socket, "/version").await;
     assert!(status.is_success(), "expected 2xx, got {status}");
     assert!(body.contains("\"version\":\"0.0.1\""), "body: {body}");
-    assert!(body.contains("\"backend\":\"whisper-rs\""), "body: {body}");
+    assert!(body.contains("\"backend\":\"inference-core\""), "body: {body}");
     assert!(body.contains("\"build\":"), "body should contain build field: {body}");
 }
 
@@ -181,6 +181,7 @@ async fn healthz_reports_stt_ready_false_when_no_backend() {
     let (status, body) = unix_get(&server.socket, "/healthz").await;
     assert!(status.is_success(), "got {status}");
     assert!(body.contains("\"stt_ready\":false"), "body: {body}");
+    assert!(body.contains("\"llm_ready\":false"), "body: {body}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -324,7 +325,7 @@ async fn unix_get_with_accept(
 async fn healthz_negotiates_msgpack() {
     use serde::Deserialize;
     #[derive(Deserialize)]
-    struct H { status: String, version: String, stt_ready: bool }
+    struct H { status: String, version: String, stt_ready: bool, llm_ready: bool }
 
     let server = TestServer::spawn();
     let (status, bytes, ct) =
@@ -335,4 +336,178 @@ async fn healthz_negotiates_msgpack() {
     assert_eq!(decoded.status, "ok");
     assert_eq!(decoded.version, "0.0.1");
     assert!(!decoded.stt_ready);
+    assert!(!decoded.llm_ready);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn healthz_reports_llm_ready_true_with_stub_backend() {
+    let server = TestServer::spawn_with_env(&[("SIDECAR_LLM_BACKEND", "stub")]);
+    let (status, body) = unix_get(&server.socket, "/healthz").await;
+    assert!(status.is_success(), "got {status}");
+    assert!(body.contains("\"llm_ready\":true"), "body: {body}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn chat_with_stub_returns_text() {
+    let server = TestServer::spawn_with_env(&[("SIDECAR_LLM_BACKEND", "stub")]);
+    let req = serde_json::json!({
+        "system": "Be terse.",
+        "user": "Hi",
+        "max_tokens": 256
+    });
+    let body = serde_json::to_vec(&req).unwrap();
+    let (status, body) = unix_post(&server.socket, "/v1/chat", "application/json", body).await;
+    assert!(status.is_success(), "status={status} body={body}");
+    assert!(body.contains("\"text\":\"[stub-llm]"), "body: {body}");
+    assert!(body.contains("\"model\":\"stub-llm\""), "body: {body}");
+    assert!(body.contains("\"stopped_by\":\"eos\""), "body: {body}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn chat_503_when_no_backend_loaded() {
+    let server = TestServer::spawn(); // no SIDECAR_LLM_BACKEND => llama branch => None
+    let req = serde_json::json!({ "user": "Hi" });
+    let body = serde_json::to_vec(&req).unwrap();
+    let (status, body) = unix_post(&server.socket, "/v1/chat", "application/json", body).await;
+    assert_eq!(status, hyper::StatusCode::SERVICE_UNAVAILABLE, "body: {body}");
+    assert!(body.contains("\"error\":\"llm_unavailable\""), "body: {body}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn chat_returns_503_busy_on_concurrent_requests() {
+    let server = TestServer::spawn_with_env(&[
+        ("SIDECAR_LLM_BACKEND", "stub"),
+        ("SIDECAR_LLM_STUB_SLEEP_MS", "800"),
+    ]);
+    let req = serde_json::json!({ "user": "Hi" });
+    let body = serde_json::to_vec(&req).unwrap();
+
+    let s1 = server.socket.clone();
+    let s2 = server.socket.clone();
+    let b1 = body.clone();
+    let b2 = body.clone();
+
+    let h1 = tokio::spawn(async move { unix_post(&s1, "/v1/chat", "application/json", b1).await });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let h2 = tokio::spawn(async move { unix_post(&s2, "/v1/chat", "application/json", b2).await });
+
+    let (r1, r2) = tokio::join!(h1, h2);
+    let (status1, body1) = r1.unwrap();
+    let (status2, body2) = r2.unwrap();
+
+    assert!(status1.is_success(), "first request failed: {status1} {body1}");
+    assert_eq!(status2, hyper::StatusCode::SERVICE_UNAVAILABLE, "body: {body2}");
+    assert!(body2.contains("\"error\":\"busy\""), "body: {body2}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn chat_413_context_overflow() {
+    let server = TestServer::spawn_with_env(&[
+        ("SIDECAR_LLM_BACKEND", "stub"),
+        ("SIDECAR_LLM_STUB_CTX_SIZE", "16"),
+    ]);
+    let req = serde_json::json!({
+        "user": "this is a deliberately long prompt that should exceed the tiny stub context size and trigger 413",
+        "max_tokens": 8
+    });
+    let body = serde_json::to_vec(&req).unwrap();
+    let (status, body) = unix_post(&server.socket, "/v1/chat", "application/json", body).await;
+    assert_eq!(status, hyper::StatusCode::PAYLOAD_TOO_LARGE, "body: {body}");
+    assert!(body.contains("\"error\":\"context_overflow\""), "body: {body}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn chat_400_empty_user() {
+    let server = TestServer::spawn_with_env(&[("SIDECAR_LLM_BACKEND", "stub")]);
+    let req = serde_json::json!({ "user": "" });
+    let body = serde_json::to_vec(&req).unwrap();
+    let (status, body) = unix_post(&server.socket, "/v1/chat", "application/json", body).await;
+    assert_eq!(status, hyper::StatusCode::BAD_REQUEST, "body: {body}");
+    assert!(body.contains("\"error\":\"bad_request\""), "body: {body}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn chat_400_system_role_in_history() {
+    let server = TestServer::spawn_with_env(&[("SIDECAR_LLM_BACKEND", "stub")]);
+    let req = serde_json::json!({
+        "user": "Hi",
+        "history": [{"role": "system", "content": "Don't put me here"}]
+    });
+    let body = serde_json::to_vec(&req).unwrap();
+    let (status, body) = unix_post(&server.socket, "/v1/chat", "application/json", body).await;
+    assert_eq!(status, hyper::StatusCode::BAD_REQUEST, "body: {body}");
+    assert!(body.contains("\"error\":\"bad_request\""), "body: {body}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn chat_400_temperature_out_of_range() {
+    let server = TestServer::spawn_with_env(&[("SIDECAR_LLM_BACKEND", "stub")]);
+    let req = serde_json::json!({ "user": "Hi", "temperature": 3.5 });
+    let body = serde_json::to_vec(&req).unwrap();
+    let (status, body) = unix_post(&server.socket, "/v1/chat", "application/json", body).await;
+    assert_eq!(status, hyper::StatusCode::BAD_REQUEST, "body: {body}");
+    assert!(body.contains("\"error\":\"bad_request\""), "body: {body}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn chat_400_max_tokens_zero() {
+    let server = TestServer::spawn_with_env(&[("SIDECAR_LLM_BACKEND", "stub")]);
+    let req = serde_json::json!({ "user": "Hi", "max_tokens": 0 });
+    let body = serde_json::to_vec(&req).unwrap();
+    let (status, body) = unix_post(&server.socket, "/v1/chat", "application/json", body).await;
+    assert_eq!(status, hyper::StatusCode::BAD_REQUEST, "body: {body}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn models_lists_stub_llm_only() {
+    let server = TestServer::spawn_with_env(&[("SIDECAR_LLM_BACKEND", "stub")]);
+    let (status, body) = unix_get(&server.socket, "/v1/models").await;
+    assert!(status.is_success(), "body: {body}");
+    assert!(body.contains("\"kind\":\"llm\""), "body: {body}");
+    assert!(body.contains("\"backend\":\"stub\""), "body: {body}");
+    assert!(body.contains("\"ctx_size\":4096"), "body: {body}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn models_lists_both_stt_and_llm_when_both_loaded() {
+    let server = TestServer::spawn_with_env(&[
+        ("SIDECAR_STT_BACKEND", "stub"),
+        ("SIDECAR_LLM_BACKEND", "stub"),
+    ]);
+    let (status, body) = unix_get(&server.socket, "/v1/models").await;
+    assert!(status.is_success(), "body: {body}");
+    assert!(body.contains("\"kind\":\"stt\""), "body: {body}");
+    assert!(body.contains("\"kind\":\"llm\""), "body: {body}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires SIDECAR_LLM_MODEL_PATH pointing to a real GGUF model"]
+async fn chat_real_llama_generates_text() {
+    let model_path = std::env::var("SIDECAR_LLM_MODEL_PATH")
+        .expect("set SIDECAR_LLM_MODEL_PATH to a real GGUF model");
+    assert!(std::path::Path::new(&model_path).exists(), "model not found at {model_path}");
+
+    let server = TestServer::spawn_with_env(&[
+        ("SIDECAR_LLM_BACKEND", "llama"),
+        ("SIDECAR_LLM_MODEL_PATH", model_path.as_str()),
+    ]);
+
+    let req = serde_json::json!({
+        "system": "Be very terse. Answer in one short sentence.",
+        "user": "What is the capital of Italy?",
+        "max_tokens": 50,
+        "temperature": 0.0
+    });
+    let body = serde_json::to_vec(&req).unwrap();
+
+    let (status, body) = unix_post(&server.socket, "/v1/chat", "application/json", body).await;
+    assert!(status.is_success(), "status={status} body={body}");
+
+    // Sanity: extract `text` field and assert non-empty
+    let text_idx = body.find("\"text\":\"").expect("text field present");
+    let after = &body[text_idx + 8..];
+    let end = after.find('"').expect("text close quote");
+    let transcript = &after[..end];
+    assert!(!transcript.is_empty(), "empty response text: {body}");
+    eprintln!("llama response: {transcript}");
 }

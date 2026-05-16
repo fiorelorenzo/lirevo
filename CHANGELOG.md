@@ -6,6 +6,33 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - <set release date at merge> - M1b LLM cleanup
+
+### Added
+- `inference-core` espone `POST /v1/chat` (shape custom lean, JSON+MsgPack): `{system?, user, history?, temperature?, max_tokens?, stop?}` → `{text, model, stopped_by, tokens}`.
+- `LlamaBackend` su `llama-cpp-2` con feature `metal`. Chat template letto dal metadata GGUF (fallback ChatML). Provisioning via env `SIDECAR_LLM_MODEL_PATH`.
+- `StubLlmBackend` selezionabile via `SIDECAR_LLM_BACKEND=stub` per CI/testing senza modello reale (env aggiuntivi `SIDECAR_LLM_STUB_SLEEP_MS` e `SIDECAR_LLM_STUB_CTX_SIZE` per i test di concorrenza e overflow).
+- `SIDECAR_LLM_CTX_SIZE` env var (default 4096) controlla context size del modello, esposta via `/v1/models`.
+- Serializzazione delle richieste LLM concorrenti via `std::sync::Mutex::try_lock()` → 503 `busy` immediato (la libreria `llama-cpp-2` non rende `LlamaContext` `Send`, quindi `tokio::sync::Mutex` non è utilizzabile; il fail-fast è una scelta equivalente in pratica per il use case single-user e deviazione documentata dal piano originale che parlava di 30s wait).
+- Trait `LlmBackend` parallelo a `SttBackend`; `AppState` ora ha due slot indipendenti per STT e LLM.
+- `lda-cli chat` (subcommand raw, params via flags `--user --system --temperature --max-tokens --stop --json`) e `lda-cli clean` (preset cleanup con system prompt versionato in `crates/lda-cli/src/clean_prompt.rs` + stdin support).
+- Pipeline end-to-end `lda-cli stt audio.wav | lda-cli clean` funzionante con stub backends in CI.
+- README: sezioni "Provisioning del modello LLM" e "Usare `lda-cli chat` e `clean`".
+
+### Changed
+- `/healthz` aggiunge `llm_ready: bool`. **Breaking** (consumer del campo devono accettare il nuovo flag, ma il check esistente su `stt_ready` non cambia).
+- `/version` `backend` field passa da `"whisper-rs"` a `"inference-core"`. **Breaking** documentato: il binary ora ospita due backend, l'identità di processo è più onesta.
+- `/v1/models` può listare 0, 1 o 2 entries (entry LLM ha `ctx_size` aggiuntivo, entry STT invariata).
+- Sidecar binary release passa da ~15 MB a ~25 MB stimati (whisper.cpp + llama.cpp statici).
+
+### Notes
+- Niente streaming SSE: rimandato a M4.
+- Niente hot-reload di `ctx_size` via API: M3 (settings UI) gestirà via respawn del sidecar.
+- Niente tool/function calling: fuori scope per il dictation use case.
+- Niente multipli modelli LLM caricati simultaneamente: M3 model-manager farà swap singolo.
+- Top-k/top-p/repetition penalty hardcoded a default sensati: aggiunta additive in futuro se servirà.
+- `llama-cpp-2` pinned to `0.1.x` at M1b time; API deviazioni minor (notabile: `LlamaContext` !Send richiede `unsafe impl Send + Sync` su `LlamaBackend` con Mutex-serialization come invariante).
+
 ## [0.1.0] - <set release date at merge> - M1a STT
 
 ### Added

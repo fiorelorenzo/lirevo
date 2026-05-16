@@ -62,6 +62,7 @@ impl SttBackend for StubBackend {
             path: PathBuf::from("(none)"),
             coreml: false,
             loaded: true,
+            ctx_size: None,
         }
     }
 }

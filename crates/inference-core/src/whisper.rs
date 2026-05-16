@@ -175,6 +175,7 @@ impl SttBackend for WhisperBackend {
             path: self.model_path.clone(),
             coreml: self.coreml_enabled,
             loaded: true,
+            ctx_size: None,
         }
     }
 }

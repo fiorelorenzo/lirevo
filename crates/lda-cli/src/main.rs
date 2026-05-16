@@ -1,3 +1,5 @@
+mod clean_prompt;
+
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
@@ -37,6 +39,30 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    Chat {
+        #[arg(long)]
+        user: String,
+        #[arg(long)]
+        system: Option<String>,
+        #[arg(long, default_value_t = 0.7_f32)]
+        temperature: f32,
+        #[arg(long, default_value_t = 1024_u32)]
+        max_tokens: u32,
+        #[arg(long)]
+        stop: Vec<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    Clean {
+        /// Raw text to clean. Use `-` or pipe via stdin to read from stdin.
+        text: Option<String>,
+        #[arg(long, default_value = "auto")]
+        language: String,
+        #[arg(long, default_value_t = 0.2_f32)]
+        temperature: f32,
+        #[arg(long, default_value_t = 2048_u32)]
+        max_tokens: u32,
+    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -74,6 +100,20 @@ struct SttSegment {
     start_ms: u32,
     end_ms: u32,
     text: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct TokenUsageBody {
+    prompt: u32,
+    completion: u32,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct ChatBodyResponse {
+    text: String,
+    model: String,
+    stopped_by: String,
+    tokens: TokenUsageBody,
 }
 
 #[derive(Debug, Deserialize)]
@@ -251,6 +291,142 @@ async fn cmd_stt(
     Ok(0)
 }
 
+#[allow(clippy::too_many_arguments)]
+async fn cmd_chat(
+    socket: &Path,
+    msgpack: bool,
+    user: String,
+    system: Option<String>,
+    temperature: f32,
+    max_tokens: u32,
+    stop: Vec<String>,
+    print_json: bool,
+) -> Result<i32> {
+    let mut req = serde_json::Map::new();
+    req.insert("user".to_string(), serde_json::Value::String(user));
+    if let Some(s) = system {
+        req.insert("system".to_string(), serde_json::Value::String(s));
+    }
+    req.insert(
+        "temperature".to_string(),
+        serde_json::Value::from(temperature),
+    );
+    req.insert(
+        "max_tokens".to_string(),
+        serde_json::Value::from(max_tokens),
+    );
+    if !stop.is_empty() {
+        req.insert("stop".to_string(), serde_json::Value::from(stop));
+    }
+    let body_bytes = serde_json::to_vec(&serde_json::Value::Object(req))?;
+
+    let connector = UnixConnector;
+    let client: hyper_util::client::legacy::Client<UnixConnector, Full<Bytes>> =
+        hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
+            .build(connector);
+    let uri: hyper::Uri = Uri::new(socket, "/v1/chat").into();
+    let req = Request::builder()
+        .method("POST")
+        .uri(uri)
+        .header("content-type", "application/json")
+        .header("accept", accept_header(msgpack))
+        .body(Full::new(Bytes::from(body_bytes)))?;
+    let resp = client.request(req).await.context("request failed")?;
+    let (parts, body) = resp.into_parts();
+    let bytes = body
+        .collect()
+        .await
+        .context("body collect failed")?
+        .to_bytes()
+        .to_vec();
+
+    if !parts.status.is_success() {
+        eprintln!("{} {}", parts.status, String::from_utf8_lossy(&bytes));
+        return Ok(if parts.status.is_client_error() { 3 } else { 4 });
+    }
+    let parsed: ChatBodyResponse = decode_body(&bytes, msgpack)?;
+    if print_json {
+        println!("{}", serde_json::to_string_pretty(&parsed)?);
+    } else {
+        eprintln!(
+            "[llama] {} {}+{} tokens, stopped={}",
+            parsed.model, parsed.tokens.prompt, parsed.tokens.completion, parsed.stopped_by
+        );
+        println!("{}", parsed.text);
+    }
+    Ok(0)
+}
+
+async fn cmd_clean(
+    socket: &Path,
+    msgpack: bool,
+    text: Option<String>,
+    language: String,
+    temperature: f32,
+    max_tokens: u32,
+) -> Result<i32> {
+    let input: String = match text.as_deref() {
+        Some("-") | None => {
+            use std::io::Read;
+            let mut buf = String::new();
+            std::io::stdin()
+                .read_to_string(&mut buf)
+                .context("read stdin")?;
+            if buf.trim().is_empty() {
+                eprintln!(
+                    "error: no input. Pass text as argument, or pipe via stdin: `lda-cli clean -` or `... | lda-cli clean`"
+                );
+                return Ok(5);
+            }
+            buf
+        }
+        Some(s) => s.to_string(),
+    };
+
+    let system = clean_prompt::build_clean_system_prompt(&language);
+
+    let mut req = serde_json::Map::new();
+    req.insert("user".to_string(), serde_json::Value::String(input));
+    req.insert("system".to_string(), serde_json::Value::String(system));
+    req.insert(
+        "temperature".to_string(),
+        serde_json::Value::from(temperature),
+    );
+    req.insert(
+        "max_tokens".to_string(),
+        serde_json::Value::from(max_tokens),
+    );
+    let body_bytes = serde_json::to_vec(&serde_json::Value::Object(req))?;
+
+    let connector = UnixConnector;
+    let client: hyper_util::client::legacy::Client<UnixConnector, Full<Bytes>> =
+        hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
+            .build(connector);
+    let uri: hyper::Uri = Uri::new(socket, "/v1/chat").into();
+    let req = Request::builder()
+        .method("POST")
+        .uri(uri)
+        .header("content-type", "application/json")
+        .header("accept", accept_header(msgpack))
+        .body(Full::new(Bytes::from(body_bytes)))?;
+    let resp = client.request(req).await.context("request failed")?;
+    let (parts, body) = resp.into_parts();
+    let bytes = body
+        .collect()
+        .await
+        .context("body collect failed")?
+        .to_bytes()
+        .to_vec();
+
+    if !parts.status.is_success() {
+        eprintln!("{} {}", parts.status, String::from_utf8_lossy(&bytes));
+        return Ok(if parts.status.is_client_error() { 3 } else { 4 });
+    }
+    let parsed: ChatBodyResponse = decode_body(&bytes, msgpack)?;
+    println!("{}", parsed.text);
+    Ok(0)
+}
+
 #[tokio::main]
 async fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
@@ -279,6 +455,10 @@ async fn main() -> std::process::ExitCode {
         Cmd::Models => cmd_models(&socket, cli.msgpack).await,
         Cmd::Stt { file, language, translate, segments, json } =>
             cmd_stt(&socket, cli.msgpack, file, language, translate, segments, json).await,
+        Cmd::Chat { user, system, temperature, max_tokens, stop, json } =>
+            cmd_chat(&socket, cli.msgpack, user, system, temperature, max_tokens, stop, json).await,
+        Cmd::Clean { text, language, temperature, max_tokens } =>
+            cmd_clean(&socket, cli.msgpack, text, language, temperature, max_tokens).await,
     };
     match code {
         Ok(c) => std::process::ExitCode::from(c as u8),
