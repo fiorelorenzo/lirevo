@@ -1,6 +1,7 @@
-/// System prompt used by `lda-cli clean`. Versioned in source so changes are
-/// reviewable and reproducible. The `{language}` placeholder is replaced at
-/// call time (default "auto").
+//! Shared system prompts used by `lda-cli clean` and `lda-prototype`.
+
+/// System prompt used by the dictation cleanup preset.
+/// Versioned in source so changes are reviewable and reproducible.
 pub const CLEAN_SYSTEM_PROMPT: &str = "You are a dictation post-processor. Given a raw speech-to-text transcript, return ONLY the cleaned text with:\n- proper punctuation, capitalization, and paragraphing\n- no added content or commentary\n- preserved meaning and word choice\n- numbers and units written naturally\nOutput ONLY the cleaned text, no quotes, no explanations.\n\nRaw transcript language: {language}";
 
 pub fn build_clean_system_prompt(language: &str) -> String {

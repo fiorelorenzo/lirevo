@@ -40,12 +40,28 @@ build:
 dmg: build
     cd app && npm run make
 
+# Release build of M2 prototype binary + napi addon.
+build-m2:
+    cargo build --release --target aarch64-apple-darwin -p lda-prototype -p os-bindings-napi
+
+# Run the dictation prototype in dev mode (requires sidecar already running).
+prototype:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -z "${SIDECAR_SOCKET_PATH:-}" ]; then
+      echo "warning: SIDECAR_SOCKET_PATH not set; using default ~/Library/Application Support/app/sidecar.sock" >&2
+    fi
+    ./target/debug/lda-prototype
+
 # ---- quality gates ----
 
 # Run unit and integration tests across all crates and the app.
 test:
     cargo nextest run -p inference-core
     cargo nextest run -p lda-cli
+    cargo nextest run -p lda-prompts
+    cargo nextest run -p audio-capture
+    cargo nextest run -p os-integration
     cd app && npm test
 
 # Run the ignored "real model" tests.

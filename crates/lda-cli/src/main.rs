@@ -1,5 +1,3 @@
-mod clean_prompt;
-
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
@@ -383,7 +381,7 @@ async fn cmd_clean(
         Some(s) => s.to_string(),
     };
 
-    let system = clean_prompt::build_clean_system_prompt(&language);
+    let system = lda_prompts::build_clean_system_prompt(&language);
 
     let mut req = serde_json::Map::new();
     req.insert("user".to_string(), serde_json::Value::String(input));

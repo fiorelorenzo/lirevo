@@ -1,5 +1,13 @@
 [workspace]
-members = ["crates/inference-core", "crates/lda-cli"]
+members = [
+    "crates/inference-core",
+    "crates/lda-cli",
+    "crates/lda-prompts",
+    "crates/audio-capture",
+    "crates/os-integration",
+    "crates/os-bindings-napi",
+    "crates/lda-prototype",
+]
 resolver = "2"
 
 [workspace.package]

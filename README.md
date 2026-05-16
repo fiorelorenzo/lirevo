@@ -161,6 +161,64 @@ lda-cli stt ~/sample.wav | lda-cli clean
 
 Exit codes invariati (vedi sezione `lda-cli stt`).
 
+## Setting up accessibility permission (M2)
+
+`lda-prototype` needs macOS Accessibility permission to:
+- Listen for the push-to-talk hotkey via CGEventTap.
+- Inject the cleaned text into the focused application via AXUIElement.
+
+First run will print a message and exit with code 2. To grant:
+
+1. Open **System Settings → Privacy & Security → Accessibility**.
+2. Click the `+` button.
+3. Add `target/release/lda-prototype` (or `target/debug/lda-prototype` during dev).
+4. Toggle the switch to ON.
+5. Re-run `lda-prototype`.
+
+Microphone permission is auto-prompted by cpal on the first recording — no manual setup needed.
+
+## Using `lda-prototype` (M2)
+
+Push-to-talk dictation that types into the focused app, end-to-end via the sidecar.
+
+Prerequisites:
+- Sidecar running with both models loaded (whisper + llama). See M1a/M1b README sections.
+- Accessibility granted (see previous section).
+
+Build and run:
+
+```bash
+just build-m2
+./target/release/lda-prototype
+```
+
+Flags:
+
+```
+--hotkey <KEY>         right-option (default) | left-option | right-command | fn | f5
+--socket <PATH>        override sidecar UNIX socket
+--language <ISO>       cleanup language hint, default "auto"
+--force-pasteboard     skip AX inject, always use pasteboard
+--paste-delay-ms <N>   pasteboard paste→restore delay (default 120ms)
+```
+
+The hotkey is also configurable via env var `SIDECAR_HOTKEY` (same values).
+
+Typical use:
+
+1. Run `lda-prototype` in a terminal.
+2. Click into the field where you want text (Notes, Safari URL bar, VS Code editor, etc.).
+3. **Hold Right Option** while speaking.
+4. **Release** Right Option. Within ~2-3s, cleaned text is typed into the focused field.
+5. Repeat. `Ctrl+C` to quit.
+
+### Known limitations of text injection
+
+- **AXUIElement path** works in: Safari, Notes, TextEdit, VS Code, most native Cocoa apps.
+- **Pasteboard fallback** is used automatically when AX fails. Known apps where pasteboard is the path: Apple Terminal, some Electron apps with non-standard text input.
+- During pasteboard fallback the clipboard is temporarily overwritten and then restored. Non-string clipboard content (images, files) is lost during restore — known limitation, settings UI in M3 will offer to disable pasteboard fallback.
+- If `--paste-delay-ms` is too low (default 120), a slow target app may receive the restore before the paste — symptoms: dictation seems to not type anything. Bump to 200-300 if needed.
+
 ## Project name
 
 The folder name `local-dictation-app` is a placeholder. The product name is intentionally not chosen yet (see "Open decisions" in the architecture design).

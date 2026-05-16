@@ -6,6 +6,30 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - <set release date at merge> - M2 prototype dictation
+
+### Added
+- New crate `audio-capture`: cpal-based microphone capture with stereo→mono mixdown + rubato resample to 16 kHz mono f32. Public `Recorder::start/stop` API + `samples_to_wav` helper.
+- New crate `os-integration` (macOS-only): `HotkeyListener` (CGEventTap push-to-talk, default Right Option), `Injector` (AXUIElement primary + NSPasteboard fallback), permission helpers (`check_accessibility`, `prompt_accessibility`, `check_microphone`).
+- New crate `os-bindings-napi`: napi-rs Node addon wrapping Recorder/HotkeyListener/Injector for M3 Electron consumption. Produces `libos_bindings_napi.dylib`; loading in Electron is M3's job.
+- New crate `lda-prompts`: shared system prompts extracted from lda-cli, now consumed by both `lda-cli clean` and `lda-prototype`.
+- New binary `lda-prototype`: end-to-end push-to-talk dictation. Preflight checks accessibility + sidecar reachability + healthz both ready. Hotkey loop spawns parallel pipeline: record → POST /v1/stt → POST /v1/chat (with cleanup prompt) → AX/Pasteboard inject. Graceful degrade: if LLM fails, raw STT is injected.
+- README sections: "Setting up accessibility permission", "Using lda-prototype", "Known limitations of text injection".
+- Justfile recipes: `build-m2`, `prototype`.
+- CI builds all M2 crates in release, verifies napi dylib presence.
+
+### Changed
+- `crates/lda-cli/src/clean_prompt.rs` removed; `lda-cli` now depends on `lda-prompts`. Behavior of `lda-cli clean` unchanged.
+- CI build step renamed: "Build sidecar + CLI (release)" → "Build sidecar + CLI + M2 (release)".
+
+### Notes
+- M2 is macOS-only. The `os-integration` crate has `compile_error!` on non-macOS targets; v2 will add Linux + Windows backends.
+- napi-rs dylib is built in CI but not loaded — M3 wires it into the Electron renderer.
+- VAD / silence-detection auto-stop deferred to M4.
+- Modifier+key combo hotkeys (e.g., Cmd+Shift+D) deferred to M3 settings UI.
+- Per-app force-pasteboard overrides deferred to M3.
+- Upstream API churn handled inline (cpal 0.16→0.17, rubato 0.16→2.x, objc2-* feature renames, napi 2.x ThreadsafeFunction signature change). Same pattern as whisper-rs / llama-cpp-2 in M1a/M1b. Deviations documented in commits.
+
 ## [0.2.0] - <set release date at merge> - M1b LLM cleanup
 
 ### Added
