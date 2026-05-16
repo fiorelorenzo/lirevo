@@ -62,6 +62,28 @@ pub fn samples_to_wav(samples: &[f32]) -> Vec<u8> {
     buf
 }
 
+/// Average interleaved multi-channel samples into mono.
+/// Returns the same buffer if `channels == 1`.
+#[must_use]
+pub fn to_mono(interleaved: Vec<f32>, channels: u16) -> Vec<f32> {
+    if channels <= 1 {
+        return interleaved;
+    }
+    let ch = usize::from(channels);
+    let mut out = Vec::with_capacity(interleaved.len() / ch);
+    let mut i = 0;
+    while i + ch <= interleaved.len() {
+        let mut sum = 0.0_f32;
+        for k in 0..ch {
+            sum += interleaved[i + k];
+        }
+        #[allow(clippy::cast_precision_loss)]
+        out.push(sum / ch as f32);
+        i += ch;
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -91,5 +113,29 @@ mod tests {
         assert_eq!(samples[0], i16::MAX);
         assert_eq!(samples[1], -i16::MAX);
         assert!(samples[2] > 16000 && samples[2] < 17000);
+    }
+
+    #[test]
+    fn to_mono_passes_through_mono() {
+        let s = vec![1.0_f32, -1.0, 0.5];
+        let out = to_mono(s.clone(), 1);
+        assert_eq!(out, s);
+    }
+
+    #[test]
+    fn to_mono_averages_stereo_channels() {
+        let s: Vec<f32> = (0..200).map(|i| if i % 2 == 0 { 1.0 } else { -1.0 }).collect();
+        let out = to_mono(s, 2);
+        assert_eq!(out.len(), 100);
+        for v in &out {
+            assert!(v.abs() < 0.001, "expected ~0, got {v}");
+        }
+    }
+
+    #[test]
+    fn to_mono_handles_trailing_partial_frame() {
+        let s = vec![1.0_f32, 0.0, 1.0, 0.0, 1.0];
+        let out = to_mono(s, 2);
+        assert_eq!(out.len(), 2);
     }
 }
