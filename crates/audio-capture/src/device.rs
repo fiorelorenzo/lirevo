@@ -1,8 +1,5 @@
 //! cpal default input device discovery + named-device lookup.
 
-// Items here are consumed by recorder.rs (T5); suppress dead-code until then.
-#![allow(dead_code)]
-
 use cpal::traits::{DeviceTrait, HostTrait};
 
 use crate::AudioError;
