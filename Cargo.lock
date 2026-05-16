@@ -1009,6 +1009,26 @@ name = "lda-prompts"
 version = "0.0.1"
 
 [[package]]
+name = "lda-prototype"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "audio-capture",
+ "clap",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "hyperlocal",
+ "lda-prompts",
+ "os-integration",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "leb128fmt"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

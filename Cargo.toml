@@ -6,6 +6,7 @@ members = [
     "crates/audio-capture",
     "crates/os-integration",
     "crates/os-bindings-napi",
+    "crates/lda-prototype",
 ]
 resolver = "2"
 
