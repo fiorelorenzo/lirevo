@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{anyhow, Context, Result};
+use audio_capture::{AudioError, Recorder, RecorderConfig};
 use clap::Parser;
 use http_body_util::{BodyExt, Empty};
 use hyper::body::Bytes;
@@ -11,7 +12,7 @@ use hyper::Request;
 use hyper_util::client::legacy::Client as HClient;
 use hyper_util::rt::TokioExecutor;
 use hyperlocal::{UnixConnector, Uri};
-use os_integration::{check_accessibility, prompt_accessibility, PermissionStatus};
+use os_integration::{check_accessibility, prompt_accessibility, Hotkey, HotkeyEvent, HotkeyListener, PermissionStatus};
 use serde::Deserialize;
 
 #[derive(Parser, Debug)]
@@ -128,6 +129,83 @@ fn run_preflight(cli: &Cli) -> Result<PathBuf, ExitCode> {
     Ok(socket)
 }
 
+fn parse_hotkey_arg(s: &str) -> Option<Hotkey> {
+    match s {
+        "right-option" | "RightOption" => Some(Hotkey::RightOption),
+        "left-option" | "LeftOption" => Some(Hotkey::LeftOption),
+        "right-command" | "RightCommand" => Some(Hotkey::RightCommand),
+        "fn" | "Fn" => Some(Hotkey::Fn),
+        "f5" | "F5" => Some(Hotkey::F5),
+        _ => None,
+    }
+}
+
+async fn run_hotkey_loop(cli: Cli, _socket: PathBuf) -> ExitCode {
+    let hotkey = Hotkey::from_env();
+    let hotkey = match cli.hotkey.as_deref() {
+        Some(s) => parse_hotkey_arg(s).unwrap_or(hotkey),
+        None => hotkey,
+    };
+
+    let (listener, mut rx) = match HotkeyListener::install(hotkey) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("failed to install hotkey: {e}");
+            return ExitCode::from(6);
+        }
+    };
+
+    let mut recorder = match Recorder::new(RecorderConfig::default()) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("failed to build recorder: {e}");
+            listener.shutdown();
+            return ExitCode::from(5);
+        }
+    };
+
+    eprintln!("lda-prototype ready. Hold {hotkey:?} to dictate. Ctrl+C to quit.");
+
+    let mut shutdown = std::pin::pin!(tokio::signal::ctrl_c());
+
+    loop {
+        tokio::select! {
+            _ = shutdown.as_mut() => {
+                tracing::info!("received Ctrl+C, shutting down");
+                listener.shutdown();
+                return ExitCode::from(0);
+            }
+            maybe_event = rx.recv() => {
+                match maybe_event {
+                    Some(HotkeyEvent::Down) => {
+                        match recorder.start() {
+                            Ok(()) => tracing::info!("REC start"),
+                            Err(e) => tracing::warn!(error = %e, "recorder start failed"),
+                        }
+                    }
+                    Some(HotkeyEvent::Up) => {
+                        match recorder.stop() {
+                            Ok(rec) => {
+                                tracing::info!(
+                                    duration_ms = rec.duration_ms,
+                                    device = %rec.device_label,
+                                    "REC stop (pipeline in T19)"
+                                );
+                            }
+                            Err(AudioError::NotRecording) => {}
+                            Err(e) => tracing::warn!(error = %e, "recorder stop failed"),
+                        }
+                    }
+                    None => {
+                        tracing::error!("hotkey channel closed; exiting");
+                        return ExitCode::from(1);
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> ExitCode {
     let cli = Cli::parse();
@@ -143,7 +221,5 @@ async fn main() -> ExitCode {
         Err(code) => return code,
     };
 
-    eprintln!("lda-prototype preflight ok (socket: {})", socket.display());
-    eprintln!("hotkey + record loop land in T18-T19.");
-    ExitCode::from(0)
+    run_hotkey_loop(cli, socket).await
 }
