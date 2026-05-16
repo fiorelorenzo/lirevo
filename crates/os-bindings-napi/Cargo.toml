@@ -1,0 +1,19 @@
+[package]
+name = "os-bindings-napi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { version = "2", features = ["napi9"] }
+napi-derive = "2"
+audio-capture = { path = "../audio-capture" }
+os-integration = { path = "../os-integration" }
+
+[build-dependencies]
+napi-build = "2"
