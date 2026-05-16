@@ -362,3 +362,13 @@ async fn chat_with_stub_returns_text() {
     assert!(body.contains("\"model\":\"stub-llm\""), "body: {body}");
     assert!(body.contains("\"stopped_by\":\"eos\""), "body: {body}");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn chat_503_when_no_backend_loaded() {
+    let server = TestServer::spawn(); // no SIDECAR_LLM_BACKEND => llama branch => None
+    let req = serde_json::json!({ "user": "Hi" });
+    let body = serde_json::to_vec(&req).unwrap();
+    let (status, body) = unix_post(&server.socket, "/v1/chat", "application/json", body).await;
+    assert_eq!(status, hyper::StatusCode::SERVICE_UNAVAILABLE, "body: {body}");
+    assert!(body.contains("\"error\":\"llm_unavailable\""), "body: {body}");
+}
