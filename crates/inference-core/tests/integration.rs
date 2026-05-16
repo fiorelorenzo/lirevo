@@ -372,3 +372,30 @@ async fn chat_503_when_no_backend_loaded() {
     assert_eq!(status, hyper::StatusCode::SERVICE_UNAVAILABLE, "body: {body}");
     assert!(body.contains("\"error\":\"llm_unavailable\""), "body: {body}");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn chat_returns_503_busy_on_concurrent_requests() {
+    let server = TestServer::spawn_with_env(&[
+        ("SIDECAR_LLM_BACKEND", "stub"),
+        ("SIDECAR_LLM_STUB_SLEEP_MS", "800"),
+    ]);
+    let req = serde_json::json!({ "user": "Hi" });
+    let body = serde_json::to_vec(&req).unwrap();
+
+    let s1 = server.socket.clone();
+    let s2 = server.socket.clone();
+    let b1 = body.clone();
+    let b2 = body.clone();
+
+    let h1 = tokio::spawn(async move { unix_post(&s1, "/v1/chat", "application/json", b1).await });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let h2 = tokio::spawn(async move { unix_post(&s2, "/v1/chat", "application/json", b2).await });
+
+    let (r1, r2) = tokio::join!(h1, h2);
+    let (status1, body1) = r1.unwrap();
+    let (status2, body2) = r2.unwrap();
+
+    assert!(status1.is_success(), "first request failed: {status1} {body1}");
+    assert_eq!(status2, hyper::StatusCode::SERVICE_UNAVAILABLE, "body: {body2}");
+    assert!(body2.contains("\"error\":\"busy\""), "body: {body2}");
+}
