@@ -399,3 +399,19 @@ async fn chat_returns_503_busy_on_concurrent_requests() {
     assert_eq!(status2, hyper::StatusCode::SERVICE_UNAVAILABLE, "body: {body2}");
     assert!(body2.contains("\"error\":\"busy\""), "body: {body2}");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn chat_413_context_overflow() {
+    let server = TestServer::spawn_with_env(&[
+        ("SIDECAR_LLM_BACKEND", "stub"),
+        ("SIDECAR_LLM_STUB_CTX_SIZE", "16"),
+    ]);
+    let req = serde_json::json!({
+        "user": "this is a deliberately long prompt that should exceed the tiny stub context size and trigger 413",
+        "max_tokens": 8
+    });
+    let body = serde_json::to_vec(&req).unwrap();
+    let (status, body) = unix_post(&server.socket, "/v1/chat", "application/json", body).await;
+    assert_eq!(status, hyper::StatusCode::PAYLOAD_TOO_LARGE, "body: {body}");
+    assert!(body.contains("\"error\":\"context_overflow\""), "body: {body}");
+}
