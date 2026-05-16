@@ -690,6 +690,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "hyperlocal",
+ "lda-prompts",
  "rmp-serde",
  "serde",
  "serde_json",
@@ -698,6 +699,10 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
 ]
+
+[[package]]
+name = "lda-prompts"
+version = "0.0.1"
 
 [[package]]
 name = "leb128fmt"
