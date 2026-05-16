@@ -46,8 +46,11 @@ jobs:
       - name: Test
         run: just test
 
-      - name: Build sidecar + CLI (release)
-        run: cargo build --release --target $RUST_TARGET -p inference-core -p lda-cli
+      - name: Build sidecar + CLI + M2 (release)
+        run: cargo build --release --target $RUST_TARGET -p inference-core -p lda-cli -p audio-capture -p os-integration -p os-bindings-napi -p lda-prototype -p lda-prompts
+
+      - name: Verify napi dylib produced
+        run: test -f target/$RUST_TARGET/release/libos_bindings_napi.dylib
 
       - name: Copy sidecar into app resources
         run: |
