@@ -160,6 +160,13 @@ impl LlmBackend for LlamaBackend {
         tokio::task::block_in_place(move || {
             let mut ctx_guard = ctx_arc.try_lock().map_err(|_| LlmError::Busy)?;
 
+            // Reset the KV cache between requests. llama.cpp keeps the per-sequence
+            // position counter across decodes, so without this clear the second
+            // request's batch starts at position 0 while the cache expects N+1,
+            // failing with "inconsistent sequence positions" / "n_tokens == 0".
+            // Single-turn /v1/chat semantics: each call is independent, so wipe.
+            ctx_guard.clear_kv_cache();
+
             let prompt = build_prompt(&model, &req)?;
             let tokens: Vec<LlamaToken> = model
                 .str_to_token(&prompt, AddBos::Always)

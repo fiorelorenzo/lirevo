@@ -511,3 +511,36 @@ async fn chat_real_llama_generates_text() {
     assert!(!transcript.is_empty(), "empty response text: {body}");
     eprintln!("llama response: {transcript}");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires SIDECAR_LLM_MODEL_PATH pointing to a real GGUF model"]
+async fn chat_real_llama_consecutive_requests_dont_share_kv_cache() {
+    // Regression test for the KV cache leak between requests. Before the fix,
+    // the second consecutive chat would fail with "n_tokens == 0" because
+    // llama.cpp expects sequence positions to be consecutive across decodes.
+    // The fix clears the KV cache at the start of every chat() call.
+    let model_path = std::env::var("SIDECAR_LLM_MODEL_PATH")
+        .expect("set SIDECAR_LLM_MODEL_PATH to a real GGUF model");
+    assert!(std::path::Path::new(&model_path).exists(), "model not found at {model_path}");
+
+    let server = TestServer::spawn_with_env(&[
+        ("SIDECAR_LLM_BACKEND", "llama"),
+        ("SIDECAR_LLM_MODEL_PATH", model_path.as_str()),
+    ]);
+
+    for prompt in ["Capital of Italy?", "Capital of France?", "Capital of Germany?"] {
+        let req = serde_json::json!({
+            "user": prompt,
+            "max_tokens": 20,
+            "temperature": 0.0
+        });
+        let body = serde_json::to_vec(&req).unwrap();
+        let (status, body) =
+            unix_post(&server.socket, "/v1/chat", "application/json", body).await;
+        assert!(
+            status.is_success(),
+            "consecutive chat failed for {prompt:?}: status={status} body={body}"
+        );
+        assert!(body.contains("\"text\":\""), "missing text field: {body}");
+    }
+}
