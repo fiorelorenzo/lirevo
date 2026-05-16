@@ -415,3 +415,45 @@ async fn chat_413_context_overflow() {
     assert_eq!(status, hyper::StatusCode::PAYLOAD_TOO_LARGE, "body: {body}");
     assert!(body.contains("\"error\":\"context_overflow\""), "body: {body}");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn chat_400_empty_user() {
+    let server = TestServer::spawn_with_env(&[("SIDECAR_LLM_BACKEND", "stub")]);
+    let req = serde_json::json!({ "user": "" });
+    let body = serde_json::to_vec(&req).unwrap();
+    let (status, body) = unix_post(&server.socket, "/v1/chat", "application/json", body).await;
+    assert_eq!(status, hyper::StatusCode::BAD_REQUEST, "body: {body}");
+    assert!(body.contains("\"error\":\"bad_request\""), "body: {body}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn chat_400_system_role_in_history() {
+    let server = TestServer::spawn_with_env(&[("SIDECAR_LLM_BACKEND", "stub")]);
+    let req = serde_json::json!({
+        "user": "Hi",
+        "history": [{"role": "system", "content": "Don't put me here"}]
+    });
+    let body = serde_json::to_vec(&req).unwrap();
+    let (status, body) = unix_post(&server.socket, "/v1/chat", "application/json", body).await;
+    assert_eq!(status, hyper::StatusCode::BAD_REQUEST, "body: {body}");
+    assert!(body.contains("\"error\":\"bad_request\""), "body: {body}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn chat_400_temperature_out_of_range() {
+    let server = TestServer::spawn_with_env(&[("SIDECAR_LLM_BACKEND", "stub")]);
+    let req = serde_json::json!({ "user": "Hi", "temperature": 3.5 });
+    let body = serde_json::to_vec(&req).unwrap();
+    let (status, body) = unix_post(&server.socket, "/v1/chat", "application/json", body).await;
+    assert_eq!(status, hyper::StatusCode::BAD_REQUEST, "body: {body}");
+    assert!(body.contains("\"error\":\"bad_request\""), "body: {body}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn chat_400_max_tokens_zero() {
+    let server = TestServer::spawn_with_env(&[("SIDECAR_LLM_BACKEND", "stub")]);
+    let req = serde_json::json!({ "user": "Hi", "max_tokens": 0 });
+    let body = serde_json::to_vec(&req).unwrap();
+    let (status, body) = unix_post(&server.socket, "/v1/chat", "application/json", body).await;
+    assert_eq!(status, hyper::StatusCode::BAD_REQUEST, "body: {body}");
+}
