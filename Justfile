@@ -48,7 +48,11 @@ test:
     cargo nextest run -p lda-cli
     cd app && npm test
 
-# Run the ignored "real model" tests (requires SIDECAR_WHISPER_MODEL_PATH).
+# Run the ignored "real model" tests.
+# Requires:
+#   SIDECAR_WHISPER_MODEL_PATH=/path/to/ggml-*.bin (for STT test)
+#   SIDECAR_LLM_MODEL_PATH=/path/to/*.gguf (for LLM test)
+# Tests that lack their required env are reported but skipped via panic-on-missing-env.
 test-real:
     cargo test -p inference-core -- --ignored --nocapture
 
