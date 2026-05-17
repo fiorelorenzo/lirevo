@@ -67,6 +67,14 @@ pub fn run() {
                 tracing::warn!(?e, "open initial window failed (stub)");
             }
 
+            // Kick off model loading in the background. With no paths configured
+            // this returns immediately after transitioning to ModelState::Idle.
+            let app_handle_for_load = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let state = app_handle_for_load.state::<AppState>();
+                commands::inference::load_models(&app_handle_for_load, state).await;
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
