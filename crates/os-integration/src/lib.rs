@@ -22,5 +22,11 @@ pub use permissions::{
     check_accessibility, check_microphone, prompt_accessibility, PermissionStatus,
 };
 
+/// System clipboard helpers (last-resort fallback when injection fails).
+#[cfg(target_os = "macos")]
+pub mod clipboard {
+    pub use crate::pasteboard::set_text;
+}
+
 #[cfg(not(target_os = "macos"))]
 compile_error!("os-integration currently supports macOS only");

@@ -168,7 +168,125 @@ fn convert_recording_to_wav(recording: &audio_capture::Recording) -> Vec<u8> {
     audio_capture::samples_to_wav(&recording.samples)
 }
 
-/// Full STT → cleanup → inject pipeline. T14 fills the body.
-async fn run_pipeline(_app: AppHandle, _wav: Vec<u8>) {
-    // Intentionally empty until T14.
+/// Full STT → cleanup → inject pipeline.
+///
+/// Stages:
+///   1. Whisper STT (blocking → `spawn_blocking`).
+///   2. LLM cleanup (blocking → `spawn_blocking`); graceful degrade to raw
+///      transcript if the llama backend is missing or fails.
+///   3. Text injection (AX → pasteboard fallback inside `Injector`); on hard
+///      failure, copy the cleaned text to the system clipboard and toast.
+///
+/// Each failure mode emits a `toast` event so the UI can surface it. Successful
+/// runs emit a single tracing line with per-stage and total wall-clock timings.
+async fn run_pipeline(app: AppHandle, wav: Vec<u8>) {
+    let t0 = std::time::Instant::now();
+    let state = app.state::<AppState>();
+
+    // Snapshot what we need; release the lock before any heavy work so we
+    // never hold the std::sync::Mutex across an await.
+    let (whisper, llama, language, force_pasteboard) = {
+        let inner = state.inner.lock().unwrap();
+        (
+            inner.whisper.clone(),
+            inner.llama.clone(),
+            inner.settings.language.clone(),
+            inner.settings.force_pasteboard,
+        )
+    };
+
+    let Some(whisper) = whisper else {
+        let _ = app.emit(
+            "toast",
+            crate::commands::toast("warn", "Whisper model not loaded"),
+        );
+        return;
+    };
+
+    // 1. Transcribe.
+    let lang_for_stt = if language == "auto" {
+        String::new()
+    } else {
+        language.clone()
+    };
+    let wav_for_stt = wav;
+    let stt = tokio::task::spawn_blocking(move || whisper.transcribe(&wav_for_stt, &lang_for_stt))
+        .await;
+    let raw_text = match stt {
+        Ok(Ok(t)) => t,
+        Ok(Err(e)) => {
+            let _ = app.emit(
+                "toast",
+                crate::commands::toast("error", format!("Transcription failed: {e}")),
+            );
+            return;
+        }
+        Err(e) => {
+            let _ = app.emit(
+                "toast",
+                crate::commands::toast("error", format!("STT join error: {e}")),
+            );
+            return;
+        }
+    };
+    let t1 = t0.elapsed();
+
+    // 2. Clean (graceful degrade if LLM missing or fails).
+    let cleaned = if let Some(llama) = llama {
+        let lang_for_clean = language.clone();
+        let raw_for_clean = raw_text.clone();
+        let r = tokio::task::spawn_blocking(move || {
+            llama.chat_sync(inference_core::ChatRequest {
+                system: Some(lda_prompts::build_clean_system_prompt(&lang_for_clean)),
+                history: vec![],
+                user: raw_for_clean,
+                temperature: 0.2,
+                max_tokens: 2048,
+                stop: vec![],
+            })
+        })
+        .await;
+        match r {
+            Ok(Ok(resp)) => resp.text,
+            _ => {
+                let _ = app.emit(
+                    "toast",
+                    crate::commands::toast("warn", "Cleanup failed — typed raw transcript"),
+                );
+                raw_text
+            }
+        }
+    } else {
+        raw_text
+    };
+    let t2 = t0.elapsed();
+
+    // 3. Inject (graceful degrade to clipboard).
+    let injector = if force_pasteboard {
+        os_integration::Injector::with_force_pasteboard(true)
+    } else {
+        os_integration::Injector::new()
+    };
+    match injector.inject(&cleaned) {
+        Ok(method) => {
+            let t3 = t0.elapsed();
+            tracing::info!(
+                stt_ms = t1.as_millis() as u64,
+                clean_ms = (t2 - t1).as_millis() as u64,
+                inject_ms = (t3 - t2).as_millis() as u64,
+                total_ms = t3.as_millis() as u64,
+                method = ?method,
+                "dictation complete"
+            );
+        }
+        Err(e) => {
+            let copied = os_integration::clipboard::set_text(&cleaned);
+            let msg = if copied {
+                format!("Inject failed: {e} — text copied to clipboard")
+            } else {
+                format!("Inject failed: {e} — clipboard copy also failed")
+            };
+            let _ = app.emit("toast", crate::commands::toast("error", msg));
+        }
+    }
 }
