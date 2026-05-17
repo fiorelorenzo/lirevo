@@ -163,6 +163,161 @@ pub fn init_active_downloads() {
     if g.is_none() { *g = Some(HashMap::new()); }
 }
 
+use futures_util::StreamExt;
+use tokio::io::AsyncWriteExt;
+
+#[derive(Debug)]
+pub(crate) enum DownloadError {
+    Cancelled,
+    Failed(String),
+}
+
+pub async fn download(
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<(), crate::AppError> {
+    use tauri::Emitter;
+    use crate::AppError;
+
+    let entry = CATALOG.iter().find(|c| c.id == id)
+        .ok_or_else(|| AppError::Download(format!("unknown model id: {id}")))?;
+
+    let (cancel_tx, mut cancel_rx) = oneshot::channel::<()>();
+    {
+        let mut g = ACTIVE_DOWNLOADS.lock().unwrap();
+        let map = g.as_mut().expect("init_active_downloads not called");
+        if map.contains_key(&id) {
+            return Err(AppError::Download(format!("already downloading: {id}")));
+        }
+        map.insert(id.clone(), cancel_tx);
+    }
+
+    let _ = app.emit("download:progress", DownloadProgress {
+        id: id.clone(),
+        state: DownloadProgressState::Queued,
+        bytes_received: 0,
+        bytes_total: entry.size_bytes,
+        error_message: None,
+    });
+
+    let result = download_inner(&app, entry, &mut cancel_rx).await;
+
+    {
+        let mut g = ACTIVE_DOWNLOADS.lock().unwrap();
+        if let Some(map) = g.as_mut() { map.remove(&id); }
+    }
+
+    match result {
+        Ok(_) => {
+            let _ = app.emit("download:progress", DownloadProgress {
+                id: id.clone(),
+                state: DownloadProgressState::Complete,
+                bytes_received: entry.size_bytes,
+                bytes_total: entry.size_bytes,
+                error_message: None,
+            });
+            Ok(())
+        }
+        Err(DownloadError::Cancelled) => {
+            let _ = app.emit("download:progress", DownloadProgress {
+                id,
+                state: DownloadProgressState::Cancelled,
+                bytes_received: 0,
+                bytes_total: 0,
+                error_message: None,
+            });
+            Ok(())
+        }
+        Err(DownloadError::Failed(msg)) => {
+            let _ = app.emit("download:progress", DownloadProgress {
+                id,
+                state: DownloadProgressState::Error,
+                bytes_received: 0,
+                bytes_total: 0,
+                error_message: Some(msg.clone()),
+            });
+            Err(AppError::Download(msg))
+        }
+    }
+}
+
+async fn download_inner(
+    app: &tauri::AppHandle,
+    entry: &CatalogEntry,
+    cancel_rx: &mut oneshot::Receiver<()>,
+) -> Result<(), DownloadError> {
+    use tauri::Emitter;
+    let models_dir = models_dir(app).map_err(|e| DownloadError::Failed(e.to_string()))?;
+    let dest = models_dir.join(entry.filename);
+    let tmp = dest.with_extension(format!(
+        "{}.partial",
+        dest.extension().and_then(|e| e.to_str()).unwrap_or("")
+    ));
+
+    let client = reqwest::Client::new();
+    let resp = client.get(entry.url).send().await
+        .map_err(|e| DownloadError::Failed(format!("http: {e}")))?;
+    if !resp.status().is_success() {
+        return Err(DownloadError::Failed(format!("HTTP {}", resp.status())));
+    }
+    let total = resp.content_length().unwrap_or(entry.size_bytes);
+
+    let mut file = tokio::fs::File::create(&tmp).await
+        .map_err(|e| DownloadError::Failed(format!("create tmp: {e}")))?;
+
+    let mut received: u64 = 0;
+    let mut stream = resp.bytes_stream();
+    while let Some(chunk_result) = stream.next().await {
+        if cancel_rx.try_recv().is_ok() {
+            drop(file);
+            let _ = tokio::fs::remove_file(&tmp).await;
+            return Err(DownloadError::Cancelled);
+        }
+        let chunk = chunk_result.map_err(|e| DownloadError::Failed(format!("stream: {e}")))?;
+        file.write_all(&chunk).await
+            .map_err(|e| DownloadError::Failed(format!("write: {e}")))?;
+        received += chunk.len() as u64;
+        let _ = app.emit("download:progress", DownloadProgress {
+            id: entry.id.to_string(),
+            state: DownloadProgressState::Downloading,
+            bytes_received: received,
+            bytes_total: total,
+            error_message: None,
+        });
+    }
+    file.flush().await.map_err(|e| DownloadError::Failed(format!("flush: {e}")))?;
+    drop(file);
+
+    tokio::fs::rename(&tmp, &dest).await
+        .map_err(|e| DownloadError::Failed(format!("rename: {e}")))?;
+
+    // T17 fills CoreML encoder extraction.
+    if entry.coreml_encoder_url.is_some() {
+        download_and_extract_coreml(app, entry, cancel_rx).await?;
+    }
+
+    Ok(())
+}
+
+pub(crate) async fn download_and_extract_coreml(
+    _app: &tauri::AppHandle,
+    _entry: &CatalogEntry,
+    _cancel_rx: &mut oneshot::Receiver<()>,
+) -> Result<(), DownloadError> {
+    // T17 fills.
+    Ok(())
+}
+
+pub fn cancel(id: &str) -> Result<(), crate::AppError> {
+    let mut g = ACTIVE_DOWNLOADS.lock().unwrap();
+    if let Some(map) = g.as_mut() {
+        if let Some(tx) = map.remove(id) {
+            let _ = tx.send(());
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

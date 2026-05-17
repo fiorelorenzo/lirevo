@@ -14,16 +14,14 @@ pub fn models_list_local(app: AppHandle) -> Result<Vec<LocalModel>, AppError> {
 
 #[tauri::command]
 pub async fn models_download(
-    _app: AppHandle,
+    app: AppHandle,
     _state: State<'_, AppState>,
-    _id: String,
+    id: String,
 ) -> Result<(), AppError> {
-    // T16 fills with real streaming download
-    Err(AppError::Download("not implemented yet".into()))
+    crate::models::download(app, id).await
 }
 
 #[tauri::command]
-pub fn models_cancel_download(_id: String) -> Result<(), AppError> {
-    // T16 fills
-    Ok(())
+pub fn models_cancel_download(id: String) -> Result<(), AppError> {
+    crate::models::cancel(&id)
 }
