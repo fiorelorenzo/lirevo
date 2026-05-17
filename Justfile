@@ -6,18 +6,9 @@ default:
 
 # ---- dev ----
 
-# Run the app in dev mode (sidecar watch + electron with hot reload).
-# Kills both on Ctrl+C.
+# Tauri dev (filled in T37)
 dev:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [ -z "${SIDECAR_WHISPER_MODEL_PATH:-}" ]; then
-      echo "warning: SIDECAR_WHISPER_MODEL_PATH is not set; /v1/stt will return 503 stt_unavailable" >&2
-    fi
-    just sidecar-dev &
-    SIDECAR_PID=$!
-    trap "kill $SIDECAR_PID 2>/dev/null || true" EXIT
-    just app-dev
+    @echo "Not yet wired — see T37"
 
 # Watch the Rust sidecar and re-run on change.
 sidecar-dev:
@@ -35,10 +26,6 @@ build:
     mkdir -p app/resources
     cp target/aarch64-apple-darwin/release/inference-core app/resources/inference-core
     cd app && npm run package
-
-# Full DMG build (M0 acceptance target).
-dmg: build
-    cd app && npm run make
 
 # Release build of M2 prototype binary + napi addon.
 build-m2:
