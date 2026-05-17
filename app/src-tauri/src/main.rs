@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    app_lib::run()
+    local_dictation_app_lib::run()
 }
