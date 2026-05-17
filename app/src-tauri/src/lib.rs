@@ -46,6 +46,8 @@ pub fn run() {
             let app_state = AppState::new(settings);
             app.manage(app_state);
 
+            crate::models::init_active_downloads();
+
             // Install tray (no-op stub until T18).
             if let Err(e) = tray::install(app.handle()) {
                 tracing::warn!(?e, "tray install failed (stub)");
