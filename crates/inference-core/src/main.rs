@@ -1,23 +1,14 @@
 #![warn(clippy::pedantic)]
 #![allow(clippy::missing_errors_doc, clippy::missing_panics_doc)]
 
-mod backend;
-mod audio;
-mod llama;
-mod server;
-mod stub;
-mod stub_llm;
-mod whisper;
-mod wire;
-
 use std::env;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
 
-use crate::backend::{LlmBackendHandle, SttBackendHandle};
-use crate::stub::StubBackend;
+use inference_core::backend::{LlmBackendHandle, SttBackendHandle};
+use inference_core::{llama, server, stub, stub_llm, whisper};
 
 fn socket_path_from_env() -> Result<PathBuf> {
     let path = env::var("SIDECAR_SOCKET_PATH")
@@ -30,7 +21,7 @@ fn socket_path_from_env() -> Result<PathBuf> {
 fn load_stt_backend() -> Option<SttBackendHandle> {
     let kind = env::var("SIDECAR_STT_BACKEND").unwrap_or_else(|_| "whisper".to_string());
     match kind.as_str() {
-        "stub" => Some(Arc::new(StubBackend::new()) as SttBackendHandle),
+        "stub" => Some(Arc::new(stub::StubBackend::new()) as SttBackendHandle),
         "whisper" => {
             let Ok(model_path_s) = env::var("SIDECAR_WHISPER_MODEL_PATH") else {
                 tracing::warn!("SIDECAR_WHISPER_MODEL_PATH not set; /v1/stt will return 503");

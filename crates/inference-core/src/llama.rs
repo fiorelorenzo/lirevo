@@ -62,6 +62,122 @@ unsafe impl Send for LlamaBackend {}
 unsafe impl Sync for LlamaBackend {}
 
 impl LlamaBackend {
+    /// Synchronous, blocking chat completion for in-process callers (e.g. Tauri).
+    ///
+    /// Performs the same llama.cpp dance as `<LlamaBackend as LlmBackend>::chat`,
+    /// but without the `block_in_place` wrapper — call this from a real OS thread
+    /// (e.g. a `spawn_blocking` task or a non-async context). The async trait
+    /// impl below simply wraps this in `tokio::task::block_in_place`.
+    // Take `req` by value to mirror the async trait method's signature and the
+    // ownership pattern callers already use (request is consumed for tokenization).
+    #[allow(clippy::too_many_lines, clippy::needless_pass_by_value)]
+    pub fn chat_sync(&self, req: ChatRequest) -> Result<ChatResponse, LlmError> {
+        // try_lock detects a busy context (another inference in flight) and
+        // returns Busy immediately, matching the async path's semantics.
+        let mut ctx_guard = self.ctx.try_lock().map_err(|_| LlmError::Busy)?;
+
+        // Reset the KV cache between requests. llama.cpp keeps the per-sequence
+        // position counter across decodes, so without this clear the second
+        // request's batch starts at position 0 while the cache expects N+1,
+        // failing with "inconsistent sequence positions" / "n_tokens == 0".
+        // Single-turn /v1/chat semantics: each call is independent, so wipe.
+        ctx_guard.clear_kv_cache();
+
+        let prompt = build_prompt(&self.model, &req)?;
+        let tokens: Vec<LlamaToken> = self
+            .model
+            .str_to_token(&prompt, AddBos::Always)
+            .map_err(|e| LlmError::Llama(format!("tokenize: {e}")))?;
+
+        let prompt_tokens = u32::try_from(tokens.len()).unwrap_or(u32::MAX);
+        if prompt_tokens.saturating_add(req.max_tokens) > self.ctx_size {
+            return Err(LlmError::ContextOverflow(format!(
+                "prompt {prompt_tokens} tokens + max_tokens {} > ctx_size {}",
+                req.max_tokens, self.ctx_size
+            )));
+        }
+
+        let mut batch = LlamaBatch::new(tokens.len(), 1);
+        for (i, tok) in tokens.iter().enumerate() {
+            let is_last = i == tokens.len() - 1;
+            batch
+                .add(*tok, i32::try_from(i).unwrap(), &[0], is_last)
+                .map_err(|e| LlmError::Llama(format!("batch add: {e}")))?;
+        }
+        ctx_guard
+            .decode(&mut batch)
+            .map_err(|e| LlmError::Llama(format!("decode prompt: {e}")))?;
+
+        let mut sampler = LlamaSampler::chain_simple([
+            LlamaSampler::top_k(40),
+            LlamaSampler::top_p(0.9, 1),
+            LlamaSampler::temp(req.temperature),
+            LlamaSampler::dist(0xC0FF_EE00_u32),
+        ]);
+
+        let mut out = String::new();
+        let mut completion_count: u32 = 0;
+        let mut next_pos = i32::try_from(tokens.len()).unwrap();
+        // `stopped` is always written before the loop exits, so no initialiser needed.
+        let stopped;
+
+        loop {
+            let token = sampler.sample(&ctx_guard, -1);
+            sampler.accept(token);
+
+            if self.model.is_eog_token(token) {
+                stopped = StoppedBy::Eos;
+                break;
+            }
+
+            // API deviation (v0.1.146): token_to_str is deprecated upstream in favour of
+            // token_to_piece (which requires a stateful encoding_rs::Decoder).  The function
+            // still works correctly; suppress the deprecation warning narrowly.
+            #[allow(deprecated)]
+            let fragment = self
+                .model
+                .token_to_str(token, Special::Tokenize)
+                .map_err(|e| LlmError::Llama(format!("detokenize: {e}")))?;
+            out.push_str(&fragment);
+            completion_count += 1;
+
+            if req.stop.iter().any(|s| out.ends_with(s)) {
+                for s in &req.stop {
+                    if let Some(stripped) = out.strip_suffix(s) {
+                        out = stripped.to_string();
+                        break;
+                    }
+                }
+                stopped = StoppedBy::Stop;
+                break;
+            }
+
+            if completion_count >= req.max_tokens {
+                stopped = StoppedBy::Length;
+                break;
+            }
+
+            let mut next_batch = LlamaBatch::new(1, 1);
+            next_batch
+                .add(token, next_pos, &[0], true)
+                .map_err(|e| LlmError::Llama(format!("batch add next: {e}")))?;
+            ctx_guard
+                .decode(&mut next_batch)
+                .map_err(|e| LlmError::Llama(format!("decode next: {e}")))?;
+            next_pos += 1;
+        }
+
+        Ok(ChatResponse {
+            text: out.trim_end().to_string(),
+            model: self.model_id.clone(),
+            stopped_by: stopped,
+            tokens: TokenUsage {
+                prompt: prompt_tokens,
+                completion: completion_count,
+            },
+        })
+    }
+
     pub fn load(model_path: PathBuf, ctx_size: u32) -> Result<Self, LlmError> {
         let backend = global_backend()?;
 
@@ -146,116 +262,13 @@ fn build_prompt(model: &LlamaModel, req: &ChatRequest) -> Result<String, LlmErro
         .map_err(|e| LlmError::Llama(format!("apply chat template: {e}")))
 }
 
-#[allow(clippy::too_many_lines)]
 #[async_trait]
 impl LlmBackend for LlamaBackend {
     async fn chat(&self, req: ChatRequest) -> Result<ChatResponse, LlmError> {
-        // All heavy work runs inside block_in_place.  We use try_lock to detect a
-        // busy context (another inference in flight) and return Busy immediately.
-        let ctx_arc = self.ctx.clone();
-        let model = self.model.clone();
-        let model_id = self.model_id.clone();
-        let ctx_size = self.ctx_size;
-
-        tokio::task::block_in_place(move || {
-            let mut ctx_guard = ctx_arc.try_lock().map_err(|_| LlmError::Busy)?;
-
-            // Reset the KV cache between requests. llama.cpp keeps the per-sequence
-            // position counter across decodes, so without this clear the second
-            // request's batch starts at position 0 while the cache expects N+1,
-            // failing with "inconsistent sequence positions" / "n_tokens == 0".
-            // Single-turn /v1/chat semantics: each call is independent, so wipe.
-            ctx_guard.clear_kv_cache();
-
-            let prompt = build_prompt(&model, &req)?;
-            let tokens: Vec<LlamaToken> = model
-                .str_to_token(&prompt, AddBos::Always)
-                .map_err(|e| LlmError::Llama(format!("tokenize: {e}")))?;
-
-            let prompt_tokens = u32::try_from(tokens.len()).unwrap_or(u32::MAX);
-            if prompt_tokens.saturating_add(req.max_tokens) > ctx_size {
-                return Err(LlmError::ContextOverflow(format!(
-                    "prompt {prompt_tokens} tokens + max_tokens {} > ctx_size {ctx_size}",
-                    req.max_tokens
-                )));
-            }
-
-            let mut batch = LlamaBatch::new(tokens.len(), 1);
-            for (i, tok) in tokens.iter().enumerate() {
-                let is_last = i == tokens.len() - 1;
-                batch
-                    .add(*tok, i32::try_from(i).unwrap(), &[0], is_last)
-                    .map_err(|e| LlmError::Llama(format!("batch add: {e}")))?;
-            }
-            ctx_guard
-                .decode(&mut batch)
-                .map_err(|e| LlmError::Llama(format!("decode prompt: {e}")))?;
-
-            let mut sampler = LlamaSampler::chain_simple([
-                LlamaSampler::top_k(40),
-                LlamaSampler::top_p(0.9, 1),
-                LlamaSampler::temp(req.temperature),
-                LlamaSampler::dist(0xC0FF_EE00_u32),
-            ]);
-
-            let mut out = String::new();
-            let mut completion_count: u32 = 0;
-            let mut next_pos = i32::try_from(tokens.len()).unwrap();
-            // `stopped` is always written before the loop exits, so no initialiser needed.
-            let stopped;
-
-            loop {
-                let token = sampler.sample(&ctx_guard, -1);
-                sampler.accept(token);
-
-                if model.is_eog_token(token) {
-                    stopped = StoppedBy::Eos;
-                    break;
-                }
-
-                // API deviation (v0.1.146): token_to_str is deprecated upstream in favour of
-                // token_to_piece (which requires a stateful encoding_rs::Decoder).  The function
-                // still works correctly; suppress the deprecation warning narrowly.
-                #[allow(deprecated)]
-                let fragment = model
-                    .token_to_str(token, Special::Tokenize)
-                    .map_err(|e| LlmError::Llama(format!("detokenize: {e}")))?;
-                out.push_str(&fragment);
-                completion_count += 1;
-
-                if req.stop.iter().any(|s| out.ends_with(s)) {
-                    for s in &req.stop {
-                        if let Some(stripped) = out.strip_suffix(s) {
-                            out = stripped.to_string();
-                            break;
-                        }
-                    }
-                    stopped = StoppedBy::Stop;
-                    break;
-                }
-
-                if completion_count >= req.max_tokens {
-                    stopped = StoppedBy::Length;
-                    break;
-                }
-
-                let mut next_batch = LlamaBatch::new(1, 1);
-                next_batch
-                    .add(token, next_pos, &[0], true)
-                    .map_err(|e| LlmError::Llama(format!("batch add next: {e}")))?;
-                ctx_guard
-                    .decode(&mut next_batch)
-                    .map_err(|e| LlmError::Llama(format!("decode next: {e}")))?;
-                next_pos += 1;
-            }
-
-            Ok(ChatResponse {
-                text: out.trim_end().to_string(),
-                model: model_id,
-                stopped_by: stopped,
-                tokens: TokenUsage { prompt: prompt_tokens, completion: completion_count },
-            })
-        })
+        // All heavy work runs synchronously inside `chat_sync`; we delegate
+        // through `block_in_place` so the multi-threaded tokio runtime can
+        // continue making progress on other tasks while llama.cpp churns.
+        tokio::task::block_in_place(|| self.chat_sync(req))
     }
 
     fn model_info(&self) -> ModelInfo {
