@@ -1,10 +1,10 @@
 <script lang="ts">
-  // Home placeholder — full impl lands in T30 (KeyChip hero + ambient glow + status row).
+  // Model manager placeholder — full impl lands in T32.
 </script>
 
 <main>
-  <h1>Home</h1>
-  <p>Placeholder route. Full UI arrives in T30.</p>
+  <h1>Model Manager</h1>
+  <p>Placeholder route. Full UI arrives in T32.</p>
 </main>
 
 <style>

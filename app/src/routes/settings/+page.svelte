@@ -1,10 +1,10 @@
 <script lang="ts">
-  // Home placeholder — full impl lands in T30 (KeyChip hero + ambient glow + status row).
+  // Settings placeholder — full impl lands in T31 (4-tab settings).
 </script>
 
 <main>
-  <h1>Home</h1>
-  <p>Placeholder route. Full UI arrives in T30.</p>
+  <h1>Settings</h1>
+  <p>Placeholder route. Full UI arrives in T31.</p>
 </main>
 
 <style>

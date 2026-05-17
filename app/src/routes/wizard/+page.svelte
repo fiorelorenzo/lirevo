@@ -1,10 +1,10 @@
 <script lang="ts">
-  // Home placeholder — full impl lands in T30 (KeyChip hero + ambient glow + status row).
+  // Wizard placeholder — full impl lands in T33-T35 (5-screen wizard with slide transitions).
 </script>
 
 <main>
-  <h1>Home</h1>
-  <p>Placeholder route. Full UI arrives in T30.</p>
+  <h1>Setup wizard</h1>
+  <p>Placeholder route. Full UI arrives in T33-T35.</p>
 </main>
 
 <style>
