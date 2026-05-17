@@ -2292,6 +2292,7 @@ dependencies = [
  "futures-util",
  "inference-core",
  "lda-prompts",
+ "once_cell",
  "os-integration",
  "reqwest 0.12.28",
  "serde",
