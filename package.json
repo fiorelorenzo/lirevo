@@ -1,0 +1,13 @@
+{
+  "name": "local-dictation-app-scripts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Build/utility scripts for the local-dictation-app repo (icons, etc.)",
+  "scripts": {
+    "gen:tray-icons": "node scripts/gen-tray-icons.mjs"
+  },
+  "devDependencies": {
+    "pngjs": "^7.0.0"
+  }
+}
