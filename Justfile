@@ -1,80 +1,38 @@
-# Justfile - orchestrator for local-dictation-app
-# Run `just` (no args) for the command list.
-
 default:
     @just --list
 
-# ---- dev ----
-
-# Tauri dev (filled in T37)
+# Tauri dev (HMR + Rust auto-rebuild). Frontend on :1420.
 dev:
-    @echo "Not yet wired — see T37"
+    cd app && npm install --no-audit --no-fund
+    cd app && npx tauri dev
 
-# Watch the Rust sidecar and re-run on change.
-sidecar-dev:
-    cd crates/inference-core && cargo watch -x run
+# Release build → .app + .dmg under app/src-tauri/target/aarch64-apple-darwin/release/bundle/
+dmg:
+    cd app && npm install --no-audit --no-fund
+    cd app && npx tauri build --target aarch64-apple-darwin
 
-# Run electron in dev mode.
-app-dev:
-    cd app && npm start
-
-# ---- build ----
-
-# Release build of sidecar + electron production bundle (.app, not DMG).
-build:
-    cargo build --release --target aarch64-apple-darwin -p inference-core
-    mkdir -p app/resources
-    cp target/aarch64-apple-darwin/release/inference-core app/resources/inference-core
-    cd app && npm run package
-
-# Release build of M2 prototype binary + napi addon.
-build-m2:
-    cargo build --release --target aarch64-apple-darwin -p lda-prototype -p os-bindings-napi
-
-# Run the dictation prototype in dev mode (requires sidecar already running).
-prototype:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [ -z "${SIDECAR_SOCKET_PATH:-}" ]; then
-      echo "warning: SIDECAR_SOCKET_PATH not set; using default ~/Library/Application Support/app/sidecar.sock" >&2
-    fi
-    ./target/debug/lda-prototype
-
-# ---- quality gates ----
-
-# Run unit and integration tests across all crates and the app.
+# Run all tests (Rust nextest + frontend vitest).
 test:
-    cargo nextest run -p inference-core
-    cargo nextest run -p lda-cli
-    cargo nextest run -p lda-prompts
-    cargo nextest run -p audio-capture
-    cargo nextest run -p os-integration
-    cd app && npm test
+    cargo nextest run --workspace
+    cd app && npm test -- --run
 
-# Run the ignored "real model" tests.
-# Requires:
-#   SIDECAR_WHISPER_MODEL_PATH=/path/to/ggml-*.bin (for STT test)
-#   SIDECAR_LLM_MODEL_PATH=/path/to/*.gguf (for LLM test)
-# Tests that lack their required env are reported but skipped via panic-on-missing-env.
-test-real:
-    cargo test -p inference-core -- --ignored --nocapture
+# Type check across the workspace + frontend.
+check:
+    cargo check --workspace --all-targets
+    cd app && npx svelte-check --threshold error
+    cd app/src-tauri && cargo check --all-targets
 
-# Lint everything (clippy + eslint).
+# Format Rust + frontend (prettier).
+fmt:
+    cargo fmt --all
+    cd app && npx prettier --write 'src/**/*.{ts,svelte,css,json}' 2>/dev/null || true
+
+# Lint Rust + frontend (eslint if configured).
 lint:
     cargo clippy --workspace --all-targets -- -D warnings
-    cd app && npm run lint
+    cd app && npx eslint 'src/**/*.{ts,svelte}' 2>/dev/null || true
 
-# Format everything.
-format:
-    cargo fmt
-    cd app && npm run format
-
-# Remove build artifacts.
+# Wipe caches.
 clean:
     cargo clean
-    cd app && rm -rf out node_modules/.vite
-
-# One-time setup for a fresh clone.
-setup:
-    cd app && npm install
-    cargo fetch
+    rm -rf app/node_modules app/src-tauri/target app/.svelte-kit app/build
