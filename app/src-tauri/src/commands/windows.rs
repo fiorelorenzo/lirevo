@@ -50,11 +50,19 @@ pub fn open_window_internal(app: &AppHandle, route: &str) -> Result<(), AppError
     // For "home" we load the root (/).
     let path = if route == "home" { "/".to_string() } else { format!("/{route}") };
     let url = WebviewUrl::App(path.into());
-    WebviewWindowBuilder::new(app, route, url)
+    let mut builder = WebviewWindowBuilder::new(app, route, url)
         .title("local-dictation-app")
         .inner_size(w as f64, h as f64)
         .resizable(resizable)
-        .always_on_top(always_on_top)
+        .always_on_top(always_on_top);
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder
+            .title_bar_style(tauri::TitleBarStyle::Overlay)
+            .hidden_title(true)
+            .traffic_light_position(tauri::LogicalPosition::new(16.0, 18.0));
+    }
+    builder
         .build()
         .map_err(|e| AppError::Internal(format!("window build: {e}")))?;
     Ok(())

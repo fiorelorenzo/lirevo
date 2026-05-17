@@ -23,11 +23,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
-        // NOTE: tauri-plugin-updater requires a `plugins.updater` block in
-        // tauri.conf.json (pubkey, endpoints, …). T36 adds that config and
-        // re-enables this plugin. Until then `check_for_updates` returns
-        // `{ available: false }` so the frontend remains functional.
-        // .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,

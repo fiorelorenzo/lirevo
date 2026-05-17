@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "app",
-  "version": "0.1.0",
+  "productName": "local-dictation-app",
+  "version": "0.4.0",
   "identifier": "app.localdictation",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -10,29 +10,40 @@
     "frontendDist": "../build"
   },
   "app": {
-    "windows": [
-      {
-        "title": "app",
-        "width": 800,
-        "height": 600
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null
+    },
+    "trayIcon": {
+      "iconPath": "icons/tray/tray-loading.png",
+      "iconAsTemplate": true
     }
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["dmg", "app"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
+      "icons/icon.icns"
     ],
+    "resources": ["icons/tray/*.png"],
+    "category": "Productivity",
+    "shortDescription": "Local, private dictation for macOS",
+    "longDescription": "Push-to-talk dictation that runs fully on-device.",
     "macOS": {
-      "minimumSystemVersion": "11.0"
+      "minimumSystemVersion": "11.0",
+      "entitlements": "entitlements.plist",
+      "frameworks": []
+    }
+  },
+  "plugins": {
+    "updater": {
+      "active": true,
+      "endpoints": [],
+      "dialog": false,
+      "pubkey": ""
     }
   }
 }
