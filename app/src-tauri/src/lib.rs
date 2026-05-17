@@ -1,6 +1,8 @@
 mod error;
 mod logging;
+mod settings;
 pub use error::AppError;
+pub use settings::{Settings, Hotkey, ENV_AFFECTING};
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
