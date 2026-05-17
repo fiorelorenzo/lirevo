@@ -300,11 +300,92 @@ async fn download_inner(
 }
 
 pub(crate) async fn download_and_extract_coreml(
-    _app: &tauri::AppHandle,
-    _entry: &CatalogEntry,
-    _cancel_rx: &mut oneshot::Receiver<()>,
+    app: &tauri::AppHandle,
+    entry: &CatalogEntry,
+    cancel_rx: &mut oneshot::Receiver<()>,
 ) -> Result<(), DownloadError> {
-    // T17 fills.
+    use tauri::Emitter;
+    let Some(url) = entry.coreml_encoder_url else { return Ok(()); };
+    let Some(filename) = entry.coreml_encoder_filename else { return Ok(()); };
+    let models_dir = models_dir(app).map_err(|e| DownloadError::Failed(e.to_string()))?;
+    let zip_path = models_dir.join(filename);
+    let tmp = zip_path.with_extension("zip.partial");
+
+    let progress_id = format!("{}:coreml", entry.id);
+
+    let _ = app.emit("download:progress", DownloadProgress {
+        id: progress_id.clone(),
+        state: DownloadProgressState::Downloading,
+        bytes_received: 0,
+        bytes_total: 0,
+        error_message: None,
+    });
+
+    let client = reqwest::Client::new();
+    let resp = client.get(url).send().await
+        .map_err(|e| DownloadError::Failed(format!("coreml http: {e}")))?;
+    if !resp.status().is_success() {
+        return Err(DownloadError::Failed(format!("coreml HTTP {}", resp.status())));
+    }
+    let total = resp.content_length().unwrap_or(0);
+
+    let mut file = tokio::fs::File::create(&tmp).await
+        .map_err(|e| DownloadError::Failed(format!("coreml create tmp: {e}")))?;
+
+    let mut received: u64 = 0;
+    let mut stream = resp.bytes_stream();
+    while let Some(chunk_result) = futures_util::StreamExt::next(&mut stream).await {
+        if cancel_rx.try_recv().is_ok() {
+            drop(file);
+            let _ = tokio::fs::remove_file(&tmp).await;
+            return Err(DownloadError::Cancelled);
+        }
+        let chunk = chunk_result.map_err(|e| DownloadError::Failed(format!("coreml stream: {e}")))?;
+        tokio::io::AsyncWriteExt::write_all(&mut file, &chunk).await
+            .map_err(|e| DownloadError::Failed(format!("coreml write: {e}")))?;
+        received += chunk.len() as u64;
+        let _ = app.emit("download:progress", DownloadProgress {
+            id: progress_id.clone(),
+            state: DownloadProgressState::Downloading,
+            bytes_received: received,
+            bytes_total: total,
+            error_message: None,
+        });
+    }
+    tokio::io::AsyncWriteExt::flush(&mut file).await
+        .map_err(|e| DownloadError::Failed(format!("coreml flush: {e}")))?;
+    drop(file);
+    tokio::fs::rename(&tmp, &zip_path).await
+        .map_err(|e| DownloadError::Failed(format!("coreml rename: {e}")))?;
+
+    // Extract via system unzip (always present on macOS).
+    let _ = app.emit("download:progress", DownloadProgress {
+        id: progress_id.clone(),
+        state: DownloadProgressState::Verifying,
+        bytes_received: received,
+        bytes_total: received,
+        error_message: None,
+    });
+
+    let zip_path_clone = zip_path.clone();
+    let models_dir_clone = models_dir.clone();
+    let extract_result = tokio::task::spawn_blocking(move || {
+        std::process::Command::new("unzip")
+            .args(["-o", "-d"])
+            .arg(&models_dir_clone)
+            .arg(&zip_path_clone)
+            .output()
+    })
+    .await
+    .map_err(|e| DownloadError::Failed(format!("unzip join: {e}")))?
+    .map_err(|e| DownloadError::Failed(format!("unzip spawn: {e}")))?;
+
+    if !extract_result.status.success() {
+        let stderr = String::from_utf8_lossy(&extract_result.stderr);
+        return Err(DownloadError::Failed(format!("unzip failed: {stderr}")));
+    }
+
+    let _ = tokio::fs::remove_file(&zip_path).await;
     Ok(())
 }
 
