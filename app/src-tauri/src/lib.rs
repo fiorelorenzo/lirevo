@@ -51,9 +51,10 @@ pub fn run() {
             }
 
             // Install hotkey listener. Fails when Accessibility permission
-            // is missing — surface that to the UI as a toast so the user
-            // doesn't think the app is broken when pressing the hotkey
-            // does nothing.
+            // is missing; the home page renders a persistent banner from
+            // its `permissionsState` store + an automatic
+            // `retry_hotkey_install` when AX flips back to granted, so no
+            // toast is needed here — would just be redundant noise.
             let hotkey = {
                 let state = app.state::<AppState>();
                 let inner = state.inner.lock().unwrap();
@@ -61,14 +62,6 @@ pub fn run() {
             };
             if let Err(e) = hotkey::install(app.handle().clone(), hotkey) {
                 tracing::warn!(?e, "hotkey install failed");
-                let app_for_toast = app.handle().clone();
-                let msg = format!("Hotkey unavailable: {e}");
-                tauri::async_runtime::spawn(async move {
-                    // Defer until the frontend has had time to attach its toast listener.
-                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                    use tauri::Emitter;
-                    let _ = app_for_toast.emit("toast", commands::toast("error", msg));
-                });
             }
 
             // Open initial window: wizard if first-run, home otherwise.
@@ -85,30 +78,49 @@ pub fn run() {
                 commands::inference::load_models(&app_handle_for_load, state).await;
             });
 
-            // macOS-only: register an atexit handler that short-circuits to
-            // `_exit(0)` BEFORE any C++ static destructors run.
-            // `[NSApplication terminate:]` (Cmd+Q) bypasses Tauri's run loop
-            // and goes straight to libc::exit → __cxa_finalize_ranges → fires
-            // ggml-metal's `unique_ptr<ggml_metal_device>` destructor, which
-            // asserts `[rsets->data count] == 0` but Metal is still draining
-            // → SIGABRT, "Chiusura inattesa" dialog.
-            // atexit handlers run LIFO during __cxa_finalize; registering
-            // ours last means it runs first, escaping the process before
-            // any of the C++ destructors execute.
-            // Other platforms exit cleanly through Tauri's normal teardown
-            // (the RunEvent::ExitRequested branch below covers them).
+            // macOS-only: install a SIGABRT handler that converts the abort
+            // raised inside ggml-metal's teardown assertion into a clean
+            // `_exit(0)`.
+            //
+            // Full path:
+            //   [NSApplication terminate:]
+            //     → libc::exit
+            //       → __cxa_finalize_ranges
+            //         → ~unique_ptr<ggml_metal_device>()
+            //           → ggml_metal_rsets_free
+            //             → GGML_ASSERT([rsets->data count] == 0)  // Metal still draining
+            //               → ggml_abort → abort() → raise(SIGABRT)
+            //
+            // We tried `atexit` first, but C++ statics register their own
+            // __cxa_atexit handlers when first initialized — ggml-metal
+            // initializes inside `load_models`, which is spawned as a
+            // background tokio task that runs AFTER setup. So our atexit
+            // (registered in setup) is registered BEFORE ggml-metal's, and
+            // LIFO ordering means ggml's handler fires first → crash.
+            //
+            // The signal handler is order-independent: whenever SIGABRT
+            // arrives, we _exit(0) immediately. No conflict with tokio's
+            // signal handling (tokio uses kqueue/signalfd, not the C
+            // `signal()` table).
+            //
+            // Other platforms hit the RunEvent::ExitRequested branch below
+            // (Tauri's run loop handles their shutdown normally).
             #[cfg(target_os = "macos")]
             {
-                extern "C" fn lda_early_exit() {
+                extern "C" fn lda_clean_exit_on_sigabrt(_sig: std::ffi::c_int) {
                     unsafe extern "C" {
                         fn _exit(status: std::ffi::c_int) -> !;
                     }
                     unsafe { _exit(0) }
                 }
                 unsafe extern "C" {
-                    fn atexit(cb: extern "C" fn()) -> std::ffi::c_int;
+                    fn signal(
+                        signum: std::ffi::c_int,
+                        handler: extern "C" fn(std::ffi::c_int),
+                    ) -> *const ();
                 }
-                unsafe { atexit(lda_early_exit); }
+                const SIGABRT: std::ffi::c_int = 6;
+                unsafe { signal(SIGABRT, lda_clean_exit_on_sigabrt); }
             }
 
             Ok(())

@@ -16,6 +16,14 @@ dev:
 # but the only way to exercise the real permission UX.
 #
 # Output: app/src-tauri/target/aarch64-apple-darwin/debug/bundle/macos/local-dictation-app.app
+#
+# CAVEAT: the bundle is ad-hoc signed (Tauri's default), so its
+# code-signing identity hash changes every rebuild. macOS TCC matches
+# grants against that hash for ad-hoc binaries — meaning Accessibility
+# and Microphone need to be re-granted after each `just dev-bundle`.
+# Re-grant is one click in the home page banner (Open Accessibility
+# settings → flip the toggle). A stable identity needs a Developer ID
+# cert (M0.5).
 dev-bundle:
     cd app && npm install --no-audit --no-fund
     cd app && npx tauri build --debug --target aarch64-apple-darwin --bundles app
