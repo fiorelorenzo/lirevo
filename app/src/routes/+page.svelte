@@ -41,8 +41,23 @@
   });
 
   let missingAccessibility = $derived($permissionsState.accessibility === 'denied');
-  let missingMicrophone = $derived($permissionsState.microphone === 'denied');
+  // Treat `not_determined` as missing too: dictation can't capture audio
+  // until TCC actually flips to `granted`. The user reaches this state
+  // when they skip the Microphone wizard step without pressing Test.
+  let missingMicrophone = $derived(
+    $permissionsState.microphone === 'denied' ||
+    $permissionsState.microphone === 'not_determined',
+  );
+  let microphoneNeverAsked = $derived($permissionsState.microphone === 'not_determined');
   let hasPermissionIssue = $derived(missingAccessibility || missingMicrophone);
+
+  async function grantMicrophone() {
+    try {
+      await lda.promptMicrophone();
+    } catch (e) {
+      console.warn('promptMicrophone', e);
+    }
+  }
 </script>
 
 <div class="h-full flex flex-col p-8 relative">
@@ -56,9 +71,11 @@
         <p class="text-sm font-medium">Permissions missing</p>
         <p class="text-xs text-muted-foreground mt-1">
           {#if missingAccessibility && missingMicrophone}
-            macOS Accessibility (needed for the hotkey + text injection) and Microphone are both blocked. Grant them in System Settings.
+            macOS Accessibility (needed for the hotkey + text injection) and Microphone are both missing. Grant them below.
           {:else if missingAccessibility}
             macOS Accessibility is blocked. The hotkey won't fire and lda can't type into other apps until it's granted.
+          {:else if microphoneNeverAsked}
+            macOS Microphone access hasn't been requested yet. Click Grant to bring up the system prompt.
           {:else}
             macOS Microphone access is blocked. Dictation won't capture any audio until it's granted.
           {/if}
@@ -70,9 +87,15 @@
             </Button>
           {/if}
           {#if missingMicrophone}
-            <Button size="sm" variant="outline" onclick={() => lda.openSystemSettingsMicrophone()}>
-              Open Microphone settings
-            </Button>
+            {#if microphoneNeverAsked}
+              <Button size="sm" variant="outline" onclick={grantMicrophone}>
+                Grant microphone access
+              </Button>
+            {:else}
+              <Button size="sm" variant="outline" onclick={() => lda.openSystemSettingsMicrophone()}>
+                Open Microphone settings
+              </Button>
+            {/if}
           {/if}
         </div>
       </div>
