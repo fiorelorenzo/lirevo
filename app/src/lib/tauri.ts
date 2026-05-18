@@ -67,6 +67,12 @@ export interface UpdateInfo {
   version: string | null;
 }
 
+export interface TestMicResult {
+  peak: number;
+  sampleCount: number;
+  deviceLabel: string;
+}
+
 export const lda = {
   getSettings: () => invoke<Settings>('get_settings'),
   updateSettings: (patch: Partial<Settings>) => invoke<Settings>('update_settings', { patch }),
@@ -77,7 +83,7 @@ export const lda = {
   checkAccessibility: () => invoke<PermissionStatus>('check_accessibility'),
   promptAccessibility: () => invoke<PermissionStatus>('prompt_accessibility'),
   checkMicrophone: () => invoke<PermissionStatus>('check_microphone'),
-  testMic: () => invoke<number>('test_mic'),
+  testMic: () => invoke<TestMicResult>('test_mic'),
   openWindow: (route: Route) => invoke<void>('open_window', { route }),
   closeWindow: () => invoke<void>('close_window'),
   completeWizard: () => invoke<void>('complete_wizard'),
