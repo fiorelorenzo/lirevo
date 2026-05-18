@@ -97,8 +97,8 @@ pub fn open_window_internal(app: &AppHandle, route: &str) -> Result<(), AppError
 /// Stays above every other window (including frontmost-app windows) and
 /// follows the user across spaces.
 fn build_overlay_window(app: &AppHandle) -> Result<(), AppError> {
-    const OVERLAY_W: f64 = 280.0;
-    const OVERLAY_H: f64 = 56.0;
+    const OVERLAY_W: f64 = 320.0;
+    const OVERLAY_H: f64 = 80.0;
 
     let mut builder = WebviewWindowBuilder::new(app, "overlay", WebviewUrl::App("/overlay".into()))
         .title("")

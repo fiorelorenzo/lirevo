@@ -9,7 +9,17 @@
   // Number of vertical bars in the waveform. Each shift represents one
   // audio-level sample (≈30 Hz so the bar sweep at this resolution moves at
   // a perceptual "slow waveform" pace, not "glitchy strobe").
-  const BARS = 28;
+  const BARS = 36;
+  // Visual exaggeration: input RMS rarely tops 0.3 even during clear
+  // speech, so a raw level→pixel scale gives barely-perceptible bars.
+  // Apply gamma (sqrt) to lift quiet speech off the floor + multiply.
+  const MAX_BAR_HEIGHT = 44; // px, half-height for symmetric draw
+  function shape(level: number): number {
+    // sqrt curve: 0.05 → 0.22, 0.2 → 0.45, 0.5 → 0.71
+    const eased = Math.sqrt(Math.max(0, Math.min(1, level)));
+    return Math.max(3, eased * 1.6 * MAX_BAR_HEIGHT);
+  }
+
   let bars = $state<number[]>(Array(BARS).fill(0));
   // Mutated imperatively (not $state) — the audioLevel subscribe can fire
   // ~30 Hz and we don't want Svelte to rebuild a reactive proxy each tick.
@@ -67,10 +77,7 @@
 
     <div class="waveform">
       {#each bars as level, i (i)}
-        <div
-          class="bar"
-          style="height: {Math.max(2, Math.min(36, level * 80))}px"
-        ></div>
+        <div class="bar" style="height: {shape(level)}px"></div>
       {/each}
     </div>
   </div>
@@ -129,13 +136,22 @@
   .waveform {
     display: flex;
     align-items: center;
-    gap: 3px;
-    height: 36px;
+    gap: 2px;
+    height: 44px;
+    width: 188px;
   }
   .bar {
-    width: 2px;
+    width: 3px;
     border-radius: 9999px;
-    background: rgba(255, 255, 255, 0.92);
-    transition: height 70ms linear;
+    /* Gradient — brighter in the middle, fades to translucent at the
+       tips. Gives the bars a glowing, lively look when they extend. */
+    background: linear-gradient(
+      to bottom,
+      rgba(110, 168, 254, 0.85) 0%,
+      rgba(180, 220, 255, 1) 50%,
+      rgba(110, 168, 254, 0.85) 100%
+    );
+    box-shadow: 0 0 6px rgba(140, 200, 255, 0.45);
+    transition: height 90ms cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 </style>
