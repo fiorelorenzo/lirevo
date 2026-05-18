@@ -66,6 +66,12 @@
             <span>{Math.round(($progress.bytesReceived / Math.max(1, $progress.bytesTotal)) * 100)}%</span>
           </div>
         </div>
+      {:else if $progress && $progress.state === 'verifying'}
+        <p class="text-xs text-muted-foreground mt-3">Verifying integrity…</p>
+      {:else if $progress && $progress.state === 'error'}
+        <p class="text-xs text-destructive mt-3 font-mono break-words">
+          {$progress.errorMessage ?? 'Download failed'}
+        </p>
       {/if}
     </div>
 
@@ -75,11 +81,13 @@
           <Check class="h-3 w-3" />
           Installed
         </div>
-      {:else if $progress && $progress.state === 'downloading'}
+      {:else if $progress && ($progress.state === 'downloading' || $progress.state === 'queued')}
         <Button variant="ghost" size="sm" onclick={cancelDownload}>
           <X class="h-3 w-3 mr-1" />
           Cancel
         </Button>
+      {:else if $progress && $progress.state === 'verifying'}
+        <div class="text-xs text-muted-foreground px-2.5 py-1">Verifying…</div>
       {:else}
         <Button variant="outline" size="sm" onclick={startDownload}>
           <Download class="h-3 w-3 mr-1" />

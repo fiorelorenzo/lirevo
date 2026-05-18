@@ -54,16 +54,19 @@ pub struct DownloadProgress {
     pub error_message: Option<String>,
 }
 
+// SHA256 hashes are the git-LFS object IDs from the Hugging Face repo
+// metadata at the time the catalog was last refreshed. If HF re-uploads a
+// file, these need to be updated — `download_inner` rejects mismatches.
 pub const CATALOG: &[CatalogEntry] = &[
     CatalogEntry {
         id: "ggml-large-v3-turbo",
         kind: ModelKind::Stt,
         display_name: "Whisper large-v3-turbo",
         description: "Best balance · CoreML supported",
-        size_bytes: 1_624_000_000,
+        size_bytes: 1_624_555_275,
         filename: "ggml-large-v3-turbo.bin",
         url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
-        sha256: None,
+        sha256: Some("1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69"),
         coreml_encoder_url: Some("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-encoder.mlmodelc.zip"),
         coreml_encoder_filename: Some("ggml-large-v3-turbo-encoder.mlmodelc.zip"),
     },
@@ -71,11 +74,11 @@ pub const CATALOG: &[CatalogEntry] = &[
         id: "ggml-distil-large-v3",
         kind: ModelKind::Stt,
         display_name: "Whisper distil-large-v3",
-        description: "Smaller (~750 MB), similar quality, multilingual",
-        size_bytes: 756_000_000,
+        description: "Faster, similar quality (~1.5 GB, multilingual)",
+        size_bytes: 1_519_521_155,
         filename: "ggml-distil-large-v3.bin",
         url: "https://huggingface.co/distil-whisper/distil-large-v3-ggml/resolve/main/ggml-distil-large-v3.bin",
-        sha256: None,
+        sha256: Some("2883a11b90fb10ed592d826edeaee7d2929bf1ab985109fe9e1e7b4d2b69a298"),
         coreml_encoder_url: None,
         coreml_encoder_filename: None,
     },
@@ -83,11 +86,11 @@ pub const CATALOG: &[CatalogEntry] = &[
         id: "ggml-small-en",
         kind: ModelKind::Stt,
         display_name: "Whisper small.en",
-        description: "English only, very fast (~500 MB)",
-        size_bytes: 488_000_000,
+        description: "English only, very fast (~490 MB)",
+        size_bytes: 487_614_201,
         filename: "ggml-small.en.bin",
         url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin",
-        sha256: None,
+        sha256: Some("c6138d6d58ecc8322097e0f987c32f1be8bb0a18532a3f88f734d1bbf9c41e5d"),
         coreml_encoder_url: None,
         coreml_encoder_filename: None,
     },
@@ -96,10 +99,10 @@ pub const CATALOG: &[CatalogEntry] = &[
         kind: ModelKind::Llm,
         display_name: "Qwen3 4B Instruct 2507 (Q4_K_M)",
         description: "Recommended default. Multilingual, non-thinking.",
-        size_bytes: 2_500_000_000,
+        size_bytes: 2_497_280_448,
         filename: "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
         url: "https://huggingface.co/lmstudio-community/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
-        sha256: None,
+        sha256: Some("8cdb57cbb880d313736a9bc4e3d3d2485f145b5e19cf33783746e753e82641fc"),
         coreml_encoder_url: None,
         coreml_encoder_filename: None,
     },
@@ -108,13 +111,21 @@ pub const CATALOG: &[CatalogEntry] = &[
         kind: ModelKind::Llm,
         display_name: "Llama 3.2 3B Instruct (Q4_K_M)",
         description: "Meta alternative, ~2 GB.",
-        size_bytes: 2_020_000_000,
+        size_bytes: 2_019_377_440,
         filename: "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
         url: "https://huggingface.co/lmstudio-community/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf",
-        sha256: None,
+        sha256: Some("e4f1a04d927b09ec18eb2f233d85ecd760fc2d35cec97e37f8604d3632210d9a"),
         coreml_encoder_url: None,
         coreml_encoder_filename: None,
     },
+];
+
+/// CoreML encoder zip SHA256s, keyed by `coreml_encoder_filename`. Kept here
+/// instead of on CatalogEntry to avoid bloating the struct with an Optional
+/// second hash that only Whisper-CoreML entries use.
+pub const COREML_ZIP_SHA256: &[(&str, &str)] = &[
+    ("ggml-large-v3-turbo-encoder.mlmodelc.zip",
+     "84bedfe895bd7b5de6e8e89a0803dfc5addf8c0c5bc4c937451716bf7cf7988a"),
 ];
 
 pub fn models_dir(app: &tauri::AppHandle) -> std::io::Result<PathBuf> {
@@ -167,12 +178,48 @@ pub fn init_active_downloads() {
 }
 
 use futures_util::StreamExt;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[derive(Debug)]
 pub(crate) enum DownloadError {
     Cancelled,
     Failed(String),
+}
+
+/// Stream the file through SHA-256 and compare against the catalog's expected
+/// digest. We hash on disk (not on the fly during the download stream)
+/// because the bytes have already been renamed into place and any future
+/// reload should also catch a tampered file. Buffer size is 64 KiB —
+/// large enough to amortize syscalls without ballooning memory on 2 GB
+/// models.
+async fn verify_sha256(
+    path: &std::path::Path,
+    expected: &str,
+) -> Result<(), DownloadError> {
+    use sha2::{Digest, Sha256};
+    let mut file = tokio::fs::File::open(path)
+        .await
+        .map_err(|e| DownloadError::Failed(format!("open for hash: {e}")))?;
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; 64 * 1024];
+    loop {
+        let n = file
+            .read(&mut buf)
+            .await
+            .map_err(|e| DownloadError::Failed(format!("read for hash: {e}")))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    let actual = format!("{:x}", hasher.finalize());
+    if actual.eq_ignore_ascii_case(expected) {
+        Ok(())
+    } else {
+        Err(DownloadError::Failed(format!(
+            "SHA-256 mismatch — expected {expected}, got {actual}"
+        )))
+    }
 }
 
 pub async fn download(
@@ -310,6 +357,21 @@ async fn download_inner(
     tokio::fs::rename(&tmp, &dest).await
         .map_err(|e| DownloadError::Failed(format!("rename: {e}")))?;
 
+    if let Some(expected) = entry.sha256 {
+        let _ = app.emit("download:progress", DownloadProgress {
+            id: entry.id.to_string(),
+            state: DownloadProgressState::Verifying,
+            bytes_received: received,
+            bytes_total: total,
+            error_message: None,
+        });
+        if let Err(e) = verify_sha256(&dest, expected).await {
+            // Remove the corrupted file so a retry starts from scratch.
+            let _ = tokio::fs::remove_file(&dest).await;
+            return Err(e);
+        }
+    }
+
     // T17 fills CoreML encoder extraction.
     if entry.coreml_encoder_url.is_some() {
         download_and_extract_coreml(app, entry, cancel_rx).await?;
@@ -381,7 +443,9 @@ pub(crate) async fn download_and_extract_coreml(
     tokio::fs::rename(&tmp, &zip_path).await
         .map_err(|e| DownloadError::Failed(format!("coreml rename: {e}")))?;
 
-    // Extract via system unzip (always present on macOS).
+    // Verify the zip itself before we extract — a corrupted zip would
+    // succeed at `unzip` for a while before failing partway through and
+    // leaving a broken half-extracted .mlmodelc behind.
     let _ = app.emit("download:progress", DownloadProgress {
         id: progress_id.clone(),
         state: DownloadProgressState::Verifying,
@@ -389,7 +453,20 @@ pub(crate) async fn download_and_extract_coreml(
         bytes_total: received,
         error_message: None,
     });
+    if let Some(expected) = COREML_ZIP_SHA256
+        .iter()
+        .find(|(name, _)| *name == filename)
+        .map(|(_, hash)| *hash)
+    {
+        if let Err(e) = verify_sha256(&zip_path, expected).await {
+            let _ = tokio::fs::remove_file(&zip_path).await;
+            return Err(e);
+        }
+    }
 
+    // Extract via system unzip (always present on macOS). `-x __MACOSX/*`
+    // skips the resource-fork metadata sibling that macOS Finder ships
+    // inside zips — we don't need it and it would litter the models dir.
     let zip_path_clone = zip_path.clone();
     let models_dir_clone = models_dir.clone();
     let extract_result = tokio::task::spawn_blocking(move || {
@@ -397,6 +474,7 @@ pub(crate) async fn download_and_extract_coreml(
             .args(["-o", "-d"])
             .arg(&models_dir_clone)
             .arg(&zip_path_clone)
+            .args(["-x", "__MACOSX/*"])
             .output()
     })
     .await
@@ -406,6 +484,14 @@ pub(crate) async fn download_and_extract_coreml(
     if !extract_result.status.success() {
         let stderr = String::from_utf8_lossy(&extract_result.stderr);
         return Err(DownloadError::Failed(format!("unzip failed: {stderr}")));
+    }
+
+    // Safety net for zips that don't match the `-x` exclusion (e.g. older
+    // zips with leading `./__MACOSX` paths) — remove any __MACOSX dir
+    // left in the models folder.
+    let macosx_dir = models_dir.join("__MACOSX");
+    if tokio::fs::metadata(&macosx_dir).await.is_ok() {
+        let _ = tokio::fs::remove_dir_all(&macosx_dir).await;
     }
 
     let _ = tokio::fs::remove_file(&zip_path).await;
