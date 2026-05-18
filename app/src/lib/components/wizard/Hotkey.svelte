@@ -28,7 +28,7 @@
   let selectedOption = $derived(OPTIONS.find((o) => o.value === selected) ?? OPTIONS[0]);
 </script>
 
-<div class="h-full flex flex-col items-center justify-center max-w-md mx-auto gap-8 text-center">
+<div class="min-h-full flex flex-col items-center justify-center max-w-md mx-auto gap-8 text-center">
   <h1 class="text-2xl font-semibold tracking-tight">{t('wizard.hotkey.title')}</h1>
   <p class="text-sm text-muted-foreground">{t('wizard.hotkey.body')}</p>
 

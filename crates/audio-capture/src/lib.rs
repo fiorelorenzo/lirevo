@@ -12,6 +12,7 @@ mod device;
 mod recorder;
 mod resample;
 
+pub use device::{list_inputs, InputDeviceInfo};
 pub use recorder::{Recorder, RecorderConfig, Recording};
 
 use thiserror::Error;

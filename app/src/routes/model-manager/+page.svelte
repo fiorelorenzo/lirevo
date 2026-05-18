@@ -1,16 +1,20 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
+  import { ArrowLeft } from '@lucide/svelte';
   import { Separator } from '$lib/components/ui/separator';
   import ModelCard from '$lib/components/ModelCard.svelte';
   import FilePicker from '$lib/components/FilePicker.svelte';
   import SkeletonRow from '$lib/components/SkeletonRow.svelte';
   import { settings, updateSettings } from '$lib/stores/settings.svelte';
   import { lda, type CatalogEntry, type LocalModel } from '$lib/tauri';
+  import type { UnlistenFn } from '@tauri-apps/api/event';
   import { t } from '$lib/i18n';
+  import { navigate } from '$lib/router';
 
   let catalog = $state<CatalogEntry[]>([]);
   let local = $state<LocalModel[]>([]);
   let loaded = $state(false);
+  let unlistenDownload: UnlistenFn | null = null;
 
   async function refresh() {
     [catalog, local] = await Promise.all([lda.modelsCatalog(), lda.modelsListLocal()]);
@@ -19,20 +23,23 @@
 
   onMount(async () => {
     await refresh();
-    void lda.onDownloadProgress((p) => {
+    unlistenDownload = await lda.onDownloadProgress(async (p) => {
       if (p.state === 'complete') {
-        void refresh().then(() => {
-          const entry = catalog.find((c) => c.id === p.id);
-          const localMatch = local.find((l) => l.id === p.id);
-          if (entry && localMatch) {
-            const patch = entry.kind === 'stt'
-              ? { whisperModelPath: localMatch.path }
-              : { llmModelPath: localMatch.path };
-            void updateSettings(patch);
-          }
-        });
+        await refresh();
+        const entry = catalog.find((c) => c.id === p.id);
+        const localMatch = local.find((l) => l.id === p.id);
+        if (entry && localMatch) {
+          const patch = entry.kind === 'stt'
+            ? { whisperModelPath: localMatch.path }
+            : { llmModelPath: localMatch.path };
+          await updateSettings(patch);
+        }
       }
     });
+  });
+
+  onDestroy(() => {
+    unlistenDownload?.();
   });
 
   function installed(id: string): boolean {
@@ -64,6 +71,13 @@
 </script>
 
 <div class="h-full p-8 overflow-y-auto">
+  <button
+    onclick={() => navigate('settings')}
+    class="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4"
+  >
+    <ArrowLeft class="h-4 w-4" />
+    {t('model_manager.back')}
+  </button>
   <h1 class="text-2xl font-semibold mb-4">{t('model_manager.title')}</h1>
 
   {#if loaded}
@@ -71,7 +85,7 @@
       {t('model_manager.stats', { used: fmtSize(usedBytes), installed: installedCount, total: catalog.length })}
     </div>
 
-    {#each KINDS as kind (kind)}
+    {#each KINDS as kind, i (kind)}
       <section class="mb-10">
         <h2 class="text-xs font-semibold tracking-wide uppercase text-muted-foreground mb-3">
           {kind === 'stt' ? t('model_manager.stt_section') : t('model_manager.llm_section')}
@@ -88,9 +102,7 @@
           {/each}
         </div>
 
-        <Separator class="my-4" />
-
-        <div class="text-xs uppercase tracking-wide text-muted-foreground mb-2">
+        <div class="text-xs uppercase tracking-wide text-muted-foreground mt-4 mb-2">
           {t('model_manager.use_existing')}
         </div>
         <FilePicker
@@ -100,6 +112,10 @@
             : [{ name: 'GGUF', extensions: ['gguf'] }]}
           onpick={(p) => updateSettings(kind === 'stt' ? { whisperModelPath: p } : { llmModelPath: p })}
         />
+
+        {#if i < KINDS.length - 1}
+          <Separator class="mt-6" />
+        {/if}
       </section>
     {/each}
   {:else}

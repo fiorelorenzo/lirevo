@@ -13,7 +13,11 @@
   }
   let { entry, installed, selected, onselect }: Props = $props();
 
-  const progress = progressFor(entry.id);
+  // $derived so the store rebinds if `entry` is swapped (e.g. parent reuses
+  // the component for a different catalog row). The earlier `const` form
+  // captured the initial entry.id only and tripped Svelte's
+  // `state_referenced_locally` warning.
+  let progress = $derived(progressFor(entry.id));
 
   function fmtSize(bytes: number): string {
     return bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.round(bytes / 1e6)} MB`;
@@ -62,6 +66,12 @@
             <span>{Math.round(($progress.bytesReceived / Math.max(1, $progress.bytesTotal)) * 100)}%</span>
           </div>
         </div>
+      {:else if $progress && $progress.state === 'verifying'}
+        <p class="text-xs text-muted-foreground mt-3">Verifying integrity…</p>
+      {:else if $progress && $progress.state === 'error'}
+        <p class="text-xs text-destructive mt-3 font-mono break-words">
+          {$progress.errorMessage ?? 'Download failed'}
+        </p>
       {/if}
     </div>
 
@@ -71,11 +81,13 @@
           <Check class="h-3 w-3" />
           Installed
         </div>
-      {:else if $progress && $progress.state === 'downloading'}
+      {:else if $progress && ($progress.state === 'downloading' || $progress.state === 'queued')}
         <Button variant="ghost" size="sm" onclick={cancelDownload}>
           <X class="h-3 w-3 mr-1" />
           Cancel
         </Button>
+      {:else if $progress && $progress.state === 'verifying'}
+        <div class="text-xs text-muted-foreground px-2.5 py-1">Verifying…</div>
       {:else}
         <Button variant="outline" size="sm" onclick={startDownload}>
           <Download class="h-3 w-3 mr-1" />

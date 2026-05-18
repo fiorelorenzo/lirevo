@@ -43,7 +43,7 @@
   });
 </script>
 
-<div class="h-full flex flex-col items-center justify-center text-center max-w-md mx-auto gap-6">
+<div class="flex flex-col items-center justify-center min-h-full text-center max-w-md mx-auto gap-6">
   <h1 class="text-2xl font-semibold tracking-tight">{t('wizard.accessibility.title')}</h1>
   <p class="text-sm text-muted-foreground">{t('wizard.accessibility.body')}</p>
 
@@ -65,6 +65,5 @@
     <Button onclick={onnext}>{t('wizard.common.next')}</Button>
   {:else}
     <Button onclick={prompt}>{t('wizard.accessibility.open_settings')}</Button>
-    <p class="text-xs text-muted-foreground">{t('wizard.accessibility.polling')}</p>
   {/if}
 </div>

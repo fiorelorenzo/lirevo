@@ -95,10 +95,11 @@ fn handle_down(app: &AppHandle, state: &tauri::State<AppState>) {
         // Already recording (duplicate Down). Ignore — Up will clean up.
         return;
     }
+    let device_name = inner.settings.input_device_name.clone();
 
     let result = (|| -> Result<Recorder, String> {
-        let mut recorder =
-            Recorder::new(RecorderConfig::default()).map_err(|e| e.to_string())?;
+        let cfg = RecorderConfig { device_name, ..Default::default() };
+        let mut recorder = Recorder::new(cfg).map_err(|e| e.to_string())?;
         recorder.start().map_err(|e| e.to_string())?;
         Ok(recorder)
     })();

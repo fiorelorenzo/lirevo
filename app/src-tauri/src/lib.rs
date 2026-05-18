@@ -85,17 +85,44 @@ pub fn run() {
             commands::models::models_cancel_download,
             commands::inference::transcribe,
             commands::inference::clean,
+            commands::inference::get_model_state,
             commands::dictation::manual_dictate,
             commands::dictation::test_mic,
+            commands::dictation::cancel_test_mic,
+            commands::dictation::list_input_devices,
             commands::permissions::check_accessibility,
             commands::permissions::prompt_accessibility,
             commands::permissions::check_microphone,
+            commands::permissions::prompt_microphone,
+            commands::permissions::open_system_settings_microphone,
             commands::windows::open_window,
             commands::windows::close_window,
             commands::windows::complete_wizard,
             commands::dialog::pick_file,
             commands::updater::check_for_updates,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, event| {
+            // Force a clean exit on shutdown via the raw `_exit` syscall
+            // (NOT std::process::exit). At quit time ggml-metal's C++ static
+            // `unique_ptr<ggml_metal_device>` deleter fires from
+            // __cxa_finalize_ranges and asserts the residency-set list is
+            // empty — but the Metal command queue is still being drained,
+            // so [rsets->data count] != 0 and the process SIGABRTs. macOS
+            // then surfaces "Chiusura inattesa" on every quit.
+            //
+            // std::process::exit DOES run __cxa_finalize, so it doesn't fix
+            // the crash. _exit skips atexit handlers and C++ static
+            // destructors entirely. Safe here: settings persist on every
+            // update, the tracing-appender WorkerGuard already flushed
+            // before we get here, and download progress is checkpointed
+            // per-chunk in models.rs.
+            if let tauri::RunEvent::ExitRequested { .. } = event {
+                unsafe extern "C" {
+                    fn _exit(status: std::ffi::c_int) -> !;
+                }
+                unsafe { _exit(0) }
+            }
+        });
 }

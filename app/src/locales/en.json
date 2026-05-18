@@ -22,23 +22,34 @@
       "body": "lda listens for your hotkey and types into the focused app. macOS requires Accessibility permission for both.",
       "open_settings": "Open System Settings",
       "granted": "Accessibility granted",
-      "denied": "Not granted yet",
-      "polling": "Polling permission state..."
+      "denied": "Not granted yet"
     },
     "microphone": {
       "title": "Microphone access",
       "body": "lda needs microphone access to capture your dictation. Audio is processed on-device and discarded after each transcription.",
-      "test_mic": "Test mic (2s)",
-      "testing": "Recording — speak now",
-      "using": "Using",
+      "input_device": "Input device",
+      "default": "system default",
+      "test_mic": "Test microphone",
+      "stop": "Stop",
+      "listening": "Listening — speak now",
+      "idle_hint": "Click Test microphone, then say something.",
+      "hint_try_other": "Not getting any sound. If your device is wireless (e.g. AirPods), it may not have switched to mic mode yet — try selecting a different input below.",
+      "hint_speak_louder": "Picking up faint audio. Try speaking louder, or switch to a closer microphone.",
       "tested_ok": "Audio detected",
-      "tested_no_audio": "No audio detected",
-      "tested_no_audio_hint": "Speak louder, or change your input device in System Settings → Sound.",
+      "tested_no_audio": "No audio detected within 30 seconds",
+      "tested_no_audio_hint": "Try a different input device, or check your system volume.",
       "tested_no_capture": "Microphone did not produce any audio",
       "tested_no_capture_hint": "Open System Settings → Privacy & Security → Microphone and make sure local-dictation-app is allowed, then try again.",
+      "tested_device_silent": "Device opened, but is producing silence",
+      "tested_device_silent_hint": "'{{device}}' may be muted, paused, or (if Bluetooth) stuck in output-only mode. Try selecting a different input below.",
+      "tested_tcc_blocked": "macOS blocked microphone access",
+      "tested_tcc_blocked_hint": "macOS didn't show the permission prompt. Open System Settings, allow local-dictation-app (or your terminal app, if running from cargo), then click Test microphone again.",
+      "open_system_settings": "Open System Settings",
+      "tested_cancelled": "Test stopped.",
       "tested_error": "Test failed",
       "granted": "Microphone granted",
-      "denied": "Not granted yet"
+      "denied": "Not granted yet",
+      "not_determined": "Not requested yet"
     },
     "models": {
       "title": "Choose your models",
@@ -56,6 +67,7 @@
   },
   "settings": {
     "title": "Settings",
+    "back_to_home": "Back",
     "tabs": {
       "general": "General",
       "models": "Models",
@@ -64,11 +76,15 @@
     },
     "general": {
       "section": "Dictation",
+      "injection_section": "Text injection",
+      "app_section": "App",
       "language": "Cleanup language",
       "language_auto": "Auto-detect",
+      "input_device": "Microphone",
+      "input_device_default": "system default",
       "force_pasteboard": "Always use pasteboard",
       "force_pasteboard_helper": "Skip Accessibility text injection; paste via clipboard instead.",
-      "paste_delay_ms": "Paste delay (ms)",
+      "paste_delay_ms": "Paste delay",
       "launch_at_login": "Launch at login"
     },
     "models": {
@@ -94,6 +110,7 @@
   },
   "model_manager": {
     "title": "Model Manager",
+    "back": "Settings",
     "stats": "{{used}} used · {{installed}} of {{total}} catalog models installed",
     "stt_section": "Speech-to-text",
     "llm_section": "Language model",
@@ -113,7 +130,10 @@
     "rerun_wizard": "Re-run setup wizard",
     "sidecar_down_title": "Models failed to load",
     "sidecar_down_body": "Open Settings to retry.",
-    "retry": "Open Settings"
+    "retry": "Open Settings",
+    "models_not_loaded_title": "Models not loaded",
+    "models_not_loaded_body": "Open Settings to pick or download Whisper + LLM models.",
+    "open_settings": "Open Settings"
   },
   "toast": {
     "sidecar_reloading": "Reloading models...",
