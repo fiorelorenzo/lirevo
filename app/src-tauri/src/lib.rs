@@ -100,6 +100,20 @@ pub fn run() {
             commands::dialog::pick_file,
             commands::updater::check_for_updates,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, event| {
+            // Force a clean exit on shutdown. The whisper-rs / llama-cpp-2 /
+            // cpal / objc2 destructors run in arbitrary order across global
+            // statics + tokio runtime tear-down, and at least one of them
+            // SIGABRT's during drop. macOS then surfaces the "Chiusura
+            // inattesa" crash report dialog on every quit. process::exit
+            // skips static destructors so we exit cleanly — fine here
+            // because there's no transactional state to flush (settings
+            // persist on each update, logs flush via the WorkerGuard which
+            // ran before this point).
+            if let tauri::RunEvent::ExitRequested { .. } = event {
+                std::process::exit(0);
+            }
+        });
 }
