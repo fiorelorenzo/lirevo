@@ -6,6 +6,15 @@
   import { Mic, Square, Check } from '@lucide/svelte';
   import PermissionStatus from '$lib/components/PermissionStatus.svelte';
   import { lda, type PermissionStatus as Status, type InputDeviceEntry } from '$lib/tauri';
+
+  async function openMicrophoneSettings() {
+    console.info('[Microphone] open System Settings clicked');
+    try {
+      await lda.openSystemSettingsMicrophone();
+    } catch (e) {
+      console.error('[Microphone] open settings failed', e);
+    }
+  }
   import { settings, updateSettings } from '$lib/stores/settings.svelte';
   import { audioLevel } from '$lib/stores/recording';
   import { t } from '$lib/i18n';
@@ -38,8 +47,10 @@
   type Result =
     | { kind: 'ok'; peak: number; device: string }
     | { kind: 'no_capture' }
+    | { kind: 'device_silent'; device: string }
     | { kind: 'cancelled' }
     | { kind: 'no_audio'; peak: number; device: string }
+    | { kind: 'tcc_blocked' }
     | { kind: 'error'; message: string };
 
   let result = $state<Result | null>(null);
@@ -81,6 +92,37 @@
 
   async function startTest() {
     console.info(`[Microphone] startTest device=${selectedDevice ?? '(default)'}`);
+
+    // If TCC was never asked, prompt explicitly first. cpal on macOS opens
+    // the device through Core Audio HAL which does NOT trigger the TCC
+    // prompt automatically when run from an unsigned dev build — the stream
+    // succeeds but produces silent zeros.
+    if (status === 'not_determined') {
+      console.info('[Microphone] permission not_determined — prompting');
+      const t0 = performance.now();
+      try {
+        status = await lda.promptMicrophone();
+        console.info(
+          `[Microphone] post-prompt status = ${status} (${(performance.now() - t0).toFixed(0)}ms)`,
+        );
+      } catch (e) {
+        console.error('[Microphone] promptMicrophone failed', e);
+      }
+      if (status !== 'granted') {
+        const elapsed = performance.now() - t0;
+        // < 250ms means macOS auto-denied without showing the dialog
+        // (typically because the responsible process — Terminal, parent
+        // shell — doesn't have mic permission, or TCC remembers a prior
+        // deny). Show a Settings-link path instead.
+        if (elapsed < 250) {
+          result = { kind: 'tcc_blocked' };
+        } else {
+          result = { kind: 'error', message: 'Microphone permission was not granted.' };
+        }
+        return;
+      }
+    }
+
     testing = true;
     result = null;
     currentPeak = 0;
@@ -107,6 +149,8 @@
         result = { kind: 'no_capture' };
       } else if (res.detected) {
         result = { kind: 'ok', peak: res.peak, device: res.deviceLabel };
+      } else if (res.deviceSilent) {
+        result = { kind: 'device_silent', device: res.deviceLabel };
       } else {
         result = { kind: 'no_audio', peak: res.peak, device: res.deviceLabel };
       }
@@ -207,8 +251,23 @@
           <p class="font-medium text-destructive">{t('wizard.microphone.tested_no_capture')}</p>
           <p class="text-xs text-muted-foreground">{t('wizard.microphone.tested_no_capture_hint')}</p>
         </div>
+      {:else if result?.kind === 'device_silent'}
+        <div class="space-y-1">
+          <p class="font-medium text-warning">{t('wizard.microphone.tested_device_silent')}</p>
+          <p class="text-xs text-muted-foreground">
+            {t('wizard.microphone.tested_device_silent_hint', { device: result.device })}
+          </p>
+        </div>
       {:else if result?.kind === 'cancelled'}
         <p class="text-muted-foreground">{t('wizard.microphone.tested_cancelled')}</p>
+      {:else if result?.kind === 'tcc_blocked'}
+        <div class="space-y-2">
+          <p class="font-medium text-destructive">{t('wizard.microphone.tested_tcc_blocked')}</p>
+          <p class="text-xs text-muted-foreground">{t('wizard.microphone.tested_tcc_blocked_hint')}</p>
+          <Button variant="outline" size="sm" onclick={openMicrophoneSettings}>
+            {t('wizard.microphone.open_system_settings')}
+          </Button>
+        </div>
       {:else if result?.kind === 'error'}
         <div class="space-y-1">
           <p class="font-medium text-destructive">{t('wizard.microphone.tested_error')}</p>

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount, onDestroy } from 'svelte';
   import { recording, audioLevel } from '$lib/stores/recording';
   import { fly } from 'svelte/transition';
   import { quintOut } from 'svelte/easing';
@@ -6,16 +7,29 @@
   const BARS = 24;
   let bars = $state<number[]>(Array(BARS).fill(0));
 
-  $effect(() => {
-    if ($audioLevel != null && $recording) {
-      bars = [...bars.slice(1), $audioLevel];
-    }
+  // Mutable plain JS buffer so the imperative subscribe callback can read its
+  // previous value without establishing a Svelte reactive dependency.
+  let barsBuf: number[] = Array(BARS).fill(0);
+
+  let unsubLevel: (() => void) | null = null;
+  let unsubRecording: (() => void) | null = null;
+
+  onMount(() => {
+    unsubLevel = audioLevel.subscribe((level) => {
+      barsBuf = [...barsBuf.slice(1), level];
+      bars = barsBuf.slice();
+    });
+    unsubRecording = recording.subscribe((rec) => {
+      if (!rec) {
+        barsBuf = Array(BARS).fill(0);
+        bars = barsBuf.slice();
+      }
+    });
   });
 
-  $effect(() => {
-    if (!$recording) {
-      bars = Array(BARS).fill(0);
-    }
+  onDestroy(() => {
+    unsubLevel?.();
+    unsubRecording?.();
   });
 </script>
 

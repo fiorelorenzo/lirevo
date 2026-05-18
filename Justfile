@@ -2,9 +2,24 @@ default:
     @just --list
 
 # Tauri dev (HMR + Rust auto-rebuild). Frontend on :1420.
+# Bare binary — macOS TCC prompts (mic, accessibility) cannot appear here.
+# Use LDA_DEV_SKIP_PERMS=1 to mock permission-granted state when iterating
+# UI, or `just dev-bundle` to test real TCC flows.
 dev:
     cd app && npm install --no-audit --no-fund
     cd app && npx tauri dev
+
+# Debug .app bundle for testing macOS-permission flows (microphone,
+# accessibility). The bare `just dev` binary cannot trigger TCC prompts;
+# this builds a proper bundle so macOS recognizes the app and shows the
+# permission dialog. Slower than `just dev` (real cargo build + bundling)
+# but the only way to exercise the real permission UX.
+#
+# Output: app/src-tauri/target/aarch64-apple-darwin/debug/bundle/macos/local-dictation-app.app
+dev-bundle:
+    cd app && npm install --no-audit --no-fund
+    cd app && npx tauri build --debug --target aarch64-apple-darwin --bundles app
+    open app/src-tauri/target/aarch64-apple-darwin/debug/bundle/macos/local-dictation-app.app
 
 # Release build → .app + .dmg under app/src-tauri/target/aarch64-apple-darwin/release/bundle/
 dmg:

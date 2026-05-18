@@ -19,7 +19,8 @@ pub use hotkey::{Hotkey, HotkeyEvent, HotkeyError, HotkeyListener};
 pub use inject::{InjectError, Injector, InjectionMethod};
 #[cfg(target_os = "macos")]
 pub use permissions::{
-    check_accessibility, check_microphone, prompt_accessibility, PermissionStatus,
+    check_accessibility, check_microphone, dev_skip_perms, prompt_accessibility, prompt_microphone,
+    PermissionStatus,
 };
 
 /// System clipboard helpers (last-resort fallback when injection fails).

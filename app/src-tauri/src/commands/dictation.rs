@@ -64,6 +64,10 @@ pub struct TestMicResult {
     pub detected: bool,
     /// True iff the test was stopped by `cancel_test_mic` (user pressed Stop).
     pub cancelled: bool,
+    /// True iff cpal produced samples but every level read was exactly zero
+    /// for ≥ 3 seconds. Classic AirPods-stuck-in-A2DP or "device opened but
+    /// not capturing" signature — different from "captured but quiet".
+    pub device_silent: bool,
 }
 
 /// Cancel sender for the currently running test_mic, if any.
@@ -93,6 +97,10 @@ pub async fn test_mic(
     }
     let (cancel_tx, mut cancel_rx) = oneshot::channel::<()>();
     *TEST_MIC_CANCEL.lock().unwrap() = Some(cancel_tx);
+
+    if os_integration::dev_skip_perms() {
+        return mock_test_mic(app, cancel_rx).await;
+    }
 
     let cfg = RecorderConfig {
         device_name: device_name.clone(),
@@ -124,6 +132,12 @@ pub async fn test_mic(
     let mut emit_count: u32 = 0;
     let mut detected = false;
     let mut cancelled = false;
+    let mut device_silent = false;
+    let mut first_post_warmup: Option<Instant> = None;
+    /// If we've received samples for this long with peak still exactly 0,
+    /// we conclude the device is producing silence (AirPods stuck in A2DP,
+    /// muted hardware mic, etc.) and abort early.
+    const SILENT_DEVICE_TIMEOUT: Duration = Duration::from_secs(3);
 
     loop {
         tokio::select! {
@@ -147,12 +161,31 @@ pub async fn test_mic(
                 if elapsed >= TEST_MIC_WARMUP {
                     if level > peak { peak = level; }
                     sample_count += 1;
+                    if first_post_warmup.is_none() {
+                        first_post_warmup = Some(Instant::now());
+                    }
                     if level >= TEST_MIC_THRESHOLD {
                         detected = true;
                         tracing::info!(level, peak, sample_count, "test_mic: threshold crossed");
                         let _ = app.emit("recording:level", level);
                         tokio::time::sleep(Duration::from_millis(150)).await;
                         break;
+                    }
+                    // Detect "device silent" — many samples but exactly zero
+                    // peak. Classic AirPods-in-A2DP or unsigned-dev-build
+                    // TCC-stuck pattern. Abort early so the user doesn't
+                    // wait the full 30s safety cap.
+                    if peak == 0.0 && sample_count >= 30 {
+                        if let Some(t0) = first_post_warmup {
+                            if t0.elapsed() >= SILENT_DEVICE_TIMEOUT {
+                                device_silent = true;
+                                tracing::warn!(
+                                    sample_count,
+                                    "test_mic: device producing silence — aborting"
+                                );
+                                break;
+                            }
+                        }
                     }
                 }
                 let _ = app.emit("recording:level", level);
@@ -188,10 +221,76 @@ pub async fn test_mic(
         device = %device_label,
         detected,
         cancelled,
+        device_silent,
         "test_mic: complete"
     );
 
-    Ok(TestMicResult { peak, sample_count, device_label, detected, cancelled })
+    Ok(TestMicResult {
+        peak,
+        sample_count,
+        device_label,
+        detected,
+        cancelled,
+        device_silent,
+    })
+}
+
+/// Simulated test_mic for `LDA_DEV_SKIP_PERMS=1` so the wizard's listening UI
+/// + result-state UI can be iterated under `tauri dev` (where real cpal
+/// capture returns silence because TCC auto-denies bare-binary launches).
+/// Streams a 1.5s synthetic sine-ish envelope on `recording:level`, then
+/// resolves as a successful detection — or cancelled if the user pressed Stop.
+async fn mock_test_mic(
+    app: AppHandle,
+    mut cancel_rx: oneshot::Receiver<()>,
+) -> Result<TestMicResult, AppError> {
+    tracing::warn!("test_mic: LDA_DEV_SKIP_PERMS active — running synthetic capture");
+    let _ = app.emit("recording:state", true);
+
+    let started = Instant::now();
+    let max = Duration::from_millis(1500);
+    let mut interval = tokio::time::interval(Duration::from_millis(33));
+    interval.tick().await; // discard the immediate first tick
+
+    let mut peak: f32 = 0.0;
+    let mut samples: u32 = 0;
+    let mut cancelled = false;
+
+    let deadline = tokio::time::sleep(max);
+    tokio::pin!(deadline);
+    loop {
+        tokio::select! {
+            biased;
+            () = &mut deadline => break,
+            _ = &mut cancel_rx => { cancelled = true; break; }
+            _ = interval.tick() => {
+                let t = started.elapsed().as_millis() as f32 / 1000.0;
+                // Envelope that ramps up then plateaus around 0.35.
+                let env = (t * 3.5).tanh();
+                let level = (0.10 + 0.30 * env) + 0.05 * (t * 18.0).sin();
+                let level = level.clamp(0.0, 1.0);
+                if level > peak { peak = level; }
+                samples += 1;
+                let _ = app.emit("recording:level", level);
+            }
+        }
+    }
+
+    let _ = app.emit("recording:state", false);
+    {
+        let mut g = TEST_MIC_CANCEL.lock().unwrap();
+        if g.as_ref().map(oneshot::Sender::is_closed).unwrap_or(true) {
+            *g = None;
+        }
+    }
+    Ok(TestMicResult {
+        peak,
+        sample_count: samples,
+        device_label: "(dev mock — LDA_DEV_SKIP_PERMS)".into(),
+        detected: !cancelled,
+        cancelled,
+        device_silent: false,
+    })
 }
 
 /// Stop an in-flight `test_mic` early. The pending `test_mic` call resolves

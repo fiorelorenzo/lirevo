@@ -92,6 +92,8 @@ pub fn run() {
             commands::permissions::check_accessibility,
             commands::permissions::prompt_accessibility,
             commands::permissions::check_microphone,
+            commands::permissions::prompt_microphone,
+            commands::permissions::open_system_settings_microphone,
             commands::windows::open_window,
             commands::windows::close_window,
             commands::windows::complete_wizard,

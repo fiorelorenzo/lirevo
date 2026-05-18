@@ -74,6 +74,8 @@ export interface TestMicResult {
   deviceLabel: string;
   detected: boolean;
   cancelled: boolean;
+  /** Device returned samples but every level was exactly zero ≥3s. */
+  deviceSilent: boolean;
 }
 
 export interface InputDeviceEntry {
@@ -91,6 +93,8 @@ export const lda = {
   checkAccessibility: () => invoke<PermissionStatus>('check_accessibility'),
   promptAccessibility: () => invoke<PermissionStatus>('prompt_accessibility'),
   checkMicrophone: () => invoke<PermissionStatus>('check_microphone'),
+  promptMicrophone: () => invoke<PermissionStatus>('prompt_microphone'),
+  openSystemSettingsMicrophone: () => invoke<void>('open_system_settings_microphone'),
   testMic: (deviceName: string | null) =>
     invoke<TestMicResult>('test_mic', { deviceName }),
   cancelTestMic: () => invoke<void>('cancel_test_mic'),

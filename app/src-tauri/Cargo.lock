@@ -3265,6 +3265,7 @@ dependencies = [
 name = "os-integration"
 version = "0.0.1"
 dependencies = [
+ "block2",
  "core-foundation 0.10.1",
  "core-graphics",
  "objc2",
