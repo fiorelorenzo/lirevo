@@ -197,6 +197,8 @@ async fn verify_sha256(
     expected: &str,
 ) -> Result<(), DownloadError> {
     use sha2::{Digest, Sha256};
+    use std::fmt::Write as _;
+
     let mut file = tokio::fs::File::open(path)
         .await
         .map_err(|e| DownloadError::Failed(format!("open for hash: {e}")))?;
@@ -212,7 +214,14 @@ async fn verify_sha256(
         }
         hasher.update(&buf[..n]);
     }
-    let actual = format!("{:x}", hasher.finalize());
+    // sha2 0.11 returns `Array<u8, N>` from `finalize`, which (unlike the
+    // 0.10 `GenericArray`) does NOT implement `LowerHex` — so `format!
+    // ("{:x}", ...)` fails to compile. Hex-encode byte-by-byte instead.
+    let digest = hasher.finalize();
+    let mut actual = String::with_capacity(64);
+    for b in digest.iter() {
+        let _ = write!(&mut actual, "{:02x}", b);
+    }
     if actual.eq_ignore_ascii_case(expected) {
         Ok(())
     } else {
