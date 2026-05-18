@@ -76,13 +76,15 @@
     },
     "general": {
       "section": "Dictation",
+      "injection_section": "Text injection",
+      "app_section": "App",
       "language": "Cleanup language",
       "language_auto": "Auto-detect",
       "input_device": "Microphone",
       "input_device_default": "system default",
       "force_pasteboard": "Always use pasteboard",
       "force_pasteboard_helper": "Skip Accessibility text injection; paste via clipboard instead.",
-      "paste_delay_ms": "Paste delay (ms)",
+      "paste_delay_ms": "Paste delay",
       "launch_at_login": "Launch at login"
     },
     "models": {
@@ -108,6 +110,7 @@
   },
   "model_manager": {
     "title": "Model Manager",
+    "back": "Settings",
     "stats": "{{used}} used · {{installed}} of {{total}} catalog models installed",
     "stt_section": "Speech-to-text",
     "llm_section": "Language model",

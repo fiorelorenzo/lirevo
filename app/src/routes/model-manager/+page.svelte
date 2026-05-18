@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { ArrowLeft } from '@lucide/svelte';
   import { Separator } from '$lib/components/ui/separator';
   import ModelCard from '$lib/components/ModelCard.svelte';
   import FilePicker from '$lib/components/FilePicker.svelte';
@@ -7,6 +8,7 @@
   import { settings, updateSettings } from '$lib/stores/settings.svelte';
   import { lda, type CatalogEntry, type LocalModel } from '$lib/tauri';
   import { t } from '$lib/i18n';
+  import { navigate } from '$lib/router';
 
   let catalog = $state<CatalogEntry[]>([]);
   let local = $state<LocalModel[]>([]);
@@ -64,6 +66,13 @@
 </script>
 
 <div class="h-full p-8 overflow-y-auto">
+  <button
+    onclick={() => navigate('settings')}
+    class="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4"
+  >
+    <ArrowLeft class="h-4 w-4" />
+    {t('model_manager.back')}
+  </button>
   <h1 class="text-2xl font-semibold mb-4">{t('model_manager.title')}</h1>
 
   {#if loaded}
