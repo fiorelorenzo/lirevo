@@ -85,31 +85,31 @@ pub fn run() {
                 commands::inference::load_models(&app_handle_for_load, state).await;
             });
 
-            // Register an atexit handler that short-circuits to `_exit(0)`
-            // BEFORE any C++ static destructors run. Background:
-            // `[NSApplication terminate:]` (Cmd+Q on macOS) ends up calling
-            // libc::exit, which calls __cxa_finalize_ranges, which fires
-            // ggml-metal's `unique_ptr<ggml_metal_device>` destructor — and
-            // that asserts `[rsets->data count] == 0`, but Metal is still
-            // draining and the count is non-zero → SIGABRT, "Chiusura
-            // inattesa" dialog.
-            //
-            // atexit handlers run LIFO during __cxa_finalize. We register
-            // ours at the end of setup so it fires FIRST, then _exit jumps
-            // out of the process before the C++ destructors execute.
-            //
-            // (RunEvent::ExitRequested was the previous attempt but Tauri
-            // never sees Cmd+Q on macOS — AppKit goes straight to exit.)
-            extern "C" fn lda_early_exit() {
-                unsafe extern "C" {
-                    fn _exit(status: std::ffi::c_int) -> !;
+            // macOS-only: register an atexit handler that short-circuits to
+            // `_exit(0)` BEFORE any C++ static destructors run.
+            // `[NSApplication terminate:]` (Cmd+Q) bypasses Tauri's run loop
+            // and goes straight to libc::exit → __cxa_finalize_ranges → fires
+            // ggml-metal's `unique_ptr<ggml_metal_device>` destructor, which
+            // asserts `[rsets->data count] == 0` but Metal is still draining
+            // → SIGABRT, "Chiusura inattesa" dialog.
+            // atexit handlers run LIFO during __cxa_finalize; registering
+            // ours last means it runs first, escaping the process before
+            // any of the C++ destructors execute.
+            // Other platforms exit cleanly through Tauri's normal teardown
+            // (the RunEvent::ExitRequested branch below covers them).
+            #[cfg(target_os = "macos")]
+            {
+                extern "C" fn lda_early_exit() {
+                    unsafe extern "C" {
+                        fn _exit(status: std::ffi::c_int) -> !;
+                    }
+                    unsafe { _exit(0) }
                 }
-                unsafe { _exit(0) }
+                unsafe extern "C" {
+                    fn atexit(cb: extern "C" fn()) -> std::ffi::c_int;
+                }
+                unsafe { atexit(lda_early_exit); }
             }
-            unsafe extern "C" {
-                fn atexit(cb: extern "C" fn()) -> std::ffi::c_int;
-            }
-            unsafe { atexit(lda_early_exit); }
 
             Ok(())
         })
@@ -143,25 +143,24 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_app, event| {
-            // Force a clean exit on shutdown via the raw `_exit` syscall
-            // (NOT std::process::exit). At quit time ggml-metal's C++ static
-            // `unique_ptr<ggml_metal_device>` deleter fires from
-            // __cxa_finalize_ranges and asserts the residency-set list is
-            // empty — but the Metal command queue is still being drained,
-            // so [rsets->data count] != 0 and the process SIGABRTs. macOS
-            // then surfaces "Chiusura inattesa" on every quit.
-            //
-            // std::process::exit DOES run __cxa_finalize, so it doesn't fix
-            // the crash. _exit skips atexit handlers and C++ static
-            // destructors entirely. Safe here: settings persist on every
-            // update, the tracing-appender WorkerGuard already flushed
-            // before we get here, and download progress is checkpointed
-            // per-chunk in models.rs.
+            // Defensive cover for non-macOS shutdown paths (Tauri's run
+            // loop emits ExitRequested before destructors there). On macOS
+            // the atexit handler registered in setup() handles the
+            // [NSApplication terminate:] → libc::exit path that doesn't
+            // route through this callback at all; std::process::exit here
+            // would still trigger the ggml-metal destructor abort.
             if let tauri::RunEvent::ExitRequested { .. } = event {
-                unsafe extern "C" {
-                    fn _exit(status: std::ffi::c_int) -> !;
+                #[cfg(target_os = "macos")]
+                {
+                    unsafe extern "C" {
+                        fn _exit(status: std::ffi::c_int) -> !;
+                    }
+                    unsafe { _exit(0) }
                 }
-                unsafe { _exit(0) }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    std::process::exit(0);
+                }
             }
         });
 }

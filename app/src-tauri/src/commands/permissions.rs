@@ -42,36 +42,42 @@ pub async fn prompt_microphone() -> Result<String, AppError> {
     Ok(to_status(status))
 }
 
-/// Open System Settings directly on the Microphone privacy pane. We shell out
-/// to `open` rather than going through tauri-plugin-shell so we don't depend
-/// on a configured URL scope — `x-apple.systempreferences:` is not in any
-/// default plugin allowlist.
+/// Open the OS' privacy settings on the Microphone pane. macOS has a deep
+/// link via the `x-apple.systempreferences:` scheme; Linux/Windows have
+/// nothing portable, so the command becomes a no-op there for now (callers
+/// can wire platform-specific deep links later without changing the
+/// frontend contract).
 #[tauri::command]
 pub fn open_system_settings_microphone() -> Result<(), AppError> {
-    #[cfg(target_os = "macos")]
-    {
-        let url = "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone";
-        tracing::info!(url, "opening System Settings microphone pane");
-        std::process::Command::new("open")
-            .arg(url)
-            .spawn()
-            .map_err(|e| AppError::Internal(format!("open settings: {e}")))?;
-    }
-    Ok(())
+    open_privacy_pane("microphone")
 }
 
 /// Same as the microphone variant but targets the Accessibility pane.
 #[tauri::command]
 pub fn open_system_settings_accessibility() -> Result<(), AppError> {
-    #[cfg(target_os = "macos")]
-    {
-        let url = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
-        tracing::info!(url, "opening System Settings accessibility pane");
-        std::process::Command::new("open")
-            .arg(url)
-            .spawn()
-            .map_err(|e| AppError::Internal(format!("open settings: {e}")))?;
-    }
+    open_privacy_pane("accessibility")
+}
+
+#[cfg(target_os = "macos")]
+fn open_privacy_pane(which: &'static str) -> Result<(), AppError> {
+    let url = match which {
+        "microphone" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+        "accessibility" => {
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+        }
+        _ => return Err(AppError::Internal(format!("unknown privacy pane: {which}"))),
+    };
+    tracing::info!(url, "opening System Settings privacy pane");
+    std::process::Command::new("open")
+        .arg(url)
+        .spawn()
+        .map_err(|e| AppError::Internal(format!("open settings: {e}")))?;
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn open_privacy_pane(which: &'static str) -> Result<(), AppError> {
+    tracing::info!(which, "open_privacy_pane not implemented on this platform");
     Ok(())
 }
 
