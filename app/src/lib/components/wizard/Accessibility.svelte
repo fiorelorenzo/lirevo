@@ -65,6 +65,5 @@
     <Button onclick={onnext}>{t('wizard.common.next')}</Button>
   {:else}
     <Button onclick={prompt}>{t('wizard.accessibility.open_settings')}</Button>
-    <p class="text-xs text-muted-foreground">{t('wizard.accessibility.polling')}</p>
   {/if}
 </div>

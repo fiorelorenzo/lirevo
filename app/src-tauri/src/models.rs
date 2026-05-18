@@ -5,6 +5,7 @@ use serde::Serialize;
 use tokio::sync::oneshot;
 
 #[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CatalogEntry {
     pub id: &'static str,
     pub kind: ModelKind,
@@ -23,6 +24,7 @@ pub struct CatalogEntry {
 pub enum ModelKind { Stt, Llm }
 
 #[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LocalModel {
     pub id: String,
     pub kind: ModelKind,
@@ -43,6 +45,7 @@ pub enum DownloadProgressState {
 }
 
 #[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DownloadProgress {
     pub id: String,
     pub state: DownloadProgressState,

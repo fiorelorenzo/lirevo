@@ -22,8 +22,7 @@
       "body": "lda listens for your hotkey and types into the focused app. macOS requires Accessibility permission for both.",
       "open_settings": "Open System Settings",
       "granted": "Accessibility granted",
-      "denied": "Not granted yet",
-      "polling": "Polling permission state..."
+      "denied": "Not granted yet"
     },
     "microphone": {
       "title": "Microphone access",
