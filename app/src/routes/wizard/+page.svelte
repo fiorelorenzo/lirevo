@@ -70,10 +70,10 @@
       <AlertDialog.Description>{t('wizard.common.skip_confirm_body')}</AlertDialog.Description>
     </AlertDialog.Header>
     <AlertDialog.Footer>
-      <AlertDialog.Cancel>{t('wizard.common.skip_confirm_cancel')}</AlertDialog.Cancel>
-      <AlertDialog.Action onclick={() => { skipPromptOpen = false; void finish(); }}>
+      <AlertDialog.Action variant="destructive" onclick={() => { skipPromptOpen = false; void finish(); }}>
         {t('wizard.common.skip_confirm_skip')}
       </AlertDialog.Action>
+      <AlertDialog.Cancel variant="default">{t('wizard.common.skip_confirm_cancel')}</AlertDialog.Cancel>
     </AlertDialog.Footer>
   </AlertDialog.Content>
 </AlertDialog.Root>
