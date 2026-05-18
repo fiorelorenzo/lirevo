@@ -19,6 +19,7 @@ test:
 # Type check across the workspace + frontend.
 check:
     cargo check --workspace --all-targets
+    cd app && npx svelte-kit sync
     cd app && npx svelte-check --threshold error
     cd app/src-tauri && cargo check --all-targets
 
