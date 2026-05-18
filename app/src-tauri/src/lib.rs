@@ -86,6 +86,7 @@ pub fn run() {
             commands::inference::transcribe,
             commands::inference::clean,
             commands::dictation::manual_dictate,
+            commands::dictation::test_mic,
             commands::permissions::check_accessibility,
             commands::permissions::prompt_accessibility,
             commands::permissions::check_microphone,

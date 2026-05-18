@@ -12,12 +12,20 @@
   let status = $state<Status | null>(null);
   let pollTimer: ReturnType<typeof setInterval> | null = null;
 
+  // Only auto-advance if we observed a transition from non-granted to granted
+  // during this view. If the user navigates back to this step with permission
+  // already granted, we stay put — they must click Next themselves.
+  let observedNonGranted = $state(false);
+
   async function refresh() {
-    status = await lda.checkAccessibility();
-    if (status === 'granted' && pollTimer) {
+    const newStatus = await lda.checkAccessibility();
+    status = newStatus;
+    if (newStatus !== 'granted') {
+      observedNonGranted = true;
+    } else if (observedNonGranted && pollTimer) {
+      // Transitioned denied/not_determined → granted during this view.
       clearInterval(pollTimer);
       pollTimer = null;
-      // Auto-advance after a brief delay.
       setTimeout(() => onnext(), 800);
     }
   }
