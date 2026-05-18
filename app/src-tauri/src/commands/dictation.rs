@@ -110,6 +110,8 @@ pub async fn test_mic(
         .start()
         .map_err(|e| AppError::Permission(format!("recorder start: {e}")))?;
 
+    tracing::info!("test_mic: recorder started, entering level loop");
+
     let mut rx = recorder.level_rx();
     let _ = app.emit("recording:state", true);
 
@@ -119,16 +121,27 @@ pub async fn test_mic(
 
     let mut peak: f32 = 0.0;
     let mut sample_count: u32 = 0;
+    let mut emit_count: u32 = 0;
     let mut detected = false;
     let mut cancelled = false;
 
     loop {
         tokio::select! {
             biased;
-            () = &mut max_sleep => break,
-            _ = &mut cancel_rx => { cancelled = true; break; }
+            () = &mut max_sleep => {
+                tracing::info!("test_mic: 30s safety cap reached");
+                break;
+            }
+            _ = &mut cancel_rx => {
+                tracing::info!("test_mic: cancellation received");
+                cancelled = true;
+                break;
+            }
             res = rx.changed() => {
-                if res.is_err() { break; }
+                if res.is_err() {
+                    tracing::warn!("test_mic: level channel closed unexpectedly");
+                    break;
+                }
                 let level = *rx.borrow();
                 let elapsed = started.elapsed();
                 if elapsed >= TEST_MIC_WARMUP {
@@ -136,14 +149,22 @@ pub async fn test_mic(
                     sample_count += 1;
                     if level >= TEST_MIC_THRESHOLD {
                         detected = true;
-                        // Linger ~150 ms more so the UI shows the audible
-                        // waveform before the indicator disappears.
+                        tracing::info!(level, peak, sample_count, "test_mic: threshold crossed");
                         let _ = app.emit("recording:level", level);
                         tokio::time::sleep(Duration::from_millis(150)).await;
                         break;
                     }
                 }
                 let _ = app.emit("recording:level", level);
+                emit_count += 1;
+                // Log first 5 + every 33rd (~1s) so we can verify the channel
+                // is producing data without flooding the log file.
+                if emit_count <= 5 || emit_count % 33 == 0 {
+                    tracing::info!(
+                        emit_count, level, elapsed_ms = elapsed.as_millis() as u64,
+                        "test_mic: emitted level"
+                    );
+                }
             }
         }
     }

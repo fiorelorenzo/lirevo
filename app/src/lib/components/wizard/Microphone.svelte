@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy, untrack } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { Button } from '$lib/components/ui/button';
   import * as Select from '$lib/components/ui/select';
   import { Label } from '$lib/components/ui/label';
@@ -18,15 +18,22 @@
   let devices = $state<InputDeviceEntry[]>([]);
   let selectedDevice = $state<string | null>(null);
 
-  // Live diagnostics during the test.
-  let currentPeak = $state(0); // running max of $audioLevel during this test
-  let testStartedAt = $state(0); // performance.now() at start
+  let currentPeak = $state(0);
+  let testStartedAt = $state(0);
   let hint = $state<'try_other' | 'speak_louder' | null>(null);
   let hintTimer: ReturnType<typeof setInterval> | null = null;
 
-  // Bar history for the inline waveform (24 bars).
   const BARS = 24;
   let bars = $state<number[]>(Array(BARS).fill(0));
+
+  // We mutate barsBuf imperatively (NOT $state) so we don't establish any
+  // self-referential write inside the audioLevel subscription. After mutating
+  // we copy into `bars` (the reactive view consumed by {#each}).
+  let barsBuf: number[] = Array(BARS).fill(0);
+
+  // Imperative store subscription — bypasses $effect tracking entirely so we
+  // can't trip Svelte 5's effect_update_depth_exceeded guard.
+  let unsubAudioLevel: (() => void) | null = null;
 
   type Result =
     | { kind: 'ok'; peak: number; device: string }
@@ -39,48 +46,49 @@
 
   async function refreshPermission() {
     status = await lda.checkMicrophone();
+    console.info(`[Microphone] permission status = ${status}`);
   }
 
   async function refreshDevices() {
     try {
       devices = await lda.listInputDevices();
+      console.info(`[Microphone] devices = ${JSON.stringify(devices)}`);
     } catch (e) {
-      console.warn('listInputDevices failed', e);
+      console.warn('[Microphone] listInputDevices failed', e);
     }
   }
 
   onMount(async () => {
+    console.info('[Microphone] mount');
     await Promise.all([refreshPermission(), refreshDevices()]);
     if ($settings) selectedDevice = $settings.inputDeviceName ?? null;
+
+    // Subscribe to audio levels imperatively.
+    unsubAudioLevel = audioLevel.subscribe((level) => {
+      if (!testing) return;
+      barsBuf = [...barsBuf.slice(1), level];
+      bars = barsBuf.slice(); // copy into reactive state
+      if (level > currentPeak) currentPeak = level;
+    });
   });
 
   onDestroy(() => {
+    console.info('[Microphone] destroy');
+    unsubAudioLevel?.();
     if (hintTimer) clearInterval(hintTimer);
     if (testing) void lda.cancelTestMic();
   });
 
-  // Push audio levels into the bar history + track the running peak while
-  // testing. ONLY $audioLevel is tracked (the trigger); everything else is
-  // wrapped in untrack so we never read state we also write — otherwise
-  // Svelte 5 reports effect_update_depth_exceeded.
-  $effect(() => {
-    const level = $audioLevel;
-    untrack(() => {
-      if (!testing) return;
-      if (level > currentPeak) currentPeak = level;
-      bars = [...bars.slice(1), level];
-    });
-  });
-
   async function startTest() {
+    console.info(`[Microphone] startTest device=${selectedDevice ?? '(default)'}`);
     testing = true;
     result = null;
     currentPeak = 0;
     hint = null;
-    bars = Array(BARS).fill(0);
+    barsBuf = Array(BARS).fill(0);
+    bars = barsBuf.slice();
     testStartedAt = performance.now();
 
-    // Smart hint scheduler.
     hintTimer = setInterval(() => {
       const elapsedMs = performance.now() - testStartedAt;
       if (elapsedMs > 7000 && currentPeak > 0 && currentPeak < 0.02) {
@@ -92,6 +100,7 @@
 
     try {
       const res = await lda.testMic(selectedDevice);
+      console.info(`[Microphone] testMic resolved: ${JSON.stringify(res)}`);
       if (res.cancelled) {
         result = { kind: 'cancelled' };
       } else if (res.sampleCount === 0) {
@@ -102,6 +111,7 @@
         result = { kind: 'no_audio', peak: res.peak, device: res.deviceLabel };
       }
     } catch (e) {
+      console.error('[Microphone] testMic threw', e);
       result = { kind: 'error', message: String(e) };
     } finally {
       if (hintTimer) {
@@ -114,22 +124,23 @@
   }
 
   async function stopTest() {
+    console.info('[Microphone] stopTest clicked');
     try {
       await lda.cancelTestMic();
-      console.info('[stopTest] cancellation dispatched');
+      console.info('[Microphone] cancelTestMic dispatched');
     } catch (e) {
-      console.error('[stopTest] cancel_test_mic invoke failed', e);
+      console.error('[Microphone] cancelTestMic failed', e);
     }
   }
 
   async function selectDevice(name: string | null) {
+    console.info(`[Microphone] selectDevice ${name ?? '(default)'}`);
     selectedDevice = name;
     await updateSettings({ inputDeviceName: name });
     result = null;
     hint = null;
   }
 
-  // Display name of the currently-selected device for the dropdown trigger.
   let triggerLabel = $derived.by(() => {
     if (selectedDevice) return selectedDevice;
     const def = devices.find((d) => d.isDefault);
@@ -150,9 +161,7 @@
     not_determined_label={t('wizard.microphone.not_determined')}
   />
 
-  <!-- Test card -->
   <div class="w-full bg-surface border border-border rounded-2xl p-5 space-y-4">
-    <!-- Live waveform area (only meaningful during a test) -->
     <div class="h-16 flex items-end justify-center gap-[3px]" aria-hidden="true">
       {#each bars as level, i (i)}
         <div
@@ -163,7 +172,6 @@
       {/each}
     </div>
 
-    <!-- Status text + peak readout -->
     <div class="text-sm">
       {#if testing}
         <div class="flex items-center justify-center gap-2 text-muted-foreground">
@@ -211,7 +219,6 @@
       {/if}
     </div>
 
-    <!-- Action button -->
     <div class="flex items-center justify-center">
       {#if testing}
         <Button variant="outline" onclick={stopTest}>
@@ -227,7 +234,6 @@
     </div>
   </div>
 
-  <!-- Device picker (always visible, even during testing — selection takes effect next time) -->
   <div class="w-full max-w-xs space-y-2 text-left">
     <Label class="text-xs uppercase tracking-wide text-muted-foreground">
       {t('wizard.microphone.input_device')}
