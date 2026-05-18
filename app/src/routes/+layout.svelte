@@ -8,6 +8,7 @@
   import Titlebar from '$lib/components/Titlebar.svelte';
   import RecordingIndicator from '$lib/components/RecordingIndicator.svelte';
 
+  import { initI18n } from '$lib/i18n';
   import { loadSettings } from '$lib/stores/settings.svelte';
   import { toasts } from '$lib/stores/toasts';
 
@@ -17,6 +18,7 @@
   import '$lib/stores/downloads';
 
   let { children } = $props();
+  let i18nReady = $state(false);
 
   // Derive page title from current route.
   let titlebarLabel = $derived.by(() => {
@@ -40,7 +42,9 @@
     }
   });
 
-  onMount(() => {
+  onMount(async () => {
+    await initI18n('en');
+    i18nReady = true;
     void loadSettings();
   });
 </script>
@@ -51,7 +55,9 @@
 <main class="flex flex-col h-screen bg-background text-foreground overflow-hidden">
   <Titlebar title={titlebarLabel} />
   <div class="flex-1 overflow-hidden relative">
-    {@render children()}
+    {#if i18nReady}
+      {@render children()}
+    {/if}
     <RecordingIndicator />
   </div>
 </main>

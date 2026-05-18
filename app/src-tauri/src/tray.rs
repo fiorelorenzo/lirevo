@@ -148,8 +148,8 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
         "open-wizard" => { let _ = crate::commands::windows::open_window_internal(app, "wizard"); }
         "view-logs" => {
             if let Ok(dir) = app.path().app_log_dir() {
-                use tauri_plugin_shell::ShellExt;
-                let _ = app.shell().open(dir.to_string_lossy().to_string(), None);
+                use tauri_plugin_opener::OpenerExt;
+                let _ = app.opener().open_path(dir.to_string_lossy().to_string(), None::<&str>);
             }
         }
         "check-updates" => {

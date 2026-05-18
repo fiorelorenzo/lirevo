@@ -23,6 +23,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_autostart::init(
@@ -85,6 +86,7 @@ pub fn run() {
             commands::inference::transcribe,
             commands::inference::clean,
             commands::dictation::manual_dictate,
+            commands::dictation::test_mic,
             commands::permissions::check_accessibility,
             commands::permissions::prompt_accessibility,
             commands::permissions::check_microphone,

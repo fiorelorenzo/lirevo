@@ -16,6 +16,13 @@ pub use recorder::{Recorder, RecorderConfig, Recording};
 
 use thiserror::Error;
 
+/// Return the OS-visible name of the default input device (e.g. "MacBook Pro
+/// Microphone"). Used by the wizard to show the user which device the mic
+/// test is sampling from.
+pub fn default_input_device_label() -> Result<String, AudioError> {
+    Ok(device::resolve(None)?.label)
+}
+
 #[derive(Debug, Error)]
 pub enum AudioError {
     #[error("no default input device")]

@@ -27,9 +27,16 @@
     },
     "microphone": {
       "title": "Microphone access",
-      "body": "Hold the hotkey and speak. Audio stays on-device and is discarded after each transcription.",
+      "body": "lda needs microphone access to capture your dictation. Audio is processed on-device and discarded after each transcription.",
       "test_mic": "Test mic (2s)",
-      "testing": "Recording...",
+      "testing": "Recording — speak now",
+      "using": "Using",
+      "tested_ok": "Audio detected",
+      "tested_no_audio": "No audio detected",
+      "tested_no_audio_hint": "Speak louder, or change your input device in System Settings → Sound.",
+      "tested_no_capture": "Microphone did not produce any audio",
+      "tested_no_capture_hint": "Open System Settings → Privacy & Security → Microphone and make sure local-dictation-app is allowed, then try again.",
+      "tested_error": "Test failed",
       "granted": "Microphone granted",
       "denied": "Not granted yet"
     },

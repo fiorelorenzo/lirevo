@@ -1,6 +1,7 @@
 use std::io::Cursor;
 
-use rubato::{FftFixedInOut, Resampler};
+use audioadapter_buffers::direct::InterleavedSlice;
+use rubato::{Fft, FixedSync, Resampler};
 
 use crate::backend::SttError;
 
@@ -100,43 +101,31 @@ fn to_mono(interleaved: Vec<f32>, channels: u16) -> Vec<f32> {
 }
 
 fn resample_to_16k(samples: &[f32], src_rate: u32) -> Result<Vec<f32>, SttError> {
-    let chunk = 1024_usize;
-    let mut resampler = FftFixedInOut::<f32>::new(
+    let mut resampler = Fft::<f32>::new(
         src_rate as usize,
         TARGET_RATE as usize,
-        chunk,
+        1024,
+        2,
         1,
+        FixedSync::Both,
     )
     .map_err(|e| SttError::Resample(e.to_string()))?;
 
-    #[allow(clippy::cast_precision_loss)]
-    let capacity = samples.len() * TARGET_RATE as usize / src_rate as usize;
-    let mut out = Vec::with_capacity(capacity);
-    let in_chunk = resampler.input_frames_next();
-    let mut idx = 0;
-    let mut input: Vec<Vec<f32>> = vec![vec![0.0_f32; in_chunk]];
-    while idx + in_chunk <= samples.len() {
-        input[0].copy_from_slice(&samples[idx..idx + in_chunk]);
-        let result = resampler
-            .process(&input, None)
-            .map_err(|e| SttError::Resample(e.to_string()))?;
-        out.extend_from_slice(&result[0]);
-        idx += in_chunk;
-    }
-    // Pad+process the tail if needed.
-    if idx < samples.len() {
-        for (i, v) in samples[idx..].iter().enumerate() {
-            input[0][i] = *v;
-        }
-        for i in (samples.len() - idx)..in_chunk {
-            input[0][i] = 0.0;
-        }
-        let result = resampler
-            .process(&input, None)
-            .map_err(|e| SttError::Resample(e.to_string()))?;
-        out.extend_from_slice(&result[0]);
-    }
-    Ok(out)
+    let input_frames = samples.len();
+    let input = InterleavedSlice::new(samples, 1, input_frames)
+        .map_err(|e| SttError::Resample(format!("input adapter: {e}")))?;
+
+    let out_frames = resampler.process_all_needed_output_len(input_frames);
+    let mut out_data = vec![0.0_f32; out_frames];
+    let mut output = InterleavedSlice::new_mut(&mut out_data, 1, out_frames)
+        .map_err(|e| SttError::Resample(format!("output adapter: {e}")))?;
+
+    let (_n_in, n_out) = resampler
+        .process_all_into_buffer(&input, &mut output, input_frames, None)
+        .map_err(|e| SttError::Resample(e.to_string()))?;
+
+    out_data.truncate(n_out);
+    Ok(out_data)
 }
 
 #[cfg(test)]
