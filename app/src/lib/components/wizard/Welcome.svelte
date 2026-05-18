@@ -8,7 +8,7 @@
   let { onnext }: Props = $props();
 </script>
 
-<div class="h-full flex flex-col items-center justify-center text-center gap-8 max-w-md mx-auto">
+<div class="min-h-full flex flex-col items-center justify-center text-center gap-8 max-w-md mx-auto">
   <Logo size={96} class="animate-in fade-in zoom-in duration-700" />
 
   <div class="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-500 delay-200">

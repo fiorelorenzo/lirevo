@@ -45,7 +45,7 @@
       "tested_error": "Test failed",
       "granted": "Microphone granted",
       "denied": "Not granted yet",
-      "not_determined": "Permission not requested yet — Test mic will trigger the macOS prompt."
+      "not_determined": "Not requested yet"
     },
     "models": {
       "title": "Choose your models",

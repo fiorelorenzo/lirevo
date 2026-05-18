@@ -176,8 +176,16 @@ pub async fn test_mic(
 /// Stop an in-flight `test_mic` early. The pending `test_mic` call resolves
 /// with `cancelled: true`. No-op if nothing is running.
 #[tauri::command]
-pub fn cancel_test_mic() {
-    if let Some(tx) = TEST_MIC_CANCEL.lock().unwrap().take() {
-        let _ = tx.send(());
+pub fn cancel_test_mic() -> Result<(), AppError> {
+    let taken = TEST_MIC_CANCEL.lock().unwrap().take();
+    match taken {
+        Some(tx) => {
+            let send_result = tx.send(());
+            tracing::info!(send_ok = send_result.is_ok(), "cancel_test_mic: cancellation dispatched");
+        }
+        None => {
+            tracing::info!("cancel_test_mic: no in-flight test_mic to cancel");
+        }
     }
+    Ok(())
 }

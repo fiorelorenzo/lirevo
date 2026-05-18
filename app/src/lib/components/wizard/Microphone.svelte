@@ -110,7 +110,12 @@
   }
 
   async function stopTest() {
-    await lda.cancelTestMic();
+    try {
+      await lda.cancelTestMic();
+      console.info('[stopTest] cancellation dispatched');
+    } catch (e) {
+      console.error('[stopTest] cancel_test_mic invoke failed', e);
+    }
   }
 
   async function selectDevice(name: string | null) {
@@ -130,7 +135,7 @@
   });
 </script>
 
-<div class="h-full flex flex-col items-center justify-center max-w-md mx-auto gap-5 text-center">
+<div class="flex flex-col items-center max-w-md mx-auto gap-5 text-center pb-2">
   <h1 class="text-2xl font-semibold tracking-tight">{t('wizard.microphone.title')}</h1>
   <p class="text-sm text-muted-foreground">{t('wizard.microphone.body')}</p>
 
