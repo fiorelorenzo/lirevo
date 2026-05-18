@@ -232,10 +232,15 @@ fn hotkey_worker(
             CallbackResult::Keep
         };
 
+    // Session-level + listen-only: this combination requires ONLY the
+    // Accessibility TCC, not Input Monitoring. The HID location plus the
+    // Default (capture/modify) options needs Input Monitoring on macOS
+    // Sonoma+, which made the tap succeed but never fire callbacks even
+    // when AX was granted. Same approach as FreeFlow upstream.
     let Ok(tap) = CGEventTap::new(
-        CGEventTapLocation::HID,
+        CGEventTapLocation::Session,
         CGEventTapPlacement::HeadInsertEventTap,
-        CGEventTapOptions::Default,
+        CGEventTapOptions::ListenOnly,
         vec![
             CGEventType::FlagsChanged,
             CGEventType::KeyDown,
