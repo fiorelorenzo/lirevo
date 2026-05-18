@@ -2,6 +2,15 @@ use tauri::{AppHandle, WebviewWindowBuilder, WebviewUrl};
 
 use crate::{AppError, AppState};
 
+/// Restart the app process. Needed after Accessibility is granted in System
+/// Settings — `AXIsProcessTrusted` caches its answer for the process
+/// lifetime, so the only way for the hotkey listener install to see the
+/// updated permission is a fresh process.
+#[tauri::command]
+pub fn restart_app(app: AppHandle) {
+    app.restart();
+}
+
 #[tauri::command]
 pub fn open_window(app: AppHandle, route: String) -> Result<(), AppError> {
     open_window_internal(&app, &route)

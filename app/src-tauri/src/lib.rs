@@ -149,6 +149,7 @@ pub fn run() {
             commands::windows::open_window,
             commands::windows::close_window,
             commands::windows::complete_wizard,
+            commands::windows::restart_app,
             commands::dialog::pick_file,
             commands::updater::check_for_updates,
         ])

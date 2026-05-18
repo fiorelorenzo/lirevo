@@ -39,7 +39,6 @@ pub fn dev_skip_perms() -> bool {
 
 #[link(name = "ApplicationServices", kind = "framework")]
 extern "C" {
-    fn AXIsProcessTrusted() -> bool;
     fn AXIsProcessTrustedWithOptions(options: core_foundation::base::CFTypeRef) -> bool;
 
     /// Defined in `ApplicationServices` as a `CFStringRef` constant; the symbol is

@@ -29,8 +29,10 @@
     $modelState.kind === 'ready' && ($modelState as any).whisper === true
   );
 
-  // When Accessibility flips from non-granted → granted we ask the backend
-  // to (re)install the hotkey listener so the user doesn't need to restart.
+  // When Accessibility flips to granted, try to (re)install the hotkey
+  // listener. The listener bypasses the cached AXIsProcessTrusted check
+  // and probes CGEventTapCreate directly, so it picks up the fresh grant
+  // without needing an app restart.
   let lastAccessibility: typeof $permissionsState.accessibility = null;
   $effect(() => {
     const current = $permissionsState.accessibility;

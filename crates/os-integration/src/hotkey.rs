@@ -18,7 +18,7 @@ use thiserror::Error;
 use tokio::sync::mpsc;
 use tracing::warn;
 
-use crate::permissions::{check_accessibility, PermissionStatus};
+// Accessibility status is no longer checked here — see `install()`.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Hotkey {
@@ -82,36 +82,53 @@ pub struct HotkeyListener {
 
 impl HotkeyListener {
     pub fn install(hotkey: Hotkey) -> Result<(Self, mpsc::Receiver<HotkeyEvent>), HotkeyError> {
-        if check_accessibility() != PermissionStatus::Granted {
-            return Err(HotkeyError::PermissionDenied);
-        }
-
+        // Don't preflight with `check_accessibility()` — `AXIsProcessTrusted`
+        // caches its answer for the lifetime of the process, so once the
+        // user grants Accessibility in System Settings our check still
+        // reports denied and we'd never get past this line. Instead, let
+        // `CGEventTapCreate` itself fail (it does a fresh, uncached
+        // permission check on each call) and translate that failure into
+        // PermissionDenied. The worker thread reports init success/failure
+        // back over a one-shot channel so we can surface it synchronously
+        // here.
         let (tx, rx) = mpsc::channel::<HotkeyEvent>(64);
         let shutdown_flag = Arc::new(AtomicBool::new(false));
         let runloop_slot: Arc<Mutex<Option<CFRunLoop>>> = Arc::new(Mutex::new(None));
 
+        let (init_tx, init_rx) = std::sync::mpsc::sync_channel::<Result<(), HotkeyError>>(1);
         let shutdown_clone = shutdown_flag.clone();
         let runloop_slot_clone = runloop_slot.clone();
 
         let worker = thread::Builder::new()
             .name("hotkey-tap".into())
             .spawn(move || {
-                hotkey_worker(hotkey, &tx, &shutdown_clone, &runloop_slot_clone);
+                hotkey_worker(hotkey, &tx, &shutdown_clone, &runloop_slot_clone, init_tx);
             })
             .map_err(|e| HotkeyError::Internal(format!("spawn hotkey thread: {e}")))?;
 
-        // Best-effort delay so the worker has a chance to install the tap and
-        // publish its CFRunLoop handle before the caller starts producing events.
-        thread::sleep(Duration::from_millis(50));
-
-        Ok((
-            Self {
-                shutdown_flag,
-                worker: Some(worker),
-                runloop: runloop_slot,
-            },
-            rx,
-        ))
+        // Block on the worker reporting init status. Bounded wait so a
+        // wedged worker doesn't hang setup forever.
+        match init_rx.recv_timeout(Duration::from_secs(2)) {
+            Ok(Ok(())) => Ok((
+                Self {
+                    shutdown_flag,
+                    worker: Some(worker),
+                    runloop: runloop_slot,
+                },
+                rx,
+            )),
+            Ok(Err(e)) => {
+                shutdown_flag.store(true, std::sync::atomic::Ordering::SeqCst);
+                let _ = worker.join();
+                Err(e)
+            }
+            Err(_) => {
+                shutdown_flag.store(true, std::sync::atomic::Ordering::SeqCst);
+                Err(HotkeyError::Internal(
+                    "hotkey worker did not signal init within 2s".into(),
+                ))
+            }
+        }
     }
 
     pub fn shutdown(mut self) {
@@ -142,6 +159,7 @@ fn hotkey_worker(
     tx: &mpsc::Sender<HotkeyEvent>,
     shutdown: &Arc<AtomicBool>,
     runloop_slot: &Arc<Mutex<Option<CFRunLoop>>>,
+    init_tx: std::sync::mpsc::SyncSender<Result<(), HotkeyError>>,
 ) {
     let is_pressed = Arc::new(AtomicBool::new(false));
     let tx_cb = tx.clone();
@@ -193,12 +211,14 @@ fn hotkey_worker(
         ],
         tap_callback,
     ) else {
-        warn!("CGEventTap::new failed");
+        warn!("CGEventTap::new failed (accessibility likely denied)");
+        let _ = init_tx.send(Err(HotkeyError::PermissionDenied));
         return;
     };
 
     let Ok(runloop_source) = tap.mach_port().create_runloop_source(0) else {
         warn!("create_runloop_source failed");
+        let _ = init_tx.send(Err(HotkeyError::TapCreationFailed));
         return;
     };
     let runloop = CFRunLoop::get_current();
@@ -212,6 +232,9 @@ fn hotkey_worker(
     if let Ok(mut g) = runloop_slot.lock() {
         *g = Some(runloop.clone());
     }
+
+    // Tap is fully installed — signal success to the caller of `install`.
+    let _ = init_tx.send(Ok(()));
 
     // Pump the run loop in short bursts so we can poll the shutdown flag.
     // SAFETY: see above — reading `kCFRunLoopCommonModes` static.
