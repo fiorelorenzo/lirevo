@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use core_foundation::runloop::{kCFRunLoopCommonModes, kCFRunLoopDefaultMode, CFRunLoop};
+use core_foundation::runloop::{kCFRunLoopCommonModes, CFRunLoop};
 use core_graphics::event::{
     CGEvent, CGEventTap, CGEventTapLocation, CGEventTapOptions, CGEventTapPlacement,
     CGEventTapProxy, CGEventType, CallbackResult, EventField,
@@ -209,15 +209,6 @@ fn hotkey_worker(
     let target_keycode = hotkey.keycode();
     let callback_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let callback_count_cb = callback_count.clone();
-    // macOS occasionally disables the tap (timeout or unrelated user input);
-    // when that happens it dispatches one of the TapDisabled* event types and
-    // then stops calling the callback until we re-enable the tap. The
-    // callback closure has no handle to the tap itself, so we flag the
-    // condition here and let the run-loop pump (which owns `tap`) re-enable
-    // on the next iteration.
-    let needs_reenable = Arc::new(AtomicBool::new(false));
-    let needs_reenable_cb = needs_reenable.clone();
-
     let tap_callback =
         move |_proxy: CGEventTapProxy, event_type: CGEventType, event: &CGEvent| -> CallbackResult {
             let n = callback_count_cb.fetch_add(1, Ordering::SeqCst);
@@ -225,12 +216,16 @@ fn hotkey_worker(
             if n == 0 {
                 tracing::info!(?event_type, "tap_callback: first event received");
             }
+            // Re-enable immediately on disable events. macOS sends these for
+            // "secondary mouse button" presses or any callback that exceeded
+            // its CPU budget; the tap stops dispatching until re-enabled.
+            // FreeFlow does the equivalent synchronously inside the callback.
             if matches!(
                 event_type,
                 CGEventType::TapDisabledByTimeout | CGEventType::TapDisabledByUserInput
             ) {
-                tracing::warn!(?event_type, "tap disabled by macOS; flagging for re-enable");
-                needs_reenable_cb.store(true, Ordering::SeqCst);
+                tracing::warn!(?event_type, "tap disabled by macOS; re-enabling synchronously");
+                reenable_tap_from_callback();
                 return CallbackResult::Keep;
             }
             if matches!(
@@ -313,22 +308,47 @@ fn hotkey_worker(
     // Tap is fully installed — signal success to the caller of `install`.
     let _ = init_tx.send(Ok(()));
 
-    // Pump the run loop in short bursts so we can poll the shutdown flag.
-    // We add the source to `kCFRunLoopCommonModes` above (so it's monitored
-    // by every "common" mode), but `RunInMode` itself expects a SINGLE mode
-    // identifier — passing `kCFRunLoopCommonModes` here is a misuse that
-    // silently fails to dispatch events on macOS. Use `kCFRunLoopDefaultMode`
-    // for the actual pump.
-    // SAFETY: `kCFRunLoopDefaultMode` is a CoreFoundation-provided extern static.
-    let mode = unsafe { kCFRunLoopDefaultMode };
-    while !shutdown.load(Ordering::SeqCst) {
-        if needs_reenable.swap(false, Ordering::SeqCst) {
-            tracing::info!("re-enabling tap after macOS disabled it");
-            tap.enable();
-        }
-        let _ = CFRunLoop::run_in_mode(mode, Duration::from_millis(200), false);
+    // Stash the mach port raw pointer so the callback can re-enable the tap
+    // synchronously when macOS dispatches a TapDisabled event. Order-
+    // independent and doesn't require pumping the run loop in slices.
+    {
+        use core_foundation::base::TCFType;
+        let mach_port_ref = tap.mach_port().as_concrete_TypeRef();
+        TAP_MACH_PORT.store(mach_port_ref as *mut _, Ordering::SeqCst);
     }
+
+    // Block on the run loop until someone calls `CFRunLoopStop` (the Drop
+    // impl on HotkeyListener does this via the runloop slot). This matches
+    // FreeFlow's CFRunLoopRun() pattern. The shutdown flag + run_current
+    // race-loop we had before was pumping the loop in 200ms slices, which
+    // turned out to deliver events less reliably than a single blocking
+    // CFRunLoopRun().
+    while !shutdown.load(Ordering::SeqCst) {
+        CFRunLoop::run_current();
+    }
+    TAP_MACH_PORT.store(std::ptr::null_mut(), Ordering::SeqCst);
     // `tap` is dropped here; CFMachPort is invalidated by its Drop impl.
+}
+
+// CGEventTap mach port shared with the callback so it can call
+// `CGEventTapEnable` directly when macOS sends a TapDisabled event. macOS
+// can do this for "secondary mouse" or callback-timeout reasons and the
+// tap stops dispatching events until we re-enable it. Doing it in the
+// callback (synchronously) is what FreeFlow does — pumping a flag from
+// outside the run loop drops events while we wait for the next iteration.
+static TAP_MACH_PORT: std::sync::atomic::AtomicPtr<std::ffi::c_void> =
+    std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    fn CGEventTapEnable(tap: *mut std::ffi::c_void, enable: bool);
+}
+
+fn reenable_tap_from_callback() {
+    let port = TAP_MACH_PORT.load(Ordering::SeqCst);
+    if !port.is_null() {
+        unsafe { CGEventTapEnable(port, true) };
+    }
 }
 
 #[cfg(test)]
