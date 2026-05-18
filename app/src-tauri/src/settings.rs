@@ -56,13 +56,6 @@ impl Default for Settings {
     }
 }
 
-pub const ENV_AFFECTING: &[&str] = &[
-    "whisperModelPath",
-    "llmModelPath",
-    "llmCtxSize",
-    "whisperCoreMLDisable",
-];
-
 const STORE_FILE: &str = "settings.json";
 const STORE_KEY: &str = "settings";
 

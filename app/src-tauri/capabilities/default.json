@@ -11,6 +11,7 @@
     "store:default",
     "dialog:default",
     "shell:allow-open",
+    "opener:default",
     "updater:default",
     "process:allow-restart",
     "autostart:default"
