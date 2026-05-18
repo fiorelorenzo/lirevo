@@ -29,9 +29,17 @@
   let unsubLevel: (() => void) | null = null;
   let unsubRec: (() => void) | null = null;
   let lastRec = false;
+  // TEMP debug counter: number of audioLevel events received in this window
+  // since mount. Rendered as text so we can tell from the overlay itself
+  // whether the subscription works without opening devtools (overlay is
+  // click-through so right-click → Inspect isn't reachable).
+  let levelCount = $state(0);
+  let lastLevel = $state(0);
 
   onMount(() => {
     unsubLevel = audioLevel.subscribe((level) => {
+      levelCount += 1;
+      lastLevel = level;
       barsBuf = [...barsBuf.slice(1), level];
       bars = barsBuf.slice();
     });
@@ -80,6 +88,8 @@
         <div class="bar" style="height: {shape(level)}px"></div>
       {/each}
     </div>
+    <!-- TEMP debug — remove once we confirm subscribe works -->
+    <span class="debug">{levelCount} / {lastLevel.toFixed(2)}</span>
   </div>
 </div>
 
@@ -140,6 +150,13 @@
     height: 44px;
     width: 188px;
   }
+  .debug {
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.55);
+    white-space: nowrap;
+  }
+
   .bar {
     width: 3px;
     border-radius: 9999px;
