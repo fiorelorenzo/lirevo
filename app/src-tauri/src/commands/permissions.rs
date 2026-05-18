@@ -90,5 +90,11 @@ pub async fn retry_hotkey_install(
     state: tauri::State<'_, crate::AppState>,
 ) -> Result<(), AppError> {
     let hotkey = state.inner.lock().unwrap().settings.hotkey;
-    crate::hotkey::reinstall(&app, hotkey)
+    tracing::info!(?hotkey, "retry_hotkey_install: invoked from frontend");
+    let result = crate::hotkey::reinstall(&app, hotkey);
+    match &result {
+        Ok(()) => tracing::info!("retry_hotkey_install: success"),
+        Err(e) => tracing::warn!(?e, "retry_hotkey_install: failed"),
+    }
+    result
 }

@@ -32,16 +32,20 @@ pub struct DictationCoordinator {
 }
 
 pub fn install(app: AppHandle, hotkey: Hotkey) -> Result<(), AppError> {
+    tracing::info!(?hotkey, "hotkey::install");
     let coord = build_coordinator(app, hotkey)?;
     *COORDINATOR.lock().unwrap() = Some(coord);
+    tracing::info!("hotkey::install: coordinator installed");
     Ok(())
 }
 
 pub fn reinstall(app: &AppHandle, hotkey: Hotkey) -> Result<(), AppError> {
+    tracing::info!(?hotkey, "hotkey::reinstall");
     let coord = build_coordinator(app.clone(), hotkey)?;
     // Replace (and thereby drop) the previous coordinator. Drop on the old
     // HotkeyListener stops its run loop + tears down the EventTap.
     *COORDINATOR.lock().unwrap() = Some(coord);
+    tracing::info!("hotkey::reinstall: coordinator replaced");
     Ok(())
 }
 
@@ -69,7 +73,9 @@ fn map_hotkey(h: Hotkey) -> OsHotkey {
 }
 
 async fn dictation_loop(app: AppHandle, mut rx: tokio::sync::mpsc::Receiver<HotkeyEvent>) {
+    tracing::info!("dictation_loop: started");
     while let Some(event) = rx.recv().await {
+        tracing::info!(?event, "dictation_loop: received hotkey event");
         let state = app.state::<AppState>();
         match event {
             HotkeyEvent::Down => handle_down(&app, &state),
