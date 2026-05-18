@@ -37,46 +37,28 @@
   let unlistenLevel: UnlistenFn | null = null;
   let unlistenRec: UnlistenFn | null = null;
   let lastRec = false;
-  // TEMP debug counter rendered in the overlay so we can tell from the
-  // window itself whether the listener registers (overlay is click-through
-  // so devtools isn't reachable).
-  let levelCount = $state(0);
-  let lastLevel = $state(0);
 
   onMount(() => {
-    flog('overlay mounted — registering listeners');
-
     void listen<number>('recording:level', (e) => {
       const level = e.payload;
-      levelCount += 1;
-      lastLevel = level;
       barsBuf = [...barsBuf.slice(1), level];
       bars = barsBuf.slice();
     })
-      .then((u) => {
-        unlistenLevel = u;
-        flog('recording:level listener installed');
-      })
-      .catch((err) => {
-        flog(`recording:level listen FAILED: ${err}`);
-      });
+      .then((u) => { unlistenLevel = u; })
+      .catch((err) => { flog(`recording:level listen failed: ${err}`); });
 
+    // Reset bars at the start of each fresh take so the carry-over from the
+    // previous recording doesn't render as a peak the user didn't make.
     void listen<boolean>('recording:state', (e) => {
       const rec = e.payload;
-      flog(`recording:state = ${rec}`);
       if (rec && !lastRec) {
         barsBuf = Array(BARS).fill(0);
         bars = barsBuf.slice();
       }
       lastRec = rec;
     })
-      .then((u) => {
-        unlistenRec = u;
-        flog('recording:state listener installed');
-      })
-      .catch((err) => {
-        flog(`recording:state listen FAILED: ${err}`);
-      });
+      .then((u) => { unlistenRec = u; })
+      .catch((err) => { flog(`recording:state listen failed: ${err}`); });
   });
 
   onDestroy(() => {
@@ -113,8 +95,6 @@
         <div class="bar" style="height: {shape(level)}px"></div>
       {/each}
     </div>
-    <!-- TEMP debug — remove once we confirm subscribe works -->
-    <span class="debug">{levelCount} / {lastLevel.toFixed(2)}</span>
   </div>
 </div>
 
@@ -175,13 +155,6 @@
     height: 44px;
     width: 188px;
   }
-  .debug {
-    font-family: ui-monospace, monospace;
-    font-size: 10px;
-    color: rgba(255, 255, 255, 0.55);
-    white-space: nowrap;
-  }
-
   .bar {
     width: 3px;
     border-radius: 9999px;
