@@ -71,7 +71,17 @@
 
   onMount(async () => {
     console.info('[Microphone] mount');
-    await Promise.all([refreshPermission(), refreshDevices()]);
+    // Devices are NOT enumerated yet: on macOS 14+, calling cpal's
+    // `default_host().input_devices()` opens the Core Audio HAL device
+    // list, which itself triggers the TCC microphone prompt — even
+    // without recording. We defer enumeration until the user has
+    // explicitly granted permission (via the Test button), otherwise
+    // the dialog would pop on this very mount, before the user knew
+    // what they were being asked.
+    await refreshPermission();
+    if (status === 'granted') {
+      await refreshDevices();
+    }
     if ($settings) selectedDevice = $settings.inputDeviceName ?? null;
 
     // Subscribe to audio levels imperatively.
@@ -121,6 +131,10 @@
         }
         return;
       }
+      // Now that the user has granted permission, populate the device
+      // dropdown (it was intentionally empty until this point to avoid
+      // triggering the TCC prompt on mount).
+      await refreshDevices();
     }
 
     testing = true;
