@@ -41,13 +41,17 @@ pub struct TestMicResult {
     pub device_label: String,
 }
 
-/// Sample the default input device for ~2 seconds, forwarding live RMS levels
-/// via the `recording:state` + `recording:level` events (the RecordingIndicator
+/// Sample the default input device for 2 seconds (plus a 500 ms warmup window
+/// that's discarded — Bluetooth devices like AirPods take time to negotiate
+/// HFP and emit silent zeros at first), forwarding live RMS levels via the
+/// `recording:state` + `recording:level` events (the RecordingIndicator
 /// overlay subscribes to them) and returning peak + sample count + device.
 ///
-/// Hard timeout at 3 seconds prevents any hang from blocking the wizard.
+/// Hard timeout at 4 seconds prevents any hang from blocking the wizard.
 #[tauri::command]
 pub async fn test_mic(app: AppHandle) -> Result<TestMicResult, AppError> {
+    use std::time::Instant;
+
     let device_label = audio_capture::default_input_device_label()
         .map_err(|e| AppError::Permission(format!("default device: {e}")))?;
 
@@ -65,13 +69,15 @@ pub async fn test_mic(app: AppHandle) -> Result<TestMicResult, AppError> {
     let mut peak: f32 = 0.0;
     let mut sample_count: u32 = 0;
 
-    // Pin the deadline timer once; biased select polls it first each iteration
-    // so we cannot get starved by a chatty level channel.
-    let sleep = tokio::time::sleep(Duration::from_secs(2));
+    let test_started = Instant::now();
+    let warmup = Duration::from_millis(500);
+    let total = Duration::from_millis(2500); // 500ms warmup + 2s measurement
+
+    let sleep = tokio::time::sleep(total);
     tokio::pin!(sleep);
 
-    // Defensive outer timeout: even if both branches misbehave, we cap at 3s.
-    let _ = tokio::time::timeout(Duration::from_secs(3), async {
+    // Defensive outer timeout: even if both branches misbehave, we cap at 4s.
+    let _ = tokio::time::timeout(Duration::from_secs(4), async {
         loop {
             tokio::select! {
                 biased;
@@ -79,8 +85,14 @@ pub async fn test_mic(app: AppHandle) -> Result<TestMicResult, AppError> {
                 res = rx.changed() => {
                     if res.is_err() { break; }
                     let level = *rx.borrow();
-                    if level > peak { peak = level; }
-                    sample_count += 1;
+                    let elapsed = test_started.elapsed();
+                    // During the warmup, still forward levels to the UI so the
+                    // waveform shows audio is "starting", but don't count them
+                    // toward peak detection — BT devices may emit silence here.
+                    if elapsed >= warmup {
+                        if level > peak { peak = level; }
+                        sample_count += 1;
+                    }
                     let _ = app.emit("recording:level", level);
                 }
             }

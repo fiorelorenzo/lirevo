@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount } from 'svelte';
   import { Button } from '$lib/components/ui/button';
   import { Mic } from '@lucide/svelte';
   import PermissionStatus from '$lib/components/PermissionStatus.svelte';
@@ -11,8 +11,6 @@
 
   let status = $state<Status | null>(null);
   let testing = $state(false);
-  let countdown = $state(0); // visible seconds remaining during the test
-  let countdownTimer: ReturnType<typeof setInterval> | null = null;
 
   // Lowered threshold: room noise typically 0.005-0.02, whispered ~0.04,
   // normal speech ~0.1-0.3. 0.02 catches even quiet speech.
@@ -30,21 +28,11 @@
 
   onMount(refresh);
 
-  onDestroy(() => {
-    if (countdownTimer) clearInterval(countdownTimer);
-  });
-
   async function testMic() {
     testing = true;
-    countdown = 2;
     result = null;
     errorMessage = null;
     detectedPeak = null;
-
-    // Local visual countdown (separate from backend timing).
-    countdownTimer = setInterval(() => {
-      countdown = Math.max(0, countdown - 1);
-    }, 1000);
 
     try {
       const res = await lda.testMic();
@@ -61,11 +49,6 @@
       result = 'error';
       errorMessage = String(e);
     } finally {
-      if (countdownTimer) {
-        clearInterval(countdownTimer);
-        countdownTimer = null;
-      }
-      countdown = 0;
       testing = false;
       // Re-check permission — the TCC prompt may have fired during the test.
       await refresh();
@@ -85,9 +68,7 @@
 
   <Button onclick={testMic} disabled={testing}>
     <Mic class="h-4 w-4 mr-2" />
-    {testing
-      ? `${t('wizard.microphone.testing')} (${countdown}s)`
-      : t('wizard.microphone.test_mic')}
+    {testing ? t('wizard.microphone.testing') : t('wizard.microphone.test_mic')}
   </Button>
 
   {#if detectedDevice}

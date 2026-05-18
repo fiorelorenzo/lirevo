@@ -60,12 +60,24 @@ pub fn prompt_accessibility() -> PermissionStatus {
     }
 }
 
-/// Microphone permission. Placeholder for M2 — cpal auto-prompts at first capture.
-/// A real check would use AVAudioApplication.recordPermission (macOS 14+) or
-/// `AVCaptureDevice` authorization status. Not blocking; informational only.
+/// Microphone permission via `AVCaptureDevice.authorizationStatusForMediaType:`.
+/// Returns the current TCC state without prompting the user (cpal will trigger
+/// the actual TCC prompt on first capture).
 #[must_use]
 pub fn check_microphone() -> PermissionStatus {
-    PermissionStatus::NotDetermined
+    use objc2_av_foundation::{AVAuthorizationStatus, AVCaptureDevice, AVMediaTypeAudio};
+
+    // Safety: `AVMediaTypeAudio` is a process-lifetime NSString constant.
+    let media_type = unsafe { AVMediaTypeAudio.unwrap() };
+    let status = unsafe { AVCaptureDevice::authorizationStatusForMediaType(media_type) };
+    match status {
+        AVAuthorizationStatus::Authorized => PermissionStatus::Granted,
+        AVAuthorizationStatus::Denied | AVAuthorizationStatus::Restricted => {
+            PermissionStatus::Denied
+        }
+        AVAuthorizationStatus::NotDetermined => PermissionStatus::NotDetermined,
+        _ => PermissionStatus::NotDetermined,
+    }
 }
 
 #[cfg(test)]

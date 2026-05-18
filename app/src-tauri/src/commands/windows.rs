@@ -38,11 +38,13 @@ pub fn open_window_internal(app: &AppHandle, route: &str) -> Result<(), AppError
         let _ = w.set_focus();
         return Ok(());
     }
-    let (w, h, resizable, always_on_top) = match route {
-        "home" => (720u32, 520u32, true, false),
-        "wizard" => (760, 620, false, true),
-        "settings" => (820, 600, true, false),
-        "model-manager" => (720, 640, true, false),
+    // Note: wizard is NOT always_on_top — the user must be able to switch to
+    // System Settings to grant permissions, so it can't trap focus.
+    let (w, h, resizable) = match route {
+        "home" => (720u32, 520u32, true),
+        "wizard" => (760, 620, false),
+        "settings" => (820, 600, true),
+        "model-manager" => (720, 640, true),
         _ => return Err(AppError::Internal(format!("unknown route: {route}"))),
     };
     // SvelteKit with adapter-static: routes are paths like /settings, /wizard, etc.
@@ -53,8 +55,7 @@ pub fn open_window_internal(app: &AppHandle, route: &str) -> Result<(), AppError
     let mut builder = WebviewWindowBuilder::new(app, route, url)
         .title("local-dictation-app")
         .inner_size(w as f64, h as f64)
-        .resizable(resizable)
-        .always_on_top(always_on_top);
+        .resizable(resizable);
     #[cfg(target_os = "macos")]
     {
         builder = builder
