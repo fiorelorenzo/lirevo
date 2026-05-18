@@ -1,0 +1,18 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default capability set for all windows",
+  "windows": ["main", "home", "wizard", "settings", "model-manager"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-close",
+    "core:window:allow-set-focus",
+    "core:webview:allow-create-webview-window",
+    "store:default",
+    "dialog:default",
+    "shell:allow-open",
+    "updater:default",
+    "process:allow-restart",
+    "autostart:default"
+  ]
+}

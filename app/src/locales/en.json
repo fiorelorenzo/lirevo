@@ -1,0 +1,123 @@
+{
+  "wizard": {
+    "common": {
+      "back": "← Back",
+      "next": "Next →",
+      "skip": "Skip setup",
+      "skip_confirm_title": "Skip setup?",
+      "skip_confirm_body": "You can finish setup later from the menu bar icon.",
+      "skip_confirm_cancel": "Continue",
+      "skip_confirm_skip": "Skip setup"
+    },
+    "welcome": {
+      "title": "Speak. Anywhere. Privately.",
+      "subtitle": "Dictate into any app on your Mac. Everything runs on-device — no servers, no accounts.",
+      "next": "Get started →",
+      "feature_fast": "Fast",
+      "feature_private": "Private",
+      "feature_hotkey": "Hotkey"
+    },
+    "accessibility": {
+      "title": "Grant Accessibility",
+      "body": "lda listens for your hotkey and types into the focused app. macOS requires Accessibility permission for both.",
+      "open_settings": "Open System Settings",
+      "granted": "Accessibility granted",
+      "denied": "Not granted yet",
+      "polling": "Polling permission state..."
+    },
+    "microphone": {
+      "title": "Microphone access",
+      "body": "Hold the hotkey and speak. Audio stays on-device and is discarded after each transcription.",
+      "test_mic": "Test mic (2s)",
+      "testing": "Recording...",
+      "granted": "Microphone granted",
+      "denied": "Not granted yet"
+    },
+    "models": {
+      "title": "Choose your models",
+      "body": "Two models work together: one for transcription, one for cleanup. Both run locally.",
+      "stt_section": "Speech-to-text",
+      "llm_section": "Language model",
+      "use_existing": "Or use existing file"
+    },
+    "hotkey": {
+      "title": "Choose your hotkey",
+      "body": "Hold this key while speaking. Release to dictate into the focused app.",
+      "selected": "Selected:",
+      "finish": "✨ Finish setup"
+    }
+  },
+  "settings": {
+    "title": "Settings",
+    "tabs": {
+      "general": "General",
+      "models": "Models",
+      "hotkey": "Hotkey",
+      "about": "About"
+    },
+    "general": {
+      "section": "Dictation",
+      "language": "Cleanup language",
+      "language_auto": "Auto-detect",
+      "force_pasteboard": "Always use pasteboard",
+      "force_pasteboard_helper": "Skip Accessibility text injection; paste via clipboard instead.",
+      "paste_delay_ms": "Paste delay (ms)",
+      "launch_at_login": "Launch at login"
+    },
+    "models": {
+      "whisper_model": "Whisper model",
+      "llm_model": "Language model",
+      "llm_ctx_size": "LLM context size (tokens)",
+      "whisper_coreml_disable": "Disable CoreML encoder",
+      "open_manager": "Open Model Manager..."
+    },
+    "hotkey": {
+      "label": "Push-to-talk key"
+    },
+    "about": {
+      "version": "Version",
+      "platform": "Platform",
+      "check_updates": "Check for updates",
+      "checking": "Checking...",
+      "rerun_wizard": "Re-run setup wizard",
+      "view_logs": "View logs",
+      "open_data_folder": "Open data folder",
+      "license": "Open source · MIT License"
+    }
+  },
+  "model_manager": {
+    "title": "Model Manager",
+    "stats": "{{used}} used · {{installed}} of {{total}} catalog models installed",
+    "stt_section": "Speech-to-text",
+    "llm_section": "Language model",
+    "download": "Download",
+    "downloading": "Downloading...",
+    "installed": "Installed",
+    "cancel": "Cancel",
+    "retry": "Retry",
+    "use_existing": "Or use existing file"
+  },
+  "home": {
+    "title": "Hold to dictate",
+    "ready_body": "Hold {{hotkey}} anywhere to dictate.",
+    "loading": "Loading models...",
+    "setup_incomplete_title": "Setup incomplete",
+    "setup_incomplete_body": "Complete the setup wizard to start dictating.",
+    "rerun_wizard": "Re-run setup wizard",
+    "sidecar_down_title": "Models failed to load",
+    "sidecar_down_body": "Open Settings to retry.",
+    "retry": "Open Settings"
+  },
+  "toast": {
+    "sidecar_reloading": "Reloading models...",
+    "cleanup_failed": "Cleanup failed — typed raw transcript",
+    "inject_failed_clipboard": "Couldn't type into focused app — copied to clipboard instead"
+  },
+  "common": {
+    "ok": "OK",
+    "cancel": "Cancel",
+    "save": "Save",
+    "close": "Close",
+    "step_n_of_total": "Step {{step}} of {{total}}"
+  }
+}

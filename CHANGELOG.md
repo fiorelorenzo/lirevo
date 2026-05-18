@@ -6,6 +6,54 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-05-18 — M3: Tauri app shell + model manager
+
+### Added
+- **Tauri 2 app shell** replacing the M0 Electron scaffold. Single-process Rust + WKWebView. Bundle size ~30 MB (vs ~80 MB Electron).
+- `inference-core` folded as an in-process Rust library. No more sidecar process, UNIX socket, or napi wrapper.
+- Settings persistence via `tauri-plugin-store` with Rust-side validation. Env-affecting changes trigger an in-process model reload with a "Reloading models..." toast.
+- Setup wizard: 5 screens (Welcome, Accessibility, Microphone, Models, Hotkey) with pill stepper + horizontal slide transitions + alert-dialog skip confirm.
+- Settings window: 4 tabs (General, Models, Hotkey, About) using shadcn-svelte primitives.
+- Model manager: curated catalog (3 STT — Whisper large-v3-turbo / distil-large-v3 / small.en; 2 LLM — Qwen3-4B-Instruct-2507 / Llama-3.2-3B-Instruct) + file picker fallback + streaming downloads with cancel + CoreML encoder auto-extract for compatible Whisper models.
+- Tray with 4 state-driven icons (loading / ready / recording-pulse / error) + live menu reflecting model and recording state.
+- Custom titlebar with macOS Overlay traffic lights.
+- Recording overlay: floating glassmorphic indicator with live audio waveform (24 bars, ~33 Hz updates from new `audio-capture` RMS emitter).
+- Design system: Inter Variable + JetBrains Mono via @fontsource-variable; OKLCH design tokens; multi-layer shadows; generous radii (12-32px); motion durations + easings.
+- 11 custom Svelte components: Titlebar, Logo, KeyChip, StepIndicator, PermissionStatus, SuccessCheck, SkeletonRow, EmptyState, ModelCard, FilePicker, RecordingIndicator.
+- shadcn-svelte primitives: Button, Input, Label, Select, RadioGroup, Switch, Slider, Dialog, AlertDialog, Progress, Sonner, Separator, Tooltip.
+- i18n via i18next with `en.json` baseline.
+- Logging via `tracing` + `tracing-appender` with daily rotation (`~/Library/Logs/local-dictation-app/`).
+- Auto-update plumbing (`tauri-plugin-updater`) installed and wired through Settings → About → "Check for updates". Endpoints empty until code signing in M0.5/pre-v1.
+- `inference-core` convenience methods: `WhisperBackend::transcribe(&[u8], &str)` and `LlamaBackend::chat_sync(ChatRequest)`.
+- `audio-capture` emits RMS audio levels via a `watch::Sender<f32>` during recording.
+- `os-integration::clipboard::set_text` for last-resort clipboard fallback during inject failures.
+- `just dev` / `just dmg` / `just test` / `just check` / `just fmt` / `just lint` / `just clean`.
+
+### Changed
+- CI workflow rewritten for the Tauri toolchain (no more Forge / napi build steps).
+- `app/` directory replaced with a fresh Tauri scaffold (`app/src/` SvelteKit frontend, `app/src-tauri/` Rust backend).
+
+### Removed
+- `crates/os-bindings-napi/` — no longer consumed by anything.
+- Old Electron M0 `app/src/main.ts` and `app/src/sidecar.ts` (the entire Electron scaffold).
+
+### Stale
+- `docs/specs/2026-05-17-m3-app-shell-design.md` (Electron-based, superseded by `2026-05-17-m3-tauri-app-shell-design.md`).
+- `docs/plans/2026-05-17-m3-app-shell-plan.md` (gitignored).
+
+### Post-signing tasks (deferred to M0.5/pre-v1)
+- Acquire Apple Developer ID; sign + notarize + staple the .app.
+- Generate minisign keypair for updater signatures (`tauri signer generate`).
+- Populate `tauri.conf.json` updater section: `pubkey`, `endpoints`.
+- Host latest.json + signed updates on GitHub Releases.
+
+### Known limitations
+- Tray icons are programmatically-generated placeholders; polished icons land in M8 beta.
+- Wizard "Test mic" button is a 2-second UI placebo (real live mic level test deferred — real TCC prompt happens at first dictation).
+- Model download resume after cancel is not implemented.
+- English-only UI; other locales deferred (i18next scaffold ready).
+- Uses SvelteKit with adapter-static + in-page hash routing per window. Each Tauri WebviewWindow loads a different SvelteKit route (`/`, `/wizard`, `/settings`, `/model-manager`).
+
 ## [0.3.0] - <set release date at merge> - M2 prototype dictation
 
 ### Added

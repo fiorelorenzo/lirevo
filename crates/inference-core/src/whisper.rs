@@ -17,6 +17,7 @@ use tokio::sync::Mutex;
 use tracing::{info, warn};
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
+use crate::audio;
 use crate::backend::{ModelInfo, Segment, SttBackend, SttError, SttOptions, Transcript};
 
 const LOCK_TIMEOUT: Duration = Duration::from_secs(30);
@@ -26,6 +27,69 @@ pub struct WhisperBackend {
     model_path: PathBuf,
     model_id: String,
     coreml_enabled: bool,
+}
+
+/// Pure synchronous Whisper inference over an already-locked context.
+///
+/// Used by both the async trait method (`SttBackend::transcribe`) and the
+/// in-process convenience method (`WhisperBackend::transcribe`) so we keep
+/// exactly one implementation of the whisper-rs `full()` dance.
+#[allow(clippy::cast_sign_loss)] // segment counts and indices are always non-negative
+fn run_whisper_inference(
+    ctx: &WhisperContext,
+    samples: &[f32],
+    opts: &SttOptions,
+) -> Result<(String, String, Vec<Segment>), SttError> {
+    // 0.16 API: create_state, full(), full_n_segments(), get_segment(i)
+    let mut state = ctx
+        .create_state()
+        .map_err(|e| SttError::Whisper(format!("create state: {e}")))?;
+
+    let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+    // set_language takes Option<&str>; use as_deref() to convert Option<String>.
+    params.set_language(opts.language.as_deref());
+    params.set_translate(opts.translate);
+    params.set_print_special(false);
+    params.set_print_progress(false);
+    params.set_print_realtime(false);
+
+    state
+        .full(params, samples)
+        .map_err(|e| SttError::Whisper(format!("full: {e}")))?;
+
+    // 0.16: full_n_segments() returns c_int directly, no Result.
+    let n = state.full_n_segments();
+
+    let mut text = String::new();
+    let mut segs: Vec<Segment> = Vec::new();
+    for i in 0..n {
+        // 0.16: get_segment(i) returns Option<WhisperSegment>.
+        let seg = state
+            .get_segment(i)
+            .ok_or_else(|| SttError::Whisper(format!("segment {i} out of range")))?;
+        let seg_text = seg
+            .to_str()
+            .map_err(|e| SttError::Whisper(format!("segment text: {e}")))?;
+        text.push_str(seg_text);
+        if opts.want_segments {
+            // start_timestamp / end_timestamp return i64 centiseconds.
+            let t0 = seg.start_timestamp();
+            let t1 = seg.end_timestamp();
+            segs.push(Segment {
+                start_ms: ms_from_centiseconds(t0),
+                end_ms: ms_from_centiseconds(t1),
+                text: seg_text.to_owned(),
+            });
+        }
+    }
+
+    // 0.16: full_lang_id_from_state() returns c_int directly, no Result.
+    // get_lang_str(id) remains stable: Option<&'static str>.
+    let lang_id = state.full_lang_id_from_state();
+    let language = whisper_rs::get_lang_str(lang_id)
+        .map_or_else(|| "und".to_string(), ToString::to_string);
+
+    Ok((text.trim().to_string(), language, segs))
 }
 
 impl WhisperBackend {
@@ -65,6 +129,31 @@ impl WhisperBackend {
             coreml_enabled,
         })
     }
+
+    /// Synchronous, blocking convenience for in-process callers (e.g. Tauri).
+    ///
+    /// Decodes a WAV byte slice, runs whisper-rs end-to-end, and returns the
+    /// joined transcript text. Pass an empty `language` to auto-detect.
+    ///
+    /// # Concurrency
+    /// Uses `tokio::sync::Mutex::blocking_lock`, which **panics** if invoked
+    /// from an async context without `tokio::task::block_in_place`. From a
+    /// purely synchronous (non-tokio) context it works directly.
+    pub fn transcribe(&self, wav_bytes: &[u8], language: &str) -> Result<String, SttError> {
+        let samples = audio::process_wav(wav_bytes)?;
+        let opts = SttOptions {
+            language: if language.is_empty() {
+                None
+            } else {
+                Some(language.to_string())
+            },
+            translate: false,
+            want_segments: false,
+        };
+        let ctx_guard = self.ctx.blocking_lock();
+        let (text, _language, _segments) = run_whisper_inference(&ctx_guard, &samples, &opts)?;
+        Ok(text)
+    }
 }
 
 pub fn coreml_sidecar_path(model_path: &Path) -> PathBuf {
@@ -79,7 +168,6 @@ pub fn coreml_sidecar_path(model_path: &Path) -> PathBuf {
 
 #[async_trait]
 impl SttBackend for WhisperBackend {
-    #[allow(clippy::cast_sign_loss)] // segment counts and indices are always non-negative
     async fn transcribe(
         &self,
         samples: Vec<f32>,
@@ -99,62 +187,8 @@ impl SttBackend for WhisperBackend {
         #[allow(clippy::cast_possible_truncation)]
         let duration_ms = u32::try_from(samples.len() * 1000 / 16_000).unwrap_or(u32::MAX);
 
-        let (text, language, segments) = tokio::task::block_in_place(|| {
-            // 0.16 API: create_state, full(), full_n_segments(), get_segment(i)
-            let mut state = ctx_guard
-                .create_state()
-                .map_err(|e| SttError::Whisper(format!("create state: {e}")))?;
-
-            let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-            // set_language takes Option<&str>; use as_deref() to convert Option<String>.
-            params.set_language(opts.language.as_deref());
-            params.set_translate(opts.translate);
-            params.set_print_special(false);
-            params.set_print_progress(false);
-            params.set_print_realtime(false);
-
-            state
-                .full(params, &samples)
-                .map_err(|e| SttError::Whisper(format!("full: {e}")))?;
-
-            // 0.16: full_n_segments() returns c_int directly, no Result.
-            let n = state.full_n_segments();
-
-            let mut text = String::new();
-            let mut segs: Vec<Segment> = Vec::new();
-            for i in 0..n {
-                // 0.16: get_segment(i) returns Option<WhisperSegment>.
-                let seg = state.get_segment(i).ok_or_else(|| {
-                    SttError::Whisper(format!("segment {i} out of range"))
-                })?;
-                let seg_text = seg
-                    .to_str()
-                    .map_err(|e| SttError::Whisper(format!("segment text: {e}")))?;
-                text.push_str(seg_text);
-                if opts.want_segments {
-                    // start_timestamp / end_timestamp return i64 centiseconds.
-                    let t0 = seg.start_timestamp();
-                    let t1 = seg.end_timestamp();
-                    segs.push(Segment {
-                        start_ms: ms_from_centiseconds(t0),
-                        end_ms: ms_from_centiseconds(t1),
-                        text: seg_text.to_owned(),
-                    });
-                }
-            }
-
-            // 0.16: full_lang_id_from_state() returns c_int directly, no Result.
-            // get_lang_str(id) remains stable: Option<&'static str>.
-            let lang_id = state.full_lang_id_from_state();
-            let language = whisper_rs::get_lang_str(lang_id)
-                .map_or_else(|| "und".to_string(), ToString::to_string);
-
-            Ok::<(String, String, Vec<Segment>), SttError>((
-                text.trim().to_string(),
-                language,
-                segs,
-            ))
-        })?;
+        let (text, language, segments) =
+            tokio::task::block_in_place(|| run_whisper_inference(&ctx_guard, &samples, &opts))?;
 
         Ok(Transcript {
             text,

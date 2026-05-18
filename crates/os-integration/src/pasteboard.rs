@@ -18,6 +18,19 @@ fn paste_delay_ms() -> u64 {
         .unwrap_or(DEFAULT_PASTE_DELAY_MS)
 }
 
+/// Last-resort clipboard write: replaces the general pasteboard's string
+/// content with `text`. Used as a fallback when text injection fails so the
+/// user can paste manually. Returns `true` on success.
+pub fn set_text(text: &str) -> bool {
+    // SAFETY: NSPasteboard methods are safe to call from any thread on macOS.
+    unsafe {
+        let pb = NSPasteboard::generalPasteboard();
+        pb.clearContents();
+        let ns = NSString::from_str(text);
+        pb.setString_forType(&ns, NSPasteboardTypeString)
+    }
+}
+
 pub(crate) fn pasteboard_inject(text: &str) -> Result<(), InjectError> {
     // SAFETY: NSPasteboard methods are safe to call from any thread on macOS.
     // All Retained<T> values are properly reference-counted by objc2.

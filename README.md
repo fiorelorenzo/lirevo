@@ -50,6 +50,32 @@ M0 ships unsigned (Apple Developer enrollment is M0.5). To open the app for the 
 2. Right-click the app and choose "Open" (only the first time).
 3. Or remove the quarantine attribute: `xattr -d com.apple.quarantine /Applications/local-dictation-app.app`.
 
+## Using the app (M3, Tauri edition)
+
+After installing the DMG (`just dmg`):
+
+1. Drag `local-dictation-app.app` to `/Applications`.
+2. Right-click → Open (first launch only; macOS Gatekeeper unsigned-app prompt — until we ship code signing in M0.5).
+3. The setup wizard opens automatically:
+   - **Accessibility** — grant via the System Settings deep link.
+   - **Microphone** — confirm tested.
+   - **Models** — download Whisper large-v3-turbo (~1.5 GB) + Qwen3-4B-Instruct (~2.5 GB), or pick existing local files.
+   - **Hotkey** — pick a key (default: Right Option).
+4. Hold the hotkey anywhere on the system and speak. Release to transcribe → clean → inject into the focused app.
+
+The menu bar icon shows model status (loading / ready / recording / error). Settings, Model Manager, and Re-run Wizard are accessible from the tray menu.
+
+### Developer notes
+
+- **`lda-prototype`** is now dev-only. It remains useful for headless testing of the dictation pipeline (`cargo run -p lda-prototype`). It is not bundled in the DMG.
+- **`inference-core`** is folded into the Tauri process as a Rust library — there is no longer a separate sidecar process or UNIX socket. The HTTP/axum layer in inference-core is retained but only consumed by `lda-prototype` and `lda-cli` for dev testing.
+- **`os-bindings-napi`** has been removed. Tauri calls `audio-capture` and `os-integration` directly.
+- The old Electron M3 spec at `docs/specs/2026-05-17-m3-app-shell-design.md` is **superseded** by `docs/specs/2026-05-17-m3-tauri-app-shell-design.md`.
+
+### Architecture in one paragraph
+
+Single Tauri process. Frontend is Svelte 5 + Tailwind v4 + shadcn-svelte running in WKWebView. Backend is Rust, calling whisper-rs and llama-cpp-2 directly. Hotkey events flow from a CGEventTap thread (in `os-integration`) through an mpsc channel into a tokio task that owns the dictation state machine. Settings persist via `tauri-plugin-store`. Auto-update plumbing is in place but inactive until code signing (M0.5/pre-v1).
+
 ## Provisioning del modello Whisper (M1a)
 
 M1a esegue speech-to-text via [whisper.cpp](https://github.com/ggerganov/whisper.cpp) (bridge `whisper-rs`, build con features `metal + coreml`). Il modello non è bundlato nel DMG: lo fornisci tu.

@@ -4,69 +4,49 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: macos-15
-    timeout-minutes: 30
-    env:
-      ARCH: arm64
-      RUST_TARGET: aarch64-apple-darwin
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          node-version: 22
-          cache: npm
+          targets: aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            app/src-tauri
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
           cache-dependency-path: app/package-lock.json
 
-      - name: Install just + cargo-nextest
-        run: |
-          brew install just cargo-nextest
+      - uses: taiki-e/install-action@just
+      - uses: taiki-e/install-action@nextest
 
-      - name: Install npm deps (npm 11 via npx, matches local lockfile)
+      - name: Install npm deps
         working-directory: app
-        run: npx -y npm@11 ci
+        run: npm ci --no-audit --no-fund
 
-      - name: Lint
-        run: just lint
+      - name: Type check
+        run: just check
 
-      - name: Test
+      - name: Tests
         run: just test
 
-      - name: Build sidecar + CLI + M2 (release)
-        run: cargo build --release --target $RUST_TARGET -p inference-core -p lda-cli -p audio-capture -p os-integration -p os-bindings-napi -p lda-prototype -p lda-prompts
-
-      - name: Verify napi dylib produced
-        run: test -f target/$RUST_TARGET/release/libos_bindings_napi.dylib
-
-      - name: Copy sidecar into app resources
-        run: |
-          mkdir -p app/resources
-          cp target/$RUST_TARGET/release/inference-core app/resources/inference-core
-
-      - name: Build DMG (unsigned in M0)
-        working-directory: app
-        env:
-          SKIP_NOTARIZATION: "true"
-        run: npm run make -- --arch $ARCH
+      - name: Build DMG
+        run: just dmg
 
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
-          name: local-dictation-app-arm64-unsigned
-          path: app/out/make/**/*.dmg
+          name: local-dictation-app-${{ github.sha }}
+          path: app/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
           retention-days: 30
-          if-no-files-found: error
