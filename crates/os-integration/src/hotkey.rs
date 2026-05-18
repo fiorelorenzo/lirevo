@@ -192,6 +192,14 @@ fn hotkey_worker(
     let target_keycode = hotkey.keycode();
     let callback_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let callback_count_cb = callback_count.clone();
+    // macOS occasionally disables the tap (timeout or unrelated user input);
+    // when that happens it dispatches one of the TapDisabled* event types and
+    // then stops calling the callback until we re-enable the tap. The
+    // callback closure has no handle to the tap itself, so we flag the
+    // condition here and let the run-loop pump (which owns `tap`) re-enable
+    // on the next iteration.
+    let needs_reenable = Arc::new(AtomicBool::new(false));
+    let needs_reenable_cb = needs_reenable.clone();
 
     let tap_callback =
         move |_proxy: CGEventTapProxy, event_type: CGEventType, event: &CGEvent| -> CallbackResult {
@@ -199,6 +207,14 @@ fn hotkey_worker(
             // Log the first event so we can confirm the tap is actually receiving.
             if n == 0 {
                 tracing::info!(?event_type, "tap_callback: first event received");
+            }
+            if matches!(
+                event_type,
+                CGEventType::TapDisabledByTimeout | CGEventType::TapDisabledByUserInput
+            ) {
+                tracing::warn!(?event_type, "tap disabled by macOS; flagging for re-enable");
+                needs_reenable_cb.store(true, Ordering::SeqCst);
+                return CallbackResult::Keep;
             }
             if matches!(
                 event_type,
@@ -286,6 +302,10 @@ fn hotkey_worker(
     // SAFETY: `kCFRunLoopDefaultMode` is a CoreFoundation-provided extern static.
     let mode = unsafe { kCFRunLoopDefaultMode };
     while !shutdown.load(Ordering::SeqCst) {
+        if needs_reenable.swap(false, Ordering::SeqCst) {
+            tracing::info!("re-enabling tap after macOS disabled it");
+            tap.enable();
+        }
         let _ = CFRunLoop::run_in_mode(mode, Duration::from_millis(200), false);
     }
     // `tap` is dropped here; CFMachPort is invalidated by its Drop impl.
