@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use core_foundation::runloop::{kCFRunLoopCommonModes, CFRunLoop};
+use core_foundation::runloop::{kCFRunLoopCommonModes, kCFRunLoopDefaultMode, CFRunLoop};
 use core_graphics::event::{
     CGEvent, CGEventTap, CGEventTapLocation, CGEventTapOptions, CGEventTapPlacement,
     CGEventTapProxy, CGEventType, CallbackResult, EventField,
@@ -278,8 +278,13 @@ fn hotkey_worker(
     let _ = init_tx.send(Ok(()));
 
     // Pump the run loop in short bursts so we can poll the shutdown flag.
-    // SAFETY: see above — reading `kCFRunLoopCommonModes` static.
-    let mode = unsafe { kCFRunLoopCommonModes };
+    // We add the source to `kCFRunLoopCommonModes` above (so it's monitored
+    // by every "common" mode), but `RunInMode` itself expects a SINGLE mode
+    // identifier — passing `kCFRunLoopCommonModes` here is a misuse that
+    // silently fails to dispatch events on macOS. Use `kCFRunLoopDefaultMode`
+    // for the actual pump.
+    // SAFETY: `kCFRunLoopDefaultMode` is a CoreFoundation-provided extern static.
+    let mode = unsafe { kCFRunLoopDefaultMode };
     while !shutdown.load(Ordering::SeqCst) {
         let _ = CFRunLoop::run_in_mode(mode, Duration::from_millis(200), false);
     }
