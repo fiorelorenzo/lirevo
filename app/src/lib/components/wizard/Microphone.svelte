@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, untrack } from 'svelte';
   import { Button } from '$lib/components/ui/button';
   import * as Select from '$lib/components/ui/select';
   import { Label } from '$lib/components/ui/label';
@@ -7,7 +7,7 @@
   import PermissionStatus from '$lib/components/PermissionStatus.svelte';
   import { lda, type PermissionStatus as Status, type InputDeviceEntry } from '$lib/tauri';
   import { settings, updateSettings } from '$lib/stores/settings.svelte';
-  import { audioLevel, recording } from '$lib/stores/recording';
+  import { audioLevel } from '$lib/stores/recording';
   import { t } from '$lib/i18n';
 
   interface Props { onnext: () => void; }
@@ -59,13 +59,17 @@
     if (testing) void lda.cancelTestMic();
   });
 
-  // Push audio levels into the bar history + track the running peak while testing.
+  // Push audio levels into the bar history + track the running peak while
+  // testing. ONLY $audioLevel is tracked (the trigger); everything else is
+  // wrapped in untrack so we never read state we also write — otherwise
+  // Svelte 5 reports effect_update_depth_exceeded.
   $effect(() => {
-    if (testing && $recording) {
-      const level = $audioLevel;
+    const level = $audioLevel;
+    untrack(() => {
+      if (!testing) return;
       if (level > currentPeak) currentPeak = level;
       bars = [...bars.slice(1), level];
-    }
+    });
   });
 
   async function startTest() {
