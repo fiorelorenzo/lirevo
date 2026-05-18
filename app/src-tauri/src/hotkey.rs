@@ -86,9 +86,11 @@ async fn dictation_loop(app: AppHandle, mut rx: tokio::sync::mpsc::Receiver<Hotk
 }
 
 fn handle_down(app: &AppHandle, state: &tauri::State<AppState>) {
+    tracing::info!("handle_down: hotkey pressed");
     let ms = state.current_model_state();
     let whisper_ok = matches!(ms, ModelState::Ready { whisper: true, .. });
     if !whisper_ok {
+        tracing::warn!(?ms, "handle_down: whisper not ready, ignoring");
         let _ = app.emit(
             "toast",
             crate::commands::toast("warn", "Whisper model not ready — open Settings"),
@@ -98,6 +100,7 @@ fn handle_down(app: &AppHandle, state: &tauri::State<AppState>) {
 
     let mut inner = state.inner.lock().unwrap();
     if inner.recorder.is_some() {
+        tracing::info!("handle_down: already recording (duplicate Down)");
         // Already recording (duplicate Down). Ignore — Up will clean up.
         return;
     }
@@ -112,6 +115,7 @@ fn handle_down(app: &AppHandle, state: &tauri::State<AppState>) {
 
     match result {
         Ok(recorder) => {
+            tracing::info!("handle_down: recorder started");
             // Forward audio levels (RMS, throttled to ~33 Hz inside the recorder)
             // to the shared watch channel + a Tauri event for the RecordingIndicator.
             let mut level_rx = recorder.level_rx();
@@ -140,14 +144,19 @@ fn handle_down(app: &AppHandle, state: &tauri::State<AppState>) {
 }
 
 fn handle_up(app: &AppHandle, state: &tauri::State<AppState>) {
+    tracing::info!("handle_up: hotkey released");
     let recorder = state.inner.lock().unwrap().recorder.take();
     let Some(mut r) = recorder else {
+        tracing::warn!("handle_up: no active recorder (Down was ignored?)");
         // Up without an active Down (e.g. permission popup ate the Down event).
         return;
     };
 
     let wav = match r.stop() {
-        Ok(recording) => convert_recording_to_wav(&recording),
+        Ok(recording) => {
+            tracing::info!(samples = recording.samples.len(), "handle_up: recording stopped");
+            convert_recording_to_wav(&recording)
+        }
         Err(e) => {
             tracing::warn!(error = %e, "recorder stop failed");
             let _ = state.recording_state_tx.send(false);
