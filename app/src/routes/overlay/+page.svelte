@@ -1,11 +1,14 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { audioLevel, recording } from '$lib/stores/recording';
-  import { getCurrentWindow } from '@tauri-apps/api/window';
+
+  // The window itself is shown/hidden by the backend (hotkey.rs) on
+  // recording start/stop. This component is just the renderer — subscribe
+  // to live RMS levels and reset the buffer when a fresh take starts.
 
   // Number of vertical bars in the waveform. Each shift represents one
   // audio-level sample (≈30 Hz so the bar sweep at this resolution moves at
-  // a perceptual `slow waveform` pace, not `glitchy strobe`).
+  // a perceptual "slow waveform" pace, not "glitchy strobe").
   const BARS = 28;
   let bars = $state<number[]>(Array(BARS).fill(0));
   // Mutated imperatively (not $state) — the audioLevel subscribe can fire
@@ -15,42 +18,27 @@
 
   let unsubLevel: (() => void) | null = null;
   let unsubRec: (() => void) | null = null;
-  let hideTimer: ReturnType<typeof setTimeout> | null = null;
   let lastRec = false;
 
   onMount(() => {
-    const win = getCurrentWindow();
-
     unsubLevel = audioLevel.subscribe((level) => {
       barsBuf = [...barsBuf.slice(1), level];
       bars = barsBuf.slice();
     });
-
+    // Reset bars at the start of each fresh take so the carry-over from the
+    // previous recording doesn't render as a peak the user didn't make.
     unsubRec = recording.subscribe((rec) => {
-      if (rec === lastRec) return;
-      lastRec = rec;
-      if (rec) {
-        if (hideTimer) {
-          clearTimeout(hideTimer);
-          hideTimer = null;
-        }
-        // Reset bars when a fresh take starts so we don't show the tail
-        // of the previous recording at peak height.
+      if (rec && !lastRec) {
         barsBuf = Array(BARS).fill(0);
         bars = barsBuf.slice();
-        void win.show();
-      } else {
-        // Brief delay so the user sees the bars come to rest before the
-        // overlay disappears.
-        hideTimer = setTimeout(() => { void win.hide(); }, 600);
       }
+      lastRec = rec;
     });
   });
 
   onDestroy(() => {
     unsubLevel?.();
     unsubRec?.();
-    if (hideTimer) clearTimeout(hideTimer);
   });
 </script>
 

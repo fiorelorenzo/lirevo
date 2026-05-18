@@ -133,6 +133,7 @@ fn handle_down(app: &AppHandle, state: &tauri::State<AppState>) {
             inner.recorder = Some(recorder);
             let _ = state.recording_state_tx.send(true);
             let _ = app.emit("recording:state", true);
+            show_overlay(app);
         }
         Err(e) => {
             tracing::warn!(error = %e, "recorder start failed");
@@ -173,10 +174,33 @@ fn handle_up(app: &AppHandle, state: &tauri::State<AppState>) {
 
     let _ = state.recording_state_tx.send(false);
     let _ = app.emit("recording:state", false);
+    hide_overlay_with_delay(app);
 
     let app2 = app.clone();
     tauri::async_runtime::spawn(async move {
         run_pipeline(app2, wav).await;
+    });
+}
+
+/// Show the recording overlay window if it exists. Silent no-op if it
+/// hasn't been created (e.g. setup failed). Best-effort.
+fn show_overlay(app: &AppHandle) {
+    use tauri::Manager;
+    if let Some(w) = app.get_webview_window("overlay") {
+        let _ = w.show();
+    }
+}
+
+/// Hide the overlay after a short grace period so the waveform visibly
+/// settles before the pill disappears.
+fn hide_overlay_with_delay(app: &AppHandle) {
+    use tauri::Manager;
+    let app2 = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        if let Some(w) = app2.get_webview_window("overlay") {
+            let _ = w.hide();
+        }
     });
 }
 

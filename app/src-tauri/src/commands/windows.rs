@@ -110,7 +110,7 @@ fn build_overlay_window(app: &AppHandle) -> Result<(), AppError> {
         .skip_taskbar(true)
         .focused(false)
         .shadow(false)
-        .visible(false); // Stays hidden until the frontend shows it on record.
+        .visible(false); // Show/hide driven by hotkey.rs on recording state.
     #[cfg(target_os = "macos")]
     {
         builder = builder.title_bar_style(tauri::TitleBarStyle::Overlay);
