@@ -20,6 +20,25 @@ use tracing::warn;
 
 // Accessibility status is no longer checked here — see `install()`.
 
+// Input Monitoring TCC is a separate gate on macOS Sonoma+: even with
+// Accessibility granted, CGEventTap callbacks never fire unless the app
+// is also listed (and toggled on) under Privacy & Security → Input
+// Monitoring. We probe it via `IOHIDCheckAccess` so we can log it next to
+// the install attempt.
+#[link(name = "IOKit", kind = "framework")]
+extern "C" {
+    fn IOHIDCheckAccess(request_type: u32) -> u32;
+}
+const IOHID_REQUEST_TYPE_LISTEN_EVENT: u32 = 1;
+fn input_monitoring_label() -> &'static str {
+    // IOHIDAccessType: 0 = Granted, 1 = Denied, 2 = Unknown.
+    match unsafe { IOHIDCheckAccess(IOHID_REQUEST_TYPE_LISTEN_EVENT) } {
+        0 => "granted",
+        1 => "denied",
+        _ => "unknown",
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Hotkey {
     RightOption,
@@ -161,13 +180,26 @@ fn hotkey_worker(
     runloop_slot: &Arc<Mutex<Option<CFRunLoop>>>,
     init_tx: std::sync::mpsc::SyncSender<Result<(), HotkeyError>>,
 ) {
+    tracing::info!(
+        input_monitoring = input_monitoring_label(),
+        target_keycode = hotkey.keycode(),
+        "hotkey_worker: about to create CGEventTap",
+    );
+
     let is_pressed = Arc::new(AtomicBool::new(false));
     let tx_cb = tx.clone();
     let is_pressed_cb = is_pressed.clone();
     let target_keycode = hotkey.keycode();
+    let callback_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let callback_count_cb = callback_count.clone();
 
     let tap_callback =
         move |_proxy: CGEventTapProxy, event_type: CGEventType, event: &CGEvent| -> CallbackResult {
+            let n = callback_count_cb.fetch_add(1, Ordering::SeqCst);
+            // Log the first event so we can confirm the tap is actually receiving.
+            if n == 0 {
+                tracing::info!(?event_type, "tap_callback: first event received");
+            }
             if matches!(
                 event_type,
                 CGEventType::FlagsChanged | CGEventType::KeyDown | CGEventType::KeyUp
@@ -211,10 +243,14 @@ fn hotkey_worker(
         ],
         tap_callback,
     ) else {
-        warn!("CGEventTap::new failed (accessibility likely denied)");
+        warn!(
+            input_monitoring = input_monitoring_label(),
+            "CGEventTap::new failed (accessibility or input-monitoring likely denied)",
+        );
         let _ = init_tx.send(Err(HotkeyError::PermissionDenied));
         return;
     };
+    tracing::info!("hotkey_worker: CGEventTap::new succeeded; enabling tap");
 
     let Ok(runloop_source) = tap.mach_port().create_runloop_source(0) else {
         warn!("create_runloop_source failed");
