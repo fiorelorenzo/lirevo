@@ -47,7 +47,7 @@ impl Default for Settings {
             llm_ctx_size: 4096,
             whisper_coreml_disable: false,
             hotkey: Hotkey::default(),
-            language: "auto".into(),
+            language: default_dictation_language(),
             input_device_name: None,
             force_pasteboard: false,
             paste_delay_ms: 120,
@@ -56,6 +56,26 @@ impl Default for Settings {
             onboarding_complete: false,
             app_version: env!("CARGO_PKG_VERSION").to_string(),
         }
+    }
+}
+
+/// Default dictation language derived from the OS locale (e.g. `it-IT` →
+/// `it`). Whisper auto-detect on very short utterances often hallucinates
+/// English fillers like "Thank you" — pinning to the user's actual locale
+/// from first launch avoids that for the 99% case. Falls back to `auto` if
+/// we can't read the locale or it isn't in the catalog.
+fn default_dictation_language() -> String {
+    const SUPPORTED: &[&str] = &["en", "it", "fr", "de", "es"];
+    let locale = sys_locale::get_locale().unwrap_or_default();
+    let primary = locale
+        .split(['-', '_'])
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if SUPPORTED.contains(&primary.as_str()) {
+        primary
+    } else {
+        "auto".into()
     }
 }
 
@@ -169,7 +189,10 @@ mod tests {
     fn defaults_match_spec() {
         let s = Settings::default();
         assert_eq!(s.hotkey, Hotkey::RightOption);
-        assert_eq!(s.language, "auto");
+        // `language` is derived from the host OS locale at first run, so
+        // its concrete value is environment-dependent. All we can pin is
+        // that it lands in the catalog of supported codes.
+        assert!(["auto", "en", "it", "fr", "de", "es"].contains(&s.language.as_str()));
         assert_eq!(s.llm_ctx_size, 4096);
         assert_eq!(s.paste_delay_ms, 120);
         assert!(!s.onboarding_complete);

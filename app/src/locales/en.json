@@ -78,7 +78,7 @@
       "section": "Dictation",
       "injection_section": "Text injection",
       "app_section": "App",
-      "language": "Cleanup language",
+      "language": "Dictation language",
       "language_auto": "Auto-detect",
       "input_device": "Microphone",
       "input_device_default": "system default",
