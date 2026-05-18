@@ -85,7 +85,7 @@
       {t('model_manager.stats', { used: fmtSize(usedBytes), installed: installedCount, total: catalog.length })}
     </div>
 
-    {#each KINDS as kind (kind)}
+    {#each KINDS as kind, i (kind)}
       <section class="mb-10">
         <h2 class="text-xs font-semibold tracking-wide uppercase text-muted-foreground mb-3">
           {kind === 'stt' ? t('model_manager.stt_section') : t('model_manager.llm_section')}
@@ -102,9 +102,7 @@
           {/each}
         </div>
 
-        <Separator class="my-4" />
-
-        <div class="text-xs uppercase tracking-wide text-muted-foreground mb-2">
+        <div class="text-xs uppercase tracking-wide text-muted-foreground mt-4 mb-2">
           {t('model_manager.use_existing')}
         </div>
         <FilePicker
@@ -114,6 +112,10 @@
             : [{ name: 'GGUF', extensions: ['gguf'] }]}
           onpick={(p) => updateSettings(kind === 'stt' ? { whisperModelPath: p } : { llmModelPath: p })}
         />
+
+        {#if i < KINDS.length - 1}
+          <Separator class="mt-6" />
+        {/if}
       </section>
     {/each}
   {:else}
