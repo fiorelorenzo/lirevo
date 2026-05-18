@@ -49,6 +49,13 @@ pub async fn complete_wizard(
 
 pub fn open_window_internal(app: &AppHandle, route: &str) -> Result<(), AppError> {
     use tauri::Manager;
+    // Overlay is its own thing — special-case it before the regular flow.
+    if route == "overlay" {
+        if app.get_webview_window("overlay").is_some() {
+            return Ok(());
+        }
+        return build_overlay_window(app);
+    }
     // Focus existing window if alive.
     if let Some(w) = app.get_webview_window(route) {
         let _ = w.set_focus();
@@ -82,5 +89,67 @@ pub fn open_window_internal(app: &AppHandle, route: &str) -> Result<(), AppError
     builder
         .build()
         .map_err(|e| AppError::Internal(format!("window build: {e}")))?;
+    Ok(())
+}
+
+/// The recording overlay: a small, transparent, click-through bar that
+/// floats at the top of the primary display and shows a live waveform.
+/// Stays above every other window (including frontmost-app windows) and
+/// follows the user across spaces.
+fn build_overlay_window(app: &AppHandle) -> Result<(), AppError> {
+    const OVERLAY_W: f64 = 280.0;
+    const OVERLAY_H: f64 = 56.0;
+
+    let mut builder = WebviewWindowBuilder::new(app, "overlay", WebviewUrl::App("/overlay".into()))
+        .title("")
+        .inner_size(OVERLAY_W, OVERLAY_H)
+        .resizable(false)
+        .decorations(false)
+        .always_on_top(true)
+        .transparent(true)
+        .skip_taskbar(true)
+        .focused(false)
+        .shadow(false)
+        .visible(false); // Stays hidden until the frontend shows it on record.
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.title_bar_style(tauri::TitleBarStyle::Overlay);
+    }
+
+    let window = builder
+        .build()
+        .map_err(|e| AppError::Internal(format!("overlay build: {e}")))?;
+
+    // Centered horizontally near the top of the primary monitor.
+    if let Ok(Some(monitor)) = window.primary_monitor() {
+        let mon_size = monitor.size();
+        let mon_pos = monitor.position();
+        let scale = monitor.scale_factor();
+        let logical_w = mon_size.width as f64 / scale;
+        let x = mon_pos.x as f64 / scale + (logical_w - OVERLAY_W) / 2.0;
+        let y = mon_pos.y as f64 / scale + 12.0; // 12 px from the top
+        let _ = window.set_position(tauri::LogicalPosition::new(x, y));
+    }
+
+    // macOS: raise above frontmost app windows + make sticky across spaces +
+    // pass clicks through to whatever is underneath. None of this is reachable
+    // from Tauri's portable API surface so we drop to objc2.
+    #[cfg(target_os = "macos")]
+    {
+        use objc2::msg_send;
+        if let Ok(ns_window) = window.ns_window() {
+            let ns_window = ns_window as *mut objc2::runtime::AnyObject;
+            unsafe {
+                // NSStatusWindowLevel = 25 — above NSNormalWindowLevel (0) and
+                // NSFloatingWindowLevel (3), below the screensaver/menu.
+                let _: () = msg_send![ns_window, setLevel: 25_isize];
+                // CanJoinAllSpaces (1) | Stationary (16) | IgnoresCycle (64).
+                let _: () = msg_send![ns_window, setCollectionBehavior: 81_usize];
+                // Clicks fall through to the app below.
+                let _: () = msg_send![ns_window, setIgnoresMouseEvents: true];
+            }
+        }
+    }
+
     Ok(())
 }
