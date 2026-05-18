@@ -5,6 +5,6 @@
   <key>NSMicrophoneUsageDescription</key>
   <string>local-dictation-app needs microphone access to capture your dictation audio. Audio is processed locally and discarded after each transcription.</string>
   <key>LSUIElement</key>
-  <false/>
+  <true/>
 </dict>
 </plist>

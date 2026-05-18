@@ -45,3 +45,4 @@ docs/specs/
 
 # Test audio fixtures (provided locally, not committed)
 crates/inference-core/tests/fixtures/*.wav
+.claude/

@@ -39,7 +39,6 @@ pub fn dev_skip_perms() -> bool {
 
 #[link(name = "ApplicationServices", kind = "framework")]
 extern "C" {
-    fn AXIsProcessTrusted() -> bool;
     fn AXIsProcessTrustedWithOptions(options: core_foundation::base::CFTypeRef) -> bool;
 
     /// Defined in `ApplicationServices` as a `CFStringRef` constant; the symbol is
@@ -57,7 +56,13 @@ pub fn check_accessibility() -> PermissionStatus {
         tracing::warn!("check_accessibility: LDA_DEV_SKIP_PERMS active — returning Granted");
         return PermissionStatus::Granted;
     }
-    if unsafe { AXIsProcessTrusted() } {
+    // `AXIsProcessTrusted()` caches its answer for the process lifetime;
+    // once the user grants the permission in System Settings the cached
+    // "denied" value sticks until restart and the home banner can never
+    // clear. `AXIsProcessTrustedWithOptions(NULL)` performs a fresh
+    // check on each call.
+    let trusted = unsafe { AXIsProcessTrustedWithOptions(std::ptr::null()) };
+    if trusted {
         PermissionStatus::Granted
     } else {
         PermissionStatus::Denied

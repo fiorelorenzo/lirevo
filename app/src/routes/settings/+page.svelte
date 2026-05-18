@@ -39,6 +39,12 @@
 
   let devices = $state<InputDeviceEntry[]>([]);
   onMount(async () => {
+    // Only enumerate input devices if mic permission was already granted.
+    // On macOS 14+ Core Audio HAL surfaces the TCC prompt the moment we
+    // open the device list, even read-only — we don't want to flash that
+    // dialog every time the user opens Settings.
+    const mic = await lda.checkMicrophone().catch(() => 'denied' as const);
+    if (mic !== 'granted') return;
     try {
       devices = await lda.listInputDevices();
     } catch {

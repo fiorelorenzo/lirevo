@@ -13,10 +13,6 @@
     "windows": [],
     "security": {
       "csp": null
-    },
-    "trayIcon": {
-      "iconPath": "icons/tray/tray-loading.png",
-      "iconAsTemplate": true
     }
   },
   "bundle": {

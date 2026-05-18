@@ -16,9 +16,19 @@ dev:
 # but the only way to exercise the real permission UX.
 #
 # Output: app/src-tauri/target/aarch64-apple-darwin/debug/bundle/macos/local-dictation-app.app
+#
+# We `tccutil reset` Accessibility + Microphone before relaunch because
+# the bundle is ad-hoc signed (Tauri's default) — the code-signing
+# identity hash changes every rebuild, so the previous TCC grants point
+# at a stale binary even though the System Settings toggle still reads
+# "on". Without the reset the user sees "permission denied" plus a
+# stale entry in Privacy & Security and has to clean it up by hand.
+# A stable identity needs a Developer ID cert (M0.5).
 dev-bundle:
     cd app && npm install --no-audit --no-fund
     cd app && npx tauri build --debug --target aarch64-apple-darwin --bundles app
+    -tccutil reset Accessibility app.localdictation
+    -tccutil reset Microphone app.localdictation
     open app/src-tauri/target/aarch64-apple-darwin/debug/bundle/macos/local-dictation-app.app
 
 # Release build → .app + .dmg under app/src-tauri/target/aarch64-apple-darwin/release/bundle/

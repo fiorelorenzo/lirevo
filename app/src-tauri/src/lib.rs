@@ -50,14 +50,18 @@ pub fn run() {
                 tracing::warn!(?e, "tray install failed (stub)");
             }
 
-            // Install hotkey listener (no-op stub until T13).
+            // Install hotkey listener. Fails when Accessibility permission
+            // is missing; the home page renders a persistent banner from
+            // its `permissionsState` store + an automatic
+            // `retry_hotkey_install` when AX flips back to granted, so no
+            // toast is needed here — would just be redundant noise.
             let hotkey = {
                 let state = app.state::<AppState>();
                 let inner = state.inner.lock().unwrap();
                 inner.settings.hotkey
             };
             if let Err(e) = hotkey::install(app.handle().clone(), hotkey) {
-                tracing::warn!(?e, "hotkey install failed (stub)");
+                tracing::warn!(?e, "hotkey install failed");
             }
 
             // Open initial window: wizard if first-run, home otherwise.
@@ -73,6 +77,51 @@ pub fn run() {
                 let state = app_handle_for_load.state::<AppState>();
                 commands::inference::load_models(&app_handle_for_load, state).await;
             });
+
+            // macOS-only: install a SIGABRT handler that converts the abort
+            // raised inside ggml-metal's teardown assertion into a clean
+            // `_exit(0)`.
+            //
+            // Full path:
+            //   [NSApplication terminate:]
+            //     → libc::exit
+            //       → __cxa_finalize_ranges
+            //         → ~unique_ptr<ggml_metal_device>()
+            //           → ggml_metal_rsets_free
+            //             → GGML_ASSERT([rsets->data count] == 0)  // Metal still draining
+            //               → ggml_abort → abort() → raise(SIGABRT)
+            //
+            // We tried `atexit` first, but C++ statics register their own
+            // __cxa_atexit handlers when first initialized — ggml-metal
+            // initializes inside `load_models`, which is spawned as a
+            // background tokio task that runs AFTER setup. So our atexit
+            // (registered in setup) is registered BEFORE ggml-metal's, and
+            // LIFO ordering means ggml's handler fires first → crash.
+            //
+            // The signal handler is order-independent: whenever SIGABRT
+            // arrives, we _exit(0) immediately. No conflict with tokio's
+            // signal handling (tokio uses kqueue/signalfd, not the C
+            // `signal()` table).
+            //
+            // Other platforms hit the RunEvent::ExitRequested branch below
+            // (Tauri's run loop handles their shutdown normally).
+            #[cfg(target_os = "macos")]
+            {
+                extern "C" fn lda_clean_exit_on_sigabrt(_sig: std::ffi::c_int) {
+                    unsafe extern "C" {
+                        fn _exit(status: std::ffi::c_int) -> !;
+                    }
+                    unsafe { _exit(0) }
+                }
+                unsafe extern "C" {
+                    fn signal(
+                        signum: std::ffi::c_int,
+                        handler: extern "C" fn(std::ffi::c_int),
+                    ) -> *const ();
+                }
+                const SIGABRT: std::ffi::c_int = 6;
+                unsafe { signal(SIGABRT, lda_clean_exit_on_sigabrt); }
+            }
 
             Ok(())
         })
@@ -95,34 +144,36 @@ pub fn run() {
             commands::permissions::check_microphone,
             commands::permissions::prompt_microphone,
             commands::permissions::open_system_settings_microphone,
+            commands::permissions::open_system_settings_accessibility,
+            commands::permissions::retry_hotkey_install,
             commands::windows::open_window,
             commands::windows::close_window,
             commands::windows::complete_wizard,
+            commands::windows::restart_app,
             commands::dialog::pick_file,
             commands::updater::check_for_updates,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_app, event| {
-            // Force a clean exit on shutdown via the raw `_exit` syscall
-            // (NOT std::process::exit). At quit time ggml-metal's C++ static
-            // `unique_ptr<ggml_metal_device>` deleter fires from
-            // __cxa_finalize_ranges and asserts the residency-set list is
-            // empty — but the Metal command queue is still being drained,
-            // so [rsets->data count] != 0 and the process SIGABRTs. macOS
-            // then surfaces "Chiusura inattesa" on every quit.
-            //
-            // std::process::exit DOES run __cxa_finalize, so it doesn't fix
-            // the crash. _exit skips atexit handlers and C++ static
-            // destructors entirely. Safe here: settings persist on every
-            // update, the tracing-appender WorkerGuard already flushed
-            // before we get here, and download progress is checkpointed
-            // per-chunk in models.rs.
+            // Defensive cover for non-macOS shutdown paths (Tauri's run
+            // loop emits ExitRequested before destructors there). On macOS
+            // the atexit handler registered in setup() handles the
+            // [NSApplication terminate:] → libc::exit path that doesn't
+            // route through this callback at all; std::process::exit here
+            // would still trigger the ggml-metal destructor abort.
             if let tauri::RunEvent::ExitRequested { .. } = event {
-                unsafe extern "C" {
-                    fn _exit(status: std::ffi::c_int) -> !;
+                #[cfg(target_os = "macos")]
+                {
+                    unsafe extern "C" {
+                        fn _exit(status: std::ffi::c_int) -> !;
+                    }
+                    unsafe { _exit(0) }
                 }
-                unsafe { _exit(0) }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    std::process::exit(0);
+                }
             }
         });
 }

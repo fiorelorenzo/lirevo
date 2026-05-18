@@ -18,7 +18,26 @@ use thiserror::Error;
 use tokio::sync::mpsc;
 use tracing::warn;
 
-use crate::permissions::{check_accessibility, PermissionStatus};
+// Accessibility status is no longer checked here — see `install()`.
+
+// Input Monitoring TCC is a separate gate on macOS Sonoma+: even with
+// Accessibility granted, CGEventTap callbacks never fire unless the app
+// is also listed (and toggled on) under Privacy & Security → Input
+// Monitoring. We probe it via `IOHIDCheckAccess` so we can log it next to
+// the install attempt.
+#[link(name = "IOKit", kind = "framework")]
+extern "C" {
+    fn IOHIDCheckAccess(request_type: u32) -> u32;
+}
+const IOHID_REQUEST_TYPE_LISTEN_EVENT: u32 = 1;
+fn input_monitoring_label() -> &'static str {
+    // IOHIDAccessType: 0 = Granted, 1 = Denied, 2 = Unknown.
+    match unsafe { IOHIDCheckAccess(IOHID_REQUEST_TYPE_LISTEN_EVENT) } {
+        0 => "granted",
+        1 => "denied",
+        _ => "unknown",
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Hotkey {
@@ -82,36 +101,53 @@ pub struct HotkeyListener {
 
 impl HotkeyListener {
     pub fn install(hotkey: Hotkey) -> Result<(Self, mpsc::Receiver<HotkeyEvent>), HotkeyError> {
-        if check_accessibility() != PermissionStatus::Granted {
-            return Err(HotkeyError::PermissionDenied);
-        }
-
+        // Don't preflight with `check_accessibility()` — `AXIsProcessTrusted`
+        // caches its answer for the lifetime of the process, so once the
+        // user grants Accessibility in System Settings our check still
+        // reports denied and we'd never get past this line. Instead, let
+        // `CGEventTapCreate` itself fail (it does a fresh, uncached
+        // permission check on each call) and translate that failure into
+        // PermissionDenied. The worker thread reports init success/failure
+        // back over a one-shot channel so we can surface it synchronously
+        // here.
         let (tx, rx) = mpsc::channel::<HotkeyEvent>(64);
         let shutdown_flag = Arc::new(AtomicBool::new(false));
         let runloop_slot: Arc<Mutex<Option<CFRunLoop>>> = Arc::new(Mutex::new(None));
 
+        let (init_tx, init_rx) = std::sync::mpsc::sync_channel::<Result<(), HotkeyError>>(1);
         let shutdown_clone = shutdown_flag.clone();
         let runloop_slot_clone = runloop_slot.clone();
 
         let worker = thread::Builder::new()
             .name("hotkey-tap".into())
             .spawn(move || {
-                hotkey_worker(hotkey, &tx, &shutdown_clone, &runloop_slot_clone);
+                hotkey_worker(hotkey, &tx, &shutdown_clone, &runloop_slot_clone, init_tx);
             })
             .map_err(|e| HotkeyError::Internal(format!("spawn hotkey thread: {e}")))?;
 
-        // Best-effort delay so the worker has a chance to install the tap and
-        // publish its CFRunLoop handle before the caller starts producing events.
-        thread::sleep(Duration::from_millis(50));
-
-        Ok((
-            Self {
-                shutdown_flag,
-                worker: Some(worker),
-                runloop: runloop_slot,
-            },
-            rx,
-        ))
+        // Block on the worker reporting init status. Bounded wait so a
+        // wedged worker doesn't hang setup forever.
+        match init_rx.recv_timeout(Duration::from_secs(2)) {
+            Ok(Ok(())) => Ok((
+                Self {
+                    shutdown_flag,
+                    worker: Some(worker),
+                    runloop: runloop_slot,
+                },
+                rx,
+            )),
+            Ok(Err(e)) => {
+                shutdown_flag.store(true, std::sync::atomic::Ordering::SeqCst);
+                let _ = worker.join();
+                Err(e)
+            }
+            Err(_) => {
+                shutdown_flag.store(true, std::sync::atomic::Ordering::SeqCst);
+                Err(HotkeyError::Internal(
+                    "hotkey worker did not signal init within 2s".into(),
+                ))
+            }
+        }
     }
 
     pub fn shutdown(mut self) {
@@ -142,14 +178,56 @@ fn hotkey_worker(
     tx: &mpsc::Sender<HotkeyEvent>,
     shutdown: &Arc<AtomicBool>,
     runloop_slot: &Arc<Mutex<Option<CFRunLoop>>>,
+    init_tx: std::sync::mpsc::SyncSender<Result<(), HotkeyError>>,
 ) {
+    // Promote this thread to user-interactive QoS. Without this macOS App Nap
+    // throttles background threads aggressively when the owning app isn't
+    // focused — the symptom is that the hotkey fires while the app is in
+    // the foreground but goes dead the moment focus moves elsewhere, which
+    // is exactly the opposite of what a push-to-talk hotkey is for.
+    // FreeFlow does the same via `thread.qualityOfService = .userInteractive`.
+    #[link(name = "System", kind = "framework")]
+    extern "C" {
+        fn pthread_set_qos_class_self_np(qos_class: u32, relative_priority: i32) -> i32;
+    }
+    // From <sys/qos.h>: QOS_CLASS_USER_INTERACTIVE = 0x21.
+    const QOS_CLASS_USER_INTERACTIVE: u32 = 0x21;
+    let rc = unsafe { pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0) };
+    if rc != 0 {
+        tracing::warn!(rc, "pthread_set_qos_class_self_np failed; tap may be throttled when app unfocused");
+    }
+
+    tracing::info!(
+        input_monitoring = input_monitoring_label(),
+        target_keycode = hotkey.keycode(),
+        "hotkey_worker: about to create CGEventTap",
+    );
+
     let is_pressed = Arc::new(AtomicBool::new(false));
     let tx_cb = tx.clone();
     let is_pressed_cb = is_pressed.clone();
     let target_keycode = hotkey.keycode();
-
+    let callback_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let callback_count_cb = callback_count.clone();
     let tap_callback =
         move |_proxy: CGEventTapProxy, event_type: CGEventType, event: &CGEvent| -> CallbackResult {
+            let n = callback_count_cb.fetch_add(1, Ordering::SeqCst);
+            // Log the first event so we can confirm the tap is actually receiving.
+            if n == 0 {
+                tracing::info!(?event_type, "tap_callback: first event received");
+            }
+            // Re-enable immediately on disable events. macOS sends these for
+            // "secondary mouse button" presses or any callback that exceeded
+            // its CPU budget; the tap stops dispatching until re-enabled.
+            // FreeFlow does the equivalent synchronously inside the callback.
+            if matches!(
+                event_type,
+                CGEventType::TapDisabledByTimeout | CGEventType::TapDisabledByUserInput
+            ) {
+                tracing::warn!(?event_type, "tap disabled by macOS; re-enabling synchronously");
+                reenable_tap_from_callback();
+                return CallbackResult::Keep;
+            }
             if matches!(
                 event_type,
                 CGEventType::FlagsChanged | CGEventType::KeyDown | CGEventType::KeyUp
@@ -182,8 +260,16 @@ fn hotkey_worker(
             CallbackResult::Keep
         };
 
+    // Session-level + Default options. We tried `ListenOnly` first (matching
+    // FreeFlow's Swift code) but the tap kept getting hit with
+    // TapDisabledByUserInput on every interaction and our re-enable wasn't
+    // restoring event delivery. The Default (capture-capable) variant is
+    // less aggressively suspended in our ad-hoc-signed dev builds.
+    // Session-level still only needs Accessibility (not Input Monitoring),
+    // and although Default allows modifying events we simply return Keep
+    // so behavior matches ListenOnly observationally.
     let Ok(tap) = CGEventTap::new(
-        CGEventTapLocation::HID,
+        CGEventTapLocation::Session,
         CGEventTapPlacement::HeadInsertEventTap,
         CGEventTapOptions::Default,
         vec![
@@ -193,12 +279,18 @@ fn hotkey_worker(
         ],
         tap_callback,
     ) else {
-        warn!("CGEventTap::new failed");
+        warn!(
+            input_monitoring = input_monitoring_label(),
+            "CGEventTap::new failed (accessibility or input-monitoring likely denied)",
+        );
+        let _ = init_tx.send(Err(HotkeyError::PermissionDenied));
         return;
     };
+    tracing::info!("hotkey_worker: CGEventTap::new succeeded; enabling tap");
 
     let Ok(runloop_source) = tap.mach_port().create_runloop_source(0) else {
         warn!("create_runloop_source failed");
+        let _ = init_tx.send(Err(HotkeyError::TapCreationFailed));
         return;
     };
     let runloop = CFRunLoop::get_current();
@@ -213,13 +305,50 @@ fn hotkey_worker(
         *g = Some(runloop.clone());
     }
 
-    // Pump the run loop in short bursts so we can poll the shutdown flag.
-    // SAFETY: see above — reading `kCFRunLoopCommonModes` static.
-    let mode = unsafe { kCFRunLoopCommonModes };
-    while !shutdown.load(Ordering::SeqCst) {
-        let _ = CFRunLoop::run_in_mode(mode, Duration::from_millis(200), false);
+    // Tap is fully installed — signal success to the caller of `install`.
+    let _ = init_tx.send(Ok(()));
+
+    // Stash the mach port raw pointer so the callback can re-enable the tap
+    // synchronously when macOS dispatches a TapDisabled event. Order-
+    // independent and doesn't require pumping the run loop in slices.
+    {
+        use core_foundation::base::TCFType;
+        let mach_port_ref = tap.mach_port().as_concrete_TypeRef();
+        TAP_MACH_PORT.store(mach_port_ref as *mut _, Ordering::SeqCst);
     }
+
+    // Block on the run loop until someone calls `CFRunLoopStop` (the Drop
+    // impl on HotkeyListener does this via the runloop slot). This matches
+    // FreeFlow's CFRunLoopRun() pattern. The shutdown flag + run_current
+    // race-loop we had before was pumping the loop in 200ms slices, which
+    // turned out to deliver events less reliably than a single blocking
+    // CFRunLoopRun().
+    while !shutdown.load(Ordering::SeqCst) {
+        CFRunLoop::run_current();
+    }
+    TAP_MACH_PORT.store(std::ptr::null_mut(), Ordering::SeqCst);
     // `tap` is dropped here; CFMachPort is invalidated by its Drop impl.
+}
+
+// CGEventTap mach port shared with the callback so it can call
+// `CGEventTapEnable` directly when macOS sends a TapDisabled event. macOS
+// can do this for "secondary mouse" or callback-timeout reasons and the
+// tap stops dispatching events until we re-enable it. Doing it in the
+// callback (synchronously) is what FreeFlow does — pumping a flag from
+// outside the run loop drops events while we wait for the next iteration.
+static TAP_MACH_PORT: std::sync::atomic::AtomicPtr<std::ffi::c_void> =
+    std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    fn CGEventTapEnable(tap: *mut std::ffi::c_void, enable: bool);
+}
+
+fn reenable_tap_from_callback() {
+    let port = TAP_MACH_PORT.load(Ordering::SeqCst);
+    if !port.is_null() {
+        unsafe { CGEventTapEnable(port, true) };
+    }
 }
 
 #[cfg(test)]

@@ -54,8 +54,15 @@ impl Injector {
 
         match try_ax_inject(text) {
             Ok(()) => Ok(InjectionMethod::Accessibility),
+            // Permission errors must surface — the user has to grant
+            // Accessibility before either path works.
             Err(InjectError::PermissionDenied) => Err(InjectError::PermissionDenied),
-            Err(InjectError::NoFocusedApp) => Err(InjectError::NoFocusedApp),
+            // Anything else (NoFocusedApp / NoFocusedElement / NotTextInput
+            // / Internal) means the AX path can't reach this target —
+            // Electron apps like VS Code, Slack, Discord, Cursor are the
+            // typical case: AXFocusedApplication returns NoValue because
+            // their windows don't expose a standard AX hierarchy.
+            // Cmd+V via the pasteboard works on all of them.
             Err(_) => {
                 pasteboard::pasteboard_inject(text)?;
                 Ok(InjectionMethod::Pasteboard)
