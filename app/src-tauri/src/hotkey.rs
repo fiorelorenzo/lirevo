@@ -199,8 +199,10 @@ enum CueSound {
 #[cfg(target_os = "macos")]
 fn play_cue(kind: CueSound) {
     let path = match kind {
-        CueSound::Start => "/System/Library/Sounds/Pop.aiff",
-        CueSound::Stop => "/System/Library/Sounds/Tink.aiff",
+        // Tink = soft confirmation click — the cleaner "ready to listen" cue.
+        CueSound::Start => "/System/Library/Sounds/Tink.aiff",
+        // Pop = thumpier, signals the act of release / commit.
+        CueSound::Stop => "/System/Library/Sounds/Pop.aiff",
     };
     let _ = std::process::Command::new("/usr/bin/afplay").arg(path).spawn();
 }

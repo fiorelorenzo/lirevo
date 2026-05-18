@@ -137,16 +137,32 @@ fn build_overlay_window(app: &AppHandle) -> Result<(), AppError> {
     #[cfg(target_os = "macos")]
     {
         use objc2::msg_send;
-        if let Ok(ns_window) = window.ns_window() {
-            let ns_window = ns_window as *mut objc2::runtime::AnyObject;
-            unsafe {
-                // NSStatusWindowLevel = 25 — above NSNormalWindowLevel (0) and
-                // NSFloatingWindowLevel (3), below the screensaver/menu.
-                let _: () = msg_send![ns_window, setLevel: 25_isize];
-                // CanJoinAllSpaces (1) | Stationary (16) | IgnoresCycle (64).
-                let _: () = msg_send![ns_window, setCollectionBehavior: 81_usize];
-                // Clicks fall through to the app below.
-                let _: () = msg_send![ns_window, setIgnoresMouseEvents: true];
+        match window.ns_window() {
+            Ok(ns_window) => {
+                tracing::info!(
+                    ptr = ?ns_window,
+                    "overlay: applying NSWindow level + collection behavior",
+                );
+                let ns_window = ns_window as *mut objc2::runtime::AnyObject;
+                unsafe {
+                    // NSStatusWindowLevel = 25 — above NSNormalWindowLevel (0)
+                    // and NSFloatingWindowLevel (3), below the screensaver/menu.
+                    // setLevel: takes NSInteger; on 64-bit macOS that's i64.
+                    let _: () = msg_send![ns_window, setLevel: 25_i64];
+                    // CanJoinAllSpaces (1) | Stationary (16) | IgnoresCycle (64).
+                    let _: () = msg_send![ns_window, setCollectionBehavior: 81_u64];
+                    // Clicks fall through to the app below.
+                    let _: () = msg_send![ns_window, setIgnoresMouseEvents: true];
+                    // Read it back so we can confirm in the logs whether the
+                    // setter actually stuck.
+                    let level: i64 = msg_send![ns_window, level];
+                    let behavior: u64 = msg_send![ns_window, collectionBehavior];
+                    let ignores: bool = msg_send![ns_window, ignoresMouseEvents];
+                    tracing::info!(level, behavior, ignores, "overlay: NSWindow attrs after set");
+                }
+            }
+            Err(e) => {
+                tracing::warn!(?e, "overlay: ns_window() failed");
             }
         }
     }
