@@ -153,6 +153,7 @@ pub fn run() {
             commands::permissions::open_system_settings_microphone,
             commands::permissions::open_system_settings_accessibility,
             commands::permissions::retry_hotkey_install,
+            commands::permissions::frontend_log,
             commands::windows::open_window,
             commands::windows::close_window,
             commands::windows::complete_wizard,

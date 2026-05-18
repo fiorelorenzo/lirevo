@@ -98,3 +98,11 @@ pub async fn retry_hotkey_install(
     }
     result
 }
+
+/// Debug helper — pipe a string from any webview into the backend tracing
+/// stream so we can see it in `~/Library/Logs/app.localdictation/*.log`
+/// without needing devtools on the overlay window (which is click-through).
+#[tauri::command]
+pub fn frontend_log(source: &str, msg: &str) {
+    tracing::info!(source, msg, "frontend_log");
+}

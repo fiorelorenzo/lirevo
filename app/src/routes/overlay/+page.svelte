@@ -1,10 +1,18 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { audioLevel, recording } from '$lib/stores/recording';
+  import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+  import { invoke } from '@tauri-apps/api/core';
 
-  // The window itself is shown/hidden by the backend (hotkey.rs) on
-  // recording start/stop. This component is just the renderer — subscribe
-  // to live RMS levels and reset the buffer when a fresh take starts.
+  // Bypass the shared `audioLevel` / `recording` stores: each webview window
+  // gets its own module instance, and the shared store was emitting only its
+  // initial value (0) into this window — the async Tauri listener inside
+  // the store factory wasn't ever delivering events here. Listen directly
+  // to the raw Tauri events instead, and log to the backend so we can
+  // confirm registration from the lda log (overlay is click-through so
+  // devtools isn't reachable here).
+  const flog = (msg: string) => {
+    void invoke('frontend_log', { source: 'overlay', msg }).catch(() => {});
+  };
 
   // Number of vertical bars in the waveform. Each shift represents one
   // audio-level sample (≈30 Hz so the bar sweep at this resolution moves at
@@ -26,37 +34,54 @@
   // After mutating we copy the snapshot into `bars`.
   let barsBuf: number[] = Array(BARS).fill(0);
 
-  let unsubLevel: (() => void) | null = null;
-  let unsubRec: (() => void) | null = null;
+  let unlistenLevel: UnlistenFn | null = null;
+  let unlistenRec: UnlistenFn | null = null;
   let lastRec = false;
-  // TEMP debug counter: number of audioLevel events received in this window
-  // since mount. Rendered as text so we can tell from the overlay itself
-  // whether the subscription works without opening devtools (overlay is
-  // click-through so right-click → Inspect isn't reachable).
+  // TEMP debug counter rendered in the overlay so we can tell from the
+  // window itself whether the listener registers (overlay is click-through
+  // so devtools isn't reachable).
   let levelCount = $state(0);
   let lastLevel = $state(0);
 
   onMount(() => {
-    unsubLevel = audioLevel.subscribe((level) => {
+    flog('overlay mounted — registering listeners');
+
+    void listen<number>('recording:level', (e) => {
+      const level = e.payload;
       levelCount += 1;
       lastLevel = level;
       barsBuf = [...barsBuf.slice(1), level];
       bars = barsBuf.slice();
-    });
-    // Reset bars at the start of each fresh take so the carry-over from the
-    // previous recording doesn't render as a peak the user didn't make.
-    unsubRec = recording.subscribe((rec) => {
+    })
+      .then((u) => {
+        unlistenLevel = u;
+        flog('recording:level listener installed');
+      })
+      .catch((err) => {
+        flog(`recording:level listen FAILED: ${err}`);
+      });
+
+    void listen<boolean>('recording:state', (e) => {
+      const rec = e.payload;
+      flog(`recording:state = ${rec}`);
       if (rec && !lastRec) {
         barsBuf = Array(BARS).fill(0);
         bars = barsBuf.slice();
       }
       lastRec = rec;
-    });
+    })
+      .then((u) => {
+        unlistenRec = u;
+        flog('recording:state listener installed');
+      })
+      .catch((err) => {
+        flog(`recording:state listen FAILED: ${err}`);
+      });
   });
 
   onDestroy(() => {
-    unsubLevel?.();
-    unsubRec?.();
+    unlistenLevel?.();
+    unlistenRec?.();
   });
 </script>
 
