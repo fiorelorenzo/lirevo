@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { Button } from '$lib/components/ui/button';
   import { Separator } from '$lib/components/ui/separator';
   import ModelCard from '$lib/components/ModelCard.svelte';
@@ -7,6 +7,7 @@
   import SkeletonRow from '$lib/components/SkeletonRow.svelte';
   import { settings, updateSettings } from '$lib/stores/settings.svelte';
   import { lda, type CatalogEntry, type LocalModel } from '$lib/tauri';
+  import type { UnlistenFn } from '@tauri-apps/api/event';
   import { t } from '$lib/i18n';
 
   interface Props { onnext: () => void; }
@@ -15,6 +16,7 @@
   let catalog = $state<CatalogEntry[]>([]);
   let local = $state<LocalModel[]>([]);
   let loaded = $state(false);
+  let unlistenDownload: UnlistenFn | null = null;
 
   async function refresh() {
     [catalog, local] = await Promise.all([lda.modelsCatalog(), lda.modelsListLocal()]);
@@ -23,7 +25,7 @@
 
   onMount(async () => {
     await refresh();
-    void lda.onDownloadProgress(async (p) => {
+    unlistenDownload = await lda.onDownloadProgress(async (p) => {
       if (p.state === 'complete') {
         await refresh();
         const entry = catalog.find((c) => c.id === p.id);
@@ -36,6 +38,10 @@
         }
       }
     });
+  });
+
+  onDestroy(() => {
+    unlistenDownload?.();
   });
 
   let sttReady = $derived($settings?.whisperModelPath != null);

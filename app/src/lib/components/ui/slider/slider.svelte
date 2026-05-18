@@ -12,8 +12,11 @@
 </script>
 
 <!--
-Discriminated Unions + Destructing (required for bindable) do not
-get along, so we shut typescript up by casting `value` to `never`.
+Horizontal-only for now: the data-horizontal: / data-vertical: variants
+that ship in the shadcn-svelte template don't match bits-ui's data
+attribute, so the track and range both collapse to zero size. Discriminated
+unions + destructuring (required for bindable) also fight typescript here,
+so we cast value to `never`.
 -->
 <SliderPrimitive.Root
 	bind:ref
@@ -21,7 +24,7 @@ get along, so we shut typescript up by casting `value` to `never`.
 	data-slot="slider"
 	{orientation}
 	class={cn(
-		"data-vertical:min-h-40 relative flex w-full touch-none items-center select-none data-disabled:opacity-50 data-vertical:h-full data-vertical:w-auto data-vertical:flex-col",
+		"relative flex w-full touch-none items-center select-none data-disabled:opacity-50",
 		className
 	)}
 	{...restProps}
@@ -29,23 +32,18 @@ get along, so we shut typescript up by casting `value` to `never`.
 	{#snippet children({ thumbItems })}
 		<span
 			data-slot="slider-track"
-			data-orientation={orientation}
-			class={cn(
-				"bg-input rounded-full data-horizontal:h-1.5 data-horizontal:w-full data-vertical:h-full data-vertical:w-1.5 relative grow overflow-hidden data-horizontal:w-full data-vertical:h-full"
-			)}
+			class="bg-input h-1.5 w-full rounded-full relative grow overflow-hidden"
 		>
 			<SliderPrimitive.Range
 				data-slot="slider-range"
-				class={cn(
-					"bg-primary absolute select-none data-horizontal:h-full data-vertical:w-full"
-				)}
+				class="bg-primary absolute h-full select-none"
 			/>
 		</span>
 		{#each thumbItems as thumb (thumb.index)}
 			<SliderPrimitive.Thumb
 				data-slot="slider-thumb"
 				index={thumb.index}
-				class="border-ring ring-ring/50 relative size-3 rounded-full border bg-white transition-[color,box-shadow] after:absolute after:-inset-2 hover:ring-3 focus-visible:ring-3 focus-visible:outline-hidden active:ring-3 block shrink-0 select-none disabled:pointer-events-none disabled:opacity-50"
+				class="border-primary ring-ring/50 relative size-4 rounded-full border-2 bg-background shadow-sm transition-[color,box-shadow] after:absolute after:-inset-2 hover:ring-3 focus-visible:ring-3 focus-visible:outline-hidden active:ring-3 block shrink-0 select-none disabled:pointer-events-none disabled:opacity-50"
 			/>
 		{/each}
 	{/snippet}

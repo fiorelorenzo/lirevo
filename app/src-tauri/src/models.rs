@@ -270,6 +270,10 @@ async fn download_inner(
 
     let mut received: u64 = 0;
     let mut stream = resp.bytes_stream();
+    // Emit at most every 100ms so we don't flood the IPC channel (a 2 GB
+    // download produces ~250k chunks; one emit per chunk made the JS
+    // progress bar visibly stutter and starved the rest of the app).
+    let mut last_emit = std::time::Instant::now();
     while let Some(chunk_result) = stream.next().await {
         if cancel_rx.try_recv().is_ok() {
             drop(file);
@@ -280,14 +284,26 @@ async fn download_inner(
         file.write_all(&chunk).await
             .map_err(|e| DownloadError::Failed(format!("write: {e}")))?;
         received += chunk.len() as u64;
-        let _ = app.emit("download:progress", DownloadProgress {
-            id: entry.id.to_string(),
-            state: DownloadProgressState::Downloading,
-            bytes_received: received,
-            bytes_total: total,
-            error_message: None,
-        });
+        if last_emit.elapsed() >= std::time::Duration::from_millis(100) {
+            last_emit = std::time::Instant::now();
+            let _ = app.emit("download:progress", DownloadProgress {
+                id: entry.id.to_string(),
+                state: DownloadProgressState::Downloading,
+                bytes_received: received,
+                bytes_total: total,
+                error_message: None,
+            });
+        }
     }
+    // Always emit a final downloading event so the UI shows 100% before
+    // transitioning to Complete (avoids a visual "snap" at the end).
+    let _ = app.emit("download:progress", DownloadProgress {
+        id: entry.id.to_string(),
+        state: DownloadProgressState::Downloading,
+        bytes_received: received,
+        bytes_total: total,
+        error_message: None,
+    });
     file.flush().await.map_err(|e| DownloadError::Failed(format!("flush: {e}")))?;
     drop(file);
 
@@ -337,6 +353,7 @@ pub(crate) async fn download_and_extract_coreml(
 
     let mut received: u64 = 0;
     let mut stream = resp.bytes_stream();
+    let mut last_emit = std::time::Instant::now();
     while let Some(chunk_result) = futures_util::StreamExt::next(&mut stream).await {
         if cancel_rx.try_recv().is_ok() {
             drop(file);
@@ -347,13 +364,16 @@ pub(crate) async fn download_and_extract_coreml(
         tokio::io::AsyncWriteExt::write_all(&mut file, &chunk).await
             .map_err(|e| DownloadError::Failed(format!("coreml write: {e}")))?;
         received += chunk.len() as u64;
-        let _ = app.emit("download:progress", DownloadProgress {
-            id: progress_id.clone(),
-            state: DownloadProgressState::Downloading,
-            bytes_received: received,
-            bytes_total: total,
-            error_message: None,
-        });
+        if last_emit.elapsed() >= std::time::Duration::from_millis(100) {
+            last_emit = std::time::Instant::now();
+            let _ = app.emit("download:progress", DownloadProgress {
+                id: progress_id.clone(),
+                state: DownloadProgressState::Downloading,
+                bytes_received: received,
+                bytes_total: total,
+                error_message: None,
+            });
+        }
     }
     tokio::io::AsyncWriteExt::flush(&mut file).await
         .map_err(|e| DownloadError::Failed(format!("coreml flush: {e}")))?;
