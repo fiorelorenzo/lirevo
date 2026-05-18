@@ -63,6 +63,12 @@
 <div class="h-full flex">
   <!-- Sidebar -->
   <nav class="w-44 bg-muted/30 backdrop-blur-xl border-r border-border p-3 flex flex-col gap-1">
+    <button
+      class="text-left px-3 py-2 rounded-md text-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors mb-2"
+      onclick={() => navigate('home')}
+    >
+      ← {t('settings.back_to_home')}
+    </button>
     {#each TABS as tab (tab)}
       <button
         class={[

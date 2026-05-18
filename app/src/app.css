@@ -28,6 +28,8 @@
   --color-foreground: oklch(0.18 0.008 247);
   --color-surface: oklch(1 0 0);
   --color-surface-elevated: oklch(0.985 0.004 247);
+  --color-popover: oklch(1 0 0);
+  --color-popover-foreground: oklch(0.18 0.008 247);
   --color-border: oklch(0.92 0.003 247);
   --color-border-strong: oklch(0.85 0.005 247);
   --color-muted: oklch(0.96 0.003 247);
@@ -72,6 +74,8 @@
   --color-foreground: oklch(0.96 0.002 247);
   --color-surface: oklch(0.21 0.008 247);
   --color-surface-elevated: oklch(0.24 0.008 247);
+  --color-popover: oklch(0.24 0.008 247);
+  --color-popover-foreground: oklch(0.96 0.002 247);
   --color-border: oklch(0.27 0.008 247);
   --color-border-strong: oklch(0.34 0.008 247);
   --color-muted: oklch(0.24 0.008 247);

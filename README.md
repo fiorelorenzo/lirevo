@@ -72,6 +72,29 @@ The menu bar icon shows model status (loading / ready / recording / error). Sett
 - **`os-bindings-napi`** has been removed. Tauri calls `audio-capture` and `os-integration` directly.
 - The old Electron M3 spec at `docs/specs/2026-05-17-m3-app-shell-design.md` is **superseded** by `docs/specs/2026-05-17-m3-tauri-app-shell-design.md`.
 
+#### Dev workflows for macOS permissions (mic / Accessibility)
+
+macOS TCC binds permissions to a binary's code-signing identity hash, not its bundle ID. Three consequences:
+
+- The bare `just dev` binary cannot trigger TCC prompts — macOS auto-denies the request silently. Use one of the two workarounds below.
+- A permission granted to the release `.app` (`just dmg`) does **not** transfer to `just dev` / `just dev-bundle` outputs, even though they share `app.localdictation` as bundle ID.
+- Every fresh debug bundle is a fresh TCC entity. If macOS misbehaves after rebuilds, reset:
+
+  ```bash
+  tccutil reset Microphone     app.localdictation
+  tccutil reset Accessibility  app.localdictation
+  ```
+
+  This clears the cached grant/deny + the entry in System Settings → Privacy. The next launch starts from scratch and macOS shows the prompt again.
+
+Pick the right workflow:
+
+| Goal | Command |
+| --- | --- |
+| Iterate on wizard UI without real audio / TCC | `LDA_DEV_SKIP_PERMS=1 just dev` — short-circuits `check_*` / `prompt_*` to Granted; `test_mic` returns a synthetic envelope. Debug builds only. |
+| Test real TCC prompt + real audio capture | `just dev-bundle` — builds a debug `.app` and opens it. |
+| Final smoke test before release | `just dmg` — release `.app` + `.dmg`. |
+
 ### Architecture in one paragraph
 
 Single Tauri process. Frontend is Svelte 5 + Tailwind v4 + shadcn-svelte running in WKWebView. Backend is Rust, calling whisper-rs and llama-cpp-2 directly. Hotkey events flow from a CGEventTap thread (in `os-integration`) through an mpsc channel into a tokio task that owns the dictation state machine. Settings persist via `tauri-plugin-store`. Auto-update plumbing is in place but inactive until code signing (M0.5/pre-v1).

@@ -52,6 +52,13 @@
     {:else if $modelState.kind === 'loading' || $modelState.kind === 'reloading'}
       <Logo size={64} />
       <p class="text-sm text-muted-foreground">{t('home.loading')}</p>
+    {:else if $modelState.kind === 'idle' || ($modelState.kind === 'ready' && !canDictate)}
+      <Logo size={64} />
+      <div class="text-center max-w-sm">
+        <h1 class="text-xl font-semibold mb-2">{t('home.models_not_loaded_title')}</h1>
+        <p class="text-sm text-muted-foreground mb-6">{t('home.models_not_loaded_body')}</p>
+        <Button onclick={() => navigate('settings')}>{t('home.open_settings')}</Button>
+      </div>
     {:else if canDictate && $settings}
       <h1 class="text-2xl font-semibold">{t('home.title')}</h1>
       <KeyChip

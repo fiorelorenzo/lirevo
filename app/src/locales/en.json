@@ -67,6 +67,7 @@
   },
   "settings": {
     "title": "Settings",
+    "back_to_home": "Back",
     "tabs": {
       "general": "General",
       "models": "Models",
@@ -126,7 +127,10 @@
     "rerun_wizard": "Re-run setup wizard",
     "sidecar_down_title": "Models failed to load",
     "sidecar_down_body": "Open Settings to retry.",
-    "retry": "Open Settings"
+    "retry": "Open Settings",
+    "models_not_loaded_title": "Models not loaded",
+    "models_not_loaded_body": "Open Settings to pick or download Whisper + LLM models.",
+    "open_settings": "Open Settings"
   },
   "toast": {
     "sidecar_reloading": "Reloading models...",
