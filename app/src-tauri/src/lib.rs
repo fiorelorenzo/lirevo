@@ -70,6 +70,13 @@ pub fn run() {
                 tracing::warn!(?e, "open initial window failed (stub)");
             }
 
+            // Always create the recording overlay up-front so it's ready to
+            // be shown the moment the user hits the hotkey. It stays hidden
+            // until `recording:state = true`.
+            if let Err(e) = commands::windows::open_window_internal(app.handle(), "overlay") {
+                tracing::warn!(?e, "overlay window install failed");
+            }
+
             // Kick off model loading in the background. With no paths configured
             // this returns immediately after transitioning to ModelState::Idle.
             let app_handle_for_load = app.handle().clone();
@@ -146,6 +153,7 @@ pub fn run() {
             commands::permissions::open_system_settings_microphone,
             commands::permissions::open_system_settings_accessibility,
             commands::permissions::retry_hotkey_install,
+            commands::permissions::frontend_log,
             commands::windows::open_window,
             commands::windows::close_window,
             commands::windows::complete_wizard,

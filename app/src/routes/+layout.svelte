@@ -6,7 +6,6 @@
   import { Toaster, toast } from 'svelte-sonner';
 
   import Titlebar from '$lib/components/Titlebar.svelte';
-  import RecordingIndicator from '$lib/components/RecordingIndicator.svelte';
 
   import { initI18n } from '$lib/i18n';
   import { loadSettings } from '$lib/stores/settings.svelte';
@@ -19,6 +18,10 @@
 
   let { children } = $props();
   let i18nReady = $state(false);
+
+  // The transparent recording overlay window loads /overlay and needs
+  // none of the regular chrome: no titlebar, no opaque background.
+  let isOverlay = $derived(page.url.pathname.startsWith('/overlay'));
 
   // Derive page title from current route.
   let titlebarLabel = $derived.by(() => {
@@ -52,12 +55,19 @@
 <ModeWatcher defaultMode="system" />
 <Toaster richColors position="bottom-right" closeButton />
 
-<main class="flex flex-col h-screen bg-background text-foreground overflow-hidden">
-  <Titlebar title={titlebarLabel} />
-  <div class="flex-1 overflow-hidden relative">
+{#if isOverlay}
+  <main class="h-screen overflow-hidden bg-transparent">
     {#if i18nReady}
       {@render children()}
     {/if}
-    <RecordingIndicator />
-  </div>
-</main>
+  </main>
+{:else}
+  <main class="flex flex-col h-screen bg-background text-foreground overflow-hidden">
+    <Titlebar title={titlebarLabel} />
+    <div class="flex-1 overflow-hidden relative">
+      {#if i18nReady}
+        {@render children()}
+      {/if}
+    </div>
+  </main>
+{/if}

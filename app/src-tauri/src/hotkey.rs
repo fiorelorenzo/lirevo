@@ -116,6 +116,7 @@ fn handle_down(app: &AppHandle, state: &tauri::State<AppState>) {
     match result {
         Ok(recorder) => {
             tracing::info!("handle_down: recorder started");
+            play_cue(CueSound::Start);
             // Forward audio levels (RMS, throttled to ~33 Hz inside the recorder)
             // to the shared watch channel + a Tauri event for the RecordingIndicator.
             let mut level_rx = recorder.level_rx();
@@ -132,6 +133,7 @@ fn handle_down(app: &AppHandle, state: &tauri::State<AppState>) {
             inner.recorder = Some(recorder);
             let _ = state.recording_state_tx.send(true);
             let _ = app.emit("recording:state", true);
+            show_overlay(app);
         }
         Err(e) => {
             tracing::warn!(error = %e, "recorder start failed");
@@ -155,6 +157,7 @@ fn handle_up(app: &AppHandle, state: &tauri::State<AppState>) {
     let wav = match r.stop() {
         Ok(recording) => {
             tracing::info!(samples = recording.samples.len(), "handle_up: recording stopped");
+            play_cue(CueSound::Stop);
             convert_recording_to_wav(&recording)
         }
         Err(e) => {
@@ -171,6 +174,7 @@ fn handle_up(app: &AppHandle, state: &tauri::State<AppState>) {
 
     let _ = state.recording_state_tx.send(false);
     let _ = app.emit("recording:state", false);
+    hide_overlay_with_delay(app);
 
     let app2 = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -178,10 +182,58 @@ fn handle_up(app: &AppHandle, state: &tauri::State<AppState>) {
     });
 }
 
+/// Show the recording overlay window if it exists. Silent no-op if it
+/// hasn't been created (e.g. setup failed). Best-effort.
+fn show_overlay(app: &AppHandle) {
+    use tauri::Manager;
+    if let Some(w) = app.get_webview_window("overlay") {
+        let _ = w.show();
+    }
+}
+
+/// Hide the overlay after a short grace period so the waveform visibly
+/// settles before the pill disappears.
+fn hide_overlay_with_delay(app: &AppHandle) {
+    use tauri::Manager;
+    let app2 = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        if let Some(w) = app2.get_webview_window("overlay") {
+            let _ = w.hide();
+        }
+    });
+}
+
 /// Encode the captured 16 kHz mono f32 samples to a PCM16 WAV byte vector.
 /// Mirrors `lda-prototype`: `audio_capture::samples_to_wav(&rec.samples)`.
 fn convert_recording_to_wav(recording: &audio_capture::Recording) -> Vec<u8> {
     audio_capture::samples_to_wav(&recording.samples)
+}
+
+#[derive(Clone, Copy)]
+enum CueSound {
+    Start,
+    Stop,
+}
+
+/// Fire-and-forget audio cue at start/stop of recording. macOS ships
+/// system sounds under `/System/Library/Sounds/`; we shell out to `afplay`
+/// (always present on macOS) to play them without bringing in a full audio
+/// playback crate. Non-blocking — we don't wait for completion.
+#[cfg(target_os = "macos")]
+fn play_cue(kind: CueSound) {
+    let path = match kind {
+        // Tink = soft confirmation click — the cleaner "ready to listen" cue.
+        CueSound::Start => "/System/Library/Sounds/Tink.aiff",
+        // Pop = thumpier, signals the act of release / commit.
+        CueSound::Stop => "/System/Library/Sounds/Pop.aiff",
+    };
+    let _ = std::process::Command::new("/usr/bin/afplay").arg(path).spawn();
+}
+
+#[cfg(not(target_os = "macos"))]
+fn play_cue(_kind: CueSound) {
+    // TODO: per-platform cue when we port beyond macOS.
 }
 
 /// Full STT → cleanup → inject pipeline.
