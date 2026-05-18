@@ -81,7 +81,31 @@ impl Settings {
             defaults.persist(app)?;
             defaults
         };
-        Ok(s.migrate())
+        let mut migrated = s.migrate();
+        // Clear stale model paths that point to files which no longer exist on
+        // disk. Otherwise the UI shows a picker with a path to nothing and
+        // load_models surfaces a confusing "all configured models failed to
+        // load" — happens when the user deletes a model from the data folder
+        // or switches between dev / release builds whose models dirs differ.
+        let mut stale_cleared = false;
+        if let Some(p) = &migrated.whisper_model_path {
+            if !p.exists() {
+                tracing::warn!(path = %p.display(), "whisper_model_path missing on disk — clearing");
+                migrated.whisper_model_path = None;
+                stale_cleared = true;
+            }
+        }
+        if let Some(p) = &migrated.llm_model_path {
+            if !p.exists() {
+                tracing::warn!(path = %p.display(), "llm_model_path missing on disk — clearing");
+                migrated.llm_model_path = None;
+                stale_cleared = true;
+            }
+        }
+        if stale_cleared {
+            migrated.persist(app)?;
+        }
+        Ok(migrated)
     }
 
     pub fn persist(&self, app: &tauri::AppHandle) -> Result<(), AppError> {
