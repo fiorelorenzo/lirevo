@@ -180,6 +180,23 @@ fn hotkey_worker(
     runloop_slot: &Arc<Mutex<Option<CFRunLoop>>>,
     init_tx: std::sync::mpsc::SyncSender<Result<(), HotkeyError>>,
 ) {
+    // Promote this thread to user-interactive QoS. Without this macOS App Nap
+    // throttles background threads aggressively when the owning app isn't
+    // focused — the symptom is that the hotkey fires while the app is in
+    // the foreground but goes dead the moment focus moves elsewhere, which
+    // is exactly the opposite of what a push-to-talk hotkey is for.
+    // FreeFlow does the same via `thread.qualityOfService = .userInteractive`.
+    #[link(name = "System", kind = "framework")]
+    extern "C" {
+        fn pthread_set_qos_class_self_np(qos_class: u32, relative_priority: i32) -> i32;
+    }
+    // From <sys/qos.h>: QOS_CLASS_USER_INTERACTIVE = 0x21.
+    const QOS_CLASS_USER_INTERACTIVE: u32 = 0x21;
+    let rc = unsafe { pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0) };
+    if rc != 0 {
+        tracing::warn!(rc, "pthread_set_qos_class_self_np failed; tap may be throttled when app unfocused");
+    }
+
     tracing::info!(
         input_monitoring = input_monitoring_label(),
         target_keycode = hotkey.keycode(),
