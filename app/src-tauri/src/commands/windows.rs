@@ -18,10 +18,17 @@ pub async fn complete_wizard(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), AppError> {
-    {
+    let hotkey = {
         let mut inner = state.inner.lock().unwrap();
         inner.settings.onboarding_complete = true;
         inner.settings.persist(&app)?;
+        inner.settings.hotkey
+    };
+    // Re-install the hotkey listener now that Accessibility has presumably
+    // been granted during the wizard. The initial install at startup may
+    // have failed silently if the permission was revoked or not-yet-given.
+    if let Err(e) = crate::hotkey::reinstall(&app, hotkey) {
+        tracing::warn!(?e, "hotkey reinstall after wizard failed");
     }
     use tauri::Manager;
     if let Some(w) = app.get_webview_window("wizard") {

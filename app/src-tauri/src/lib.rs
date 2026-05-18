@@ -50,14 +50,25 @@ pub fn run() {
                 tracing::warn!(?e, "tray install failed (stub)");
             }
 
-            // Install hotkey listener (no-op stub until T13).
+            // Install hotkey listener. Fails when Accessibility permission
+            // is missing — surface that to the UI as a toast so the user
+            // doesn't think the app is broken when pressing the hotkey
+            // does nothing.
             let hotkey = {
                 let state = app.state::<AppState>();
                 let inner = state.inner.lock().unwrap();
                 inner.settings.hotkey
             };
             if let Err(e) = hotkey::install(app.handle().clone(), hotkey) {
-                tracing::warn!(?e, "hotkey install failed (stub)");
+                tracing::warn!(?e, "hotkey install failed");
+                let app_for_toast = app.handle().clone();
+                let msg = format!("Hotkey unavailable: {e}");
+                tauri::async_runtime::spawn(async move {
+                    // Defer until the frontend has had time to attach its toast listener.
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    use tauri::Emitter;
+                    let _ = app_for_toast.emit("toast", commands::toast("error", msg));
+                });
             }
 
             // Open initial window: wizard if first-run, home otherwise.
@@ -73,6 +84,32 @@ pub fn run() {
                 let state = app_handle_for_load.state::<AppState>();
                 commands::inference::load_models(&app_handle_for_load, state).await;
             });
+
+            // Register an atexit handler that short-circuits to `_exit(0)`
+            // BEFORE any C++ static destructors run. Background:
+            // `[NSApplication terminate:]` (Cmd+Q on macOS) ends up calling
+            // libc::exit, which calls __cxa_finalize_ranges, which fires
+            // ggml-metal's `unique_ptr<ggml_metal_device>` destructor — and
+            // that asserts `[rsets->data count] == 0`, but Metal is still
+            // draining and the count is non-zero → SIGABRT, "Chiusura
+            // inattesa" dialog.
+            //
+            // atexit handlers run LIFO during __cxa_finalize. We register
+            // ours at the end of setup so it fires FIRST, then _exit jumps
+            // out of the process before the C++ destructors execute.
+            //
+            // (RunEvent::ExitRequested was the previous attempt but Tauri
+            // never sees Cmd+Q on macOS — AppKit goes straight to exit.)
+            extern "C" fn lda_early_exit() {
+                unsafe extern "C" {
+                    fn _exit(status: std::ffi::c_int) -> !;
+                }
+                unsafe { _exit(0) }
+            }
+            unsafe extern "C" {
+                fn atexit(cb: extern "C" fn()) -> std::ffi::c_int;
+            }
+            unsafe { atexit(lda_early_exit); }
 
             Ok(())
         })
