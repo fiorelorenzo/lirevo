@@ -104,17 +104,25 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_app, event| {
-            // Force a clean exit on shutdown. The whisper-rs / llama-cpp-2 /
-            // cpal / objc2 destructors run in arbitrary order across global
-            // statics + tokio runtime tear-down, and at least one of them
-            // SIGABRT's during drop. macOS then surfaces the "Chiusura
-            // inattesa" crash report dialog on every quit. process::exit
-            // skips static destructors so we exit cleanly — fine here
-            // because there's no transactional state to flush (settings
-            // persist on each update, logs flush via the WorkerGuard which
-            // ran before this point).
+            // Force a clean exit on shutdown via the raw `_exit` syscall
+            // (NOT std::process::exit). At quit time ggml-metal's C++ static
+            // `unique_ptr<ggml_metal_device>` deleter fires from
+            // __cxa_finalize_ranges and asserts the residency-set list is
+            // empty — but the Metal command queue is still being drained,
+            // so [rsets->data count] != 0 and the process SIGABRTs. macOS
+            // then surfaces "Chiusura inattesa" on every quit.
+            //
+            // std::process::exit DOES run __cxa_finalize, so it doesn't fix
+            // the crash. _exit skips atexit handlers and C++ static
+            // destructors entirely. Safe here: settings persist on every
+            // update, the tracing-appender WorkerGuard already flushed
+            // before we get here, and download progress is checkpointed
+            // per-chunk in models.rs.
             if let tauri::RunEvent::ExitRequested { .. } = event {
-                std::process::exit(0);
+                unsafe extern "C" {
+                    fn _exit(status: std::ffi::c_int) -> !;
+                }
+                unsafe { _exit(0) }
             }
         });
 }

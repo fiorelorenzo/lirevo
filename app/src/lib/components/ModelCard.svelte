@@ -13,7 +13,11 @@
   }
   let { entry, installed, selected, onselect }: Props = $props();
 
-  const progress = progressFor(entry.id);
+  // $derived so the store rebinds if `entry` is swapped (e.g. parent reuses
+  // the component for a different catalog row). The earlier `const` form
+  // captured the initial entry.id only and tripped Svelte's
+  // `state_referenced_locally` warning.
+  let progress = $derived(progressFor(entry.id));
 
   function fmtSize(bytes: number): string {
     return bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.round(bytes / 1e6)} MB`;
