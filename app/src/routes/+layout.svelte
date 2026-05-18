@@ -6,7 +6,6 @@
   import { Toaster, toast } from 'svelte-sonner';
 
   import Titlebar from '$lib/components/Titlebar.svelte';
-  import RecordingIndicator from '$lib/components/RecordingIndicator.svelte';
 
   import { initI18n } from '$lib/i18n';
   import { loadSettings } from '$lib/stores/settings.svelte';
@@ -21,8 +20,7 @@
   let i18nReady = $state(false);
 
   // The transparent recording overlay window loads /overlay and needs
-  // none of the chrome: no titlebar, no in-app RecordingIndicator, no
-  // opaque background.
+  // none of the regular chrome: no titlebar, no opaque background.
   let isOverlay = $derived(page.url.pathname.startsWith('/overlay'));
 
   // Derive page title from current route.
@@ -70,7 +68,6 @@
       {#if i18nReady}
         {@render children()}
       {/if}
-      <RecordingIndicator />
     </div>
   </main>
 {/if}
