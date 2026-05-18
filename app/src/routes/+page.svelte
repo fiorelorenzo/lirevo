@@ -1,12 +1,14 @@
 <script lang="ts">
-  import { Settings } from '@lucide/svelte';
+  import { Settings, AlertTriangle } from '@lucide/svelte';
   import { settings } from '$lib/stores/settings.svelte';
   import { modelState } from '$lib/stores/modelState';
+  import { permissionsState } from '$lib/stores/permissions';
   import { t } from '$lib/i18n';
   import { navigate } from '$lib/router';
   import KeyChip from '$lib/components/KeyChip.svelte';
   import Logo from '$lib/components/Logo.svelte';
   import { Button } from '$lib/components/ui/button';
+  import { lda } from '$lib/tauri';
 
   const HOTKEY_GLYPH: Record<string, string> = {
     'right-option': '⌥',
@@ -26,11 +28,56 @@
   let canDictate = $derived(
     $modelState.kind === 'ready' && ($modelState as any).whisper === true
   );
+
+  // When Accessibility flips from non-granted → granted we ask the backend
+  // to (re)install the hotkey listener so the user doesn't need to restart.
+  let lastAccessibility: typeof $permissionsState.accessibility = null;
+  $effect(() => {
+    const current = $permissionsState.accessibility;
+    if (lastAccessibility !== null && lastAccessibility !== 'granted' && current === 'granted') {
+      void lda.retryHotkeyInstall().catch((e) => console.warn('retryHotkeyInstall', e));
+    }
+    lastAccessibility = current;
+  });
+
+  let missingAccessibility = $derived($permissionsState.accessibility === 'denied');
+  let missingMicrophone = $derived($permissionsState.microphone === 'denied');
+  let hasPermissionIssue = $derived(missingAccessibility || missingMicrophone);
 </script>
 
 <div class="h-full flex flex-col p-8 relative">
   <!-- Ambient glow behind hero -->
   <div class="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_center,oklch(0.58_0.21_257/0.06),transparent_60%)]"></div>
+
+  {#if hasPermissionIssue}
+    <div class="relative rounded-xl border border-warning/40 bg-warning/10 p-4 mb-4 flex items-start gap-3">
+      <AlertTriangle class="h-5 w-5 text-warning shrink-0 mt-0.5" />
+      <div class="flex-1 min-w-0">
+        <p class="text-sm font-medium">Permissions missing</p>
+        <p class="text-xs text-muted-foreground mt-1">
+          {#if missingAccessibility && missingMicrophone}
+            macOS Accessibility (needed for the hotkey + text injection) and Microphone are both blocked. Grant them in System Settings.
+          {:else if missingAccessibility}
+            macOS Accessibility is blocked. The hotkey won't fire and lda can't type into other apps until it's granted.
+          {:else}
+            macOS Microphone access is blocked. Dictation won't capture any audio until it's granted.
+          {/if}
+        </p>
+        <div class="flex flex-wrap gap-2 mt-3">
+          {#if missingAccessibility}
+            <Button size="sm" variant="outline" onclick={() => lda.openSystemSettingsAccessibility()}>
+              Open Accessibility settings
+            </Button>
+          {/if}
+          {#if missingMicrophone}
+            <Button size="sm" variant="outline" onclick={() => lda.openSystemSettingsMicrophone()}>
+              Open Microphone settings
+            </Button>
+          {/if}
+        </div>
+      </div>
+    </div>
+  {/if}
 
   <div class="flex-1 flex flex-col items-center justify-center gap-6 relative">
     {#if $settings && !$settings.onboardingComplete}

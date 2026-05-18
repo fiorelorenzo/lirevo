@@ -96,6 +96,8 @@ export const lda = {
   checkMicrophone: () => invoke<PermissionStatus>('check_microphone'),
   promptMicrophone: () => invoke<PermissionStatus>('prompt_microphone'),
   openSystemSettingsMicrophone: () => invoke<void>('open_system_settings_microphone'),
+  openSystemSettingsAccessibility: () => invoke<void>('open_system_settings_accessibility'),
+  retryHotkeyInstall: () => invoke<void>('retry_hotkey_install'),
   testMic: (deviceName: string | null) =>
     invoke<TestMicResult>('test_mic', { deviceName }),
   cancelTestMic: () => invoke<void>('cancel_test_mic'),

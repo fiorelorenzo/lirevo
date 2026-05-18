@@ -59,3 +59,30 @@ pub fn open_system_settings_microphone() -> Result<(), AppError> {
     }
     Ok(())
 }
+
+/// Same as the microphone variant but targets the Accessibility pane.
+#[tauri::command]
+pub fn open_system_settings_accessibility() -> Result<(), AppError> {
+    #[cfg(target_os = "macos")]
+    {
+        let url = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
+        tracing::info!(url, "opening System Settings accessibility pane");
+        std::process::Command::new("open")
+            .arg(url)
+            .spawn()
+            .map_err(|e| AppError::Internal(format!("open settings: {e}")))?;
+    }
+    Ok(())
+}
+
+/// Re-install the hotkey listener after the user has (presumably just) granted
+/// Accessibility. The initial install at startup fails silently when the
+/// permission is missing; this lets the UI recover without an app restart.
+#[tauri::command]
+pub async fn retry_hotkey_install(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::AppState>,
+) -> Result<(), AppError> {
+    let hotkey = state.inner.lock().unwrap().settings.hotkey;
+    crate::hotkey::reinstall(&app, hotkey)
+}
