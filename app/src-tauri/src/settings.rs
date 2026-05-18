@@ -28,6 +28,8 @@ pub struct Settings {
 
     pub hotkey: Hotkey,
     pub language: String,
+    /// System input device to capture from. `None` = system default.
+    pub input_device_name: Option<String>,
     pub force_pasteboard: bool,
     pub paste_delay_ms: u32,
 
@@ -46,6 +48,7 @@ impl Default for Settings {
             whisper_coreml_disable: false,
             hotkey: Hotkey::default(),
             language: "auto".into(),
+            input_device_name: None,
             force_pasteboard: false,
             paste_delay_ms: 120,
             launch_at_login: false,

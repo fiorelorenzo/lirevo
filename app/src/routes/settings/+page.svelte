@@ -11,8 +11,9 @@
   import { settings, updateSettings } from '$lib/stores/settings.svelte';
   import { t } from '$lib/i18n';
   import { navigate } from '$lib/router';
-  import { lda, type Hotkey } from '$lib/tauri';
+  import { lda, type Hotkey, type InputDeviceEntry } from '$lib/tauri';
   import { showToast } from '$lib/stores/toasts';
+  import { onMount } from 'svelte';
 
   type Tab = 'general' | 'models' | 'hotkey' | 'about';
   let activeTab: Tab = $state('general');
@@ -36,6 +37,15 @@
   ];
 
   const TABS: Tab[] = ['general', 'models', 'hotkey', 'about'];
+
+  let devices = $state<InputDeviceEntry[]>([]);
+  onMount(async () => {
+    try {
+      devices = await lda.listInputDevices();
+    } catch {
+      // not fatal — keep dropdown empty
+    }
+  });
 
   async function checkUpdates() {
     checkingUpdates = true;
@@ -85,6 +95,36 @@
             <Select.Content>
               {#each LANGUAGE_OPTIONS as opt (opt.value)}
                 <Select.Item value={opt.value}>{opt.label}</Select.Item>
+              {/each}
+            </Select.Content>
+          </Select.Root>
+        </div>
+
+        <div class="space-y-2">
+          <Label>{t('settings.general.input_device')}</Label>
+          <Select.Root
+            type="single"
+            value={$settings.inputDeviceName ?? '__default__'}
+            onValueChange={(v) =>
+              updateSettings({ inputDeviceName: v === '__default__' ? null : (v ?? null) })}
+            disabled={devices.length === 0}
+          >
+            <Select.Trigger class="w-full">
+              {$settings.inputDeviceName
+                ?? (devices.find((d) => d.isDefault)?.name
+                    ? `${devices.find((d) => d.isDefault)?.name} (${t('settings.general.input_device_default')})`
+                    : t('settings.general.input_device_default'))}
+            </Select.Trigger>
+            <Select.Content>
+              <Select.Item value="__default__">
+                {devices.find((d) => d.isDefault)?.name
+                  ? `${devices.find((d) => d.isDefault)?.name} (${t('settings.general.input_device_default')})`
+                  : t('settings.general.input_device_default')}
+              </Select.Item>
+              {#each devices as d (d.name)}
+                <Select.Item value={d.name}>
+                  {d.name}{d.isDefault ? ` (${t('settings.general.input_device_default')})` : ''}
+                </Select.Item>
               {/each}
             </Select.Content>
           </Select.Root>
