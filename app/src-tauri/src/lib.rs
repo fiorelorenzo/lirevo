@@ -85,6 +85,7 @@ pub fn run() {
             commands::models::models_cancel_download,
             commands::inference::transcribe,
             commands::inference::clean,
+            commands::inference::get_model_state,
             commands::dictation::manual_dictate,
             commands::dictation::test_mic,
             commands::dictation::cancel_test_mic,

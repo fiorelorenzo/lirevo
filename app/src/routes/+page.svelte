@@ -46,7 +46,13 @@
       </div>
       <div class="text-center max-w-sm">
         <h1 class="text-xl font-semibold mb-2">{t('home.sidecar_down_title')}</h1>
-        <p class="text-sm text-muted-foreground mb-6">{t('home.sidecar_down_body')}</p>
+        {#if $modelState.kind === 'error' && ($modelState as any).reason}
+          <p class="text-xs text-muted-foreground mb-6 font-mono break-words">
+            {($modelState as any).reason}
+          </p>
+        {:else}
+          <p class="text-sm text-muted-foreground mb-6">{t('home.sidecar_down_body')}</p>
+        {/if}
         <Button onclick={() => navigate('settings')}>{t('home.retry')}</Button>
       </div>
     {:else if $modelState.kind === 'loading' || $modelState.kind === 'reloading'}

@@ -60,6 +60,17 @@ pub async fn clean(
     Ok(resp.text)
 }
 
+/// Snapshot of the current model loading state. The frontend needs this at
+/// mount time because it subscribes to `model:state` events AFTER the layout
+/// mounts, but the backend's startup load_models task fires its Loading /
+/// Ready event right at app launch — so without an initial fetch the
+/// frontend can miss the first event and stay stuck on its `idle` default
+/// even after models are loaded.
+#[tauri::command]
+pub fn get_model_state(state: State<'_, AppState>) -> Result<ModelState, AppError> {
+    Ok(state.current_model_state())
+}
+
 /// Load whisper + llama in parallel based on current settings.
 ///
 /// Cancellation: a newer load (e.g. user changes path) increments the token;
@@ -125,6 +136,8 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
     // Commit only if this token is still current.
     let mut whisper_ready = false;
     let mut llama_ready = false;
+    let mut whisper_err: Option<String> = None;
+    let mut llama_err: Option<String> = None;
     {
         let mut inner = state.inner.lock().unwrap();
         if inner.current_load_token != token {
@@ -136,8 +149,14 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
                 inner.whisper = Some(Arc::new(w));
                 whisper_ready = true;
             }
-            Some(Ok(Err(e))) => tracing::warn!(?e, "whisper load failed"),
-            Some(Err(e)) => tracing::warn!(%e, "whisper load join error"),
+            Some(Ok(Err(e))) => {
+                tracing::warn!(?e, "whisper load failed");
+                whisper_err = Some(e.to_string());
+            }
+            Some(Err(e)) => {
+                tracing::warn!(%e, "whisper load join error");
+                whisper_err = Some(format!("worker panic: {e}"));
+            }
             None => {}
         }
         match llama_result {
@@ -145,15 +164,35 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
                 inner.llama = Some(Arc::new(l));
                 llama_ready = true;
             }
-            Some(Ok(Err(e))) => tracing::warn!(?e, "llama load failed"),
-            Some(Err(e)) => tracing::warn!(%e, "llama load join error"),
+            Some(Ok(Err(e))) => {
+                tracing::warn!(?e, "llama load failed");
+                llama_err = Some(e.to_string());
+            }
+            Some(Err(e)) => {
+                tracing::warn!(%e, "llama load join error");
+                llama_err = Some(format!("worker panic: {e}"));
+            }
             None => {}
         }
     }
 
     let next = if !whisper_ready && !llama_ready {
+        // Surface the actual failure reasons so the UI can show something
+        // more useful than "models failed to load". Format: each model that
+        // was configured but failed reports its own error message.
+        let parts: Vec<String> = [
+            whisper_err.as_ref().map(|e| format!("Whisper: {e}")),
+            llama_err.as_ref().map(|e| format!("LLM: {e}")),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
         ModelState::Error {
-            reason: "all configured models failed to load".into(),
+            reason: if parts.is_empty() {
+                "models failed to load".into()
+            } else {
+                parts.join(" — ")
+            },
         }
     } else {
         ModelState::Ready {

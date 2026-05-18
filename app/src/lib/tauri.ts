@@ -90,6 +90,7 @@ export const lda = {
   modelsListLocal: () => invoke<LocalModel[]>('models_list_local'),
   modelsDownload: (id: string) => invoke<void>('models_download', { id }),
   modelsCancelDownload: (id: string) => invoke<void>('models_cancel_download', { id }),
+  getModelState: () => invoke<ModelState>('get_model_state'),
   checkAccessibility: () => invoke<PermissionStatus>('check_accessibility'),
   promptAccessibility: () => invoke<PermissionStatus>('prompt_accessibility'),
   checkMicrophone: () => invoke<PermissionStatus>('check_microphone'),
