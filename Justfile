@@ -62,3 +62,11 @@ lint:
 clean:
     cargo clean
     rm -rf app/node_modules app/src-tauri/target app/.svelte-kit app/build
+
+# Dev tool: run the refiner-stage model bake-off
+eval BACKENDS OUT="$(date +%Y-%m-%d)-bake-off":
+    cargo run -p lda-eval --release -- run \
+      --corpus crates/lda-eval/data/corpus/v1-seed.jsonl \
+      --profiles crates/lda-eval/data/profiles/v1.toml \
+      --backends "{{BACKENDS}}" \
+      --out crates/lda-eval/data/reports/{{OUT}}.md
