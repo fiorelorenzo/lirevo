@@ -43,6 +43,7 @@ Return strict JSON only: {{\"fidelity\": N, \"style\": N, \"rationale\": \"...\"
                 transcript: prompt,
                 max_tokens: 256,
                 temperature: 0.0,
+                ..GenerateReq::default()
             })
             .await
             .with_context(|| format!("judge generate for case {}", outcome.case.id))?;

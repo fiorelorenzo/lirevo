@@ -84,6 +84,7 @@ pub async fn clean(
         temperature: 0.2,
         max_tokens: 2048,
         stop: vec![],
+        ..Default::default()
     };
     match engine.chat(req).await? {
         Some(resp) => Ok(resp.text),
@@ -530,6 +531,7 @@ pub(crate) async fn warm_up(engine: &Arc<crate::engine::Engine>) {
         temperature: 0.0,
         max_tokens: 1,
         stop: vec![],
+        ..Default::default()
     };
     let t0 = std::time::Instant::now();
     let elapsed_ms = || u64::try_from(t0.elapsed().as_millis()).unwrap_or(u64::MAX);

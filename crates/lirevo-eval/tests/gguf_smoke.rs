@@ -20,6 +20,7 @@ async fn gguf_round_trip_returns_text() {
             transcript: "Say the single word OK.".into(),
             max_tokens: 16,
             temperature: 0.0,
+            ..GenerateReq::default()
         })
         .await
         .expect("generate");

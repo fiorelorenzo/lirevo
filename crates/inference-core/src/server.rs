@@ -292,6 +292,7 @@ fn build_chat_request(b: ChatRequestBody) -> Result<ChatRequest, String> {
         temperature,
         max_tokens,
         stop: b.stop,
+        ..Default::default()
     })
 }
 

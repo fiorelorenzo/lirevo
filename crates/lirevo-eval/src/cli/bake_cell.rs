@@ -42,7 +42,6 @@ pub struct BakeCellRequest {
     pub spec: String,
     pub latency_probe_runs: u32,
     pub max_tokens: u32,
-    pub temperature: f32,
     /// Backend ids whose system prompt should get `\n\n/no_think` appended.
     pub no_think_for: Vec<String>,
     pub cases: Vec<TestCase>,
@@ -107,7 +106,10 @@ pub async fn run() -> Result<()> {
             system_prompt: sys,
             transcript: case.transcript.clone(),
             max_tokens: req.max_tokens,
-            temperature: req.temperature,
+            // Per-model sampler best practices keyed on the resolved backend
+            // id, replacing the previous fixed temperature=0.2. See
+            // `best_practices_for`.
+            ..best_practices_for(&backend_id)
         };
         let latency_cell = latency::probe_cell(
             backend.as_mut(),
@@ -151,6 +153,63 @@ fn read_request() -> Result<BakeCellRequest> {
     serde_json::from_str(&buf).context("parse bake-cell request json")
 }
 
+/// Official sampling-parameter best practices per model family, mapped by
+/// backend id (the `<id>` part of the `<kind>:<id>[@<path>]` spec). Sources
+/// in the HF model cards' "Best Practices > Sampling Parameters" sections.
+/// Falls back to a permissive default (temperature 0.7, `top_p` 0.9, `top_k` 40,
+/// no penalties) for backend ids we don't recognize — covers Claude CLI and
+/// any newly-added GGUF before we record its recommended values.
+///
+/// Updated 2026-05-19. When new model families are added to the bake-off,
+/// re-read the model card here:
+/// - Qwen3 / Qwen3-Instruct-2507: `temp=0.7, top_p=0.8, top_k=20, min_p=0`
+/// - Qwen3.5 (non-thinking text):  `temp=1.0, top_p=1.0, top_k=20, min_p=0,
+///   presence_penalty=2.0, repetition_penalty=1.0`
+/// - Gemma 3 1B / 270M: no official sampling recommendations on Google's
+///   model card — fall through to HF Transformers defaults.
+fn best_practices_for(backend_id: &str) -> GenerateReq {
+    // Match by family prefix so per-instance ids like "lms-q3.5-2b" or
+    // "qwen3.5-2b@<path>" route to the right preset.
+    let id = backend_id.to_lowercase();
+    if id.contains("qwen3.5") || id.contains("q3.5") {
+        return GenerateReq {
+            temperature: 1.0,
+            top_p: 1.0,
+            top_k: 20,
+            min_p: 0.0,
+            presence_penalty: 2.0,
+            repetition_penalty: 1.0,
+            ..GenerateReq::default()
+        };
+    }
+    if id.contains("qwen3") || id.contains("q3-") {
+        return GenerateReq {
+            temperature: 0.7,
+            top_p: 0.8,
+            top_k: 20,
+            min_p: 0.0,
+            presence_penalty: 0.0,
+            repetition_penalty: 1.0,
+            ..GenerateReq::default()
+        };
+    }
+    if id.contains("gemma") {
+        return GenerateReq {
+            // No model-card guidance; HF Transformers defaults applied
+            // explicitly so the bake-off doesn't silently inherit our own
+            // historical 0.2-temperature legacy value.
+            temperature: 1.0,
+            top_p: 1.0,
+            top_k: 50,
+            min_p: 0.0,
+            presence_penalty: 0.0,
+            repetition_penalty: 1.0,
+            ..GenerateReq::default()
+        };
+    }
+    GenerateReq::default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{BakeCellRequest, BakeCellResponse, BakeCellResult};
@@ -162,7 +221,6 @@ mod tests {
             spec: "gguf:demo@/tmp/m.gguf".into(),
             latency_probe_runs: 5,
             max_tokens: 800,
-            temperature: 0.2,
             no_think_for: vec!["qwen3.5-2b".into()],
             cases: vec![],
             system_prompts: HashMap::new(),

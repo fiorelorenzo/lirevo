@@ -122,6 +122,7 @@ mod tests {
             transcript: "hi".into(),
             max_tokens: 4,
             temperature: 0.0,
+            ..GenerateReq::default()
         };
         let err = b.generate(req).await.expect_err("should fail");
         assert!(

@@ -59,6 +59,11 @@ impl EvalBackend for GgufBackend {
             temperature: req.temperature,
             max_tokens: req.max_tokens,
             stop: Vec::new(),
+            top_p: req.top_p,
+            top_k: req.top_k,
+            min_p: req.min_p,
+            presence_penalty: req.presence_penalty,
+            repetition_penalty: req.repetition_penalty,
         };
         let resp = task::spawn_blocking(move || inner.chat_sync(chat_req))
             .await

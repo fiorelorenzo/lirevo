@@ -499,6 +499,7 @@ async fn run_pipeline(
             temperature: 0.2,
             max_tokens: 2048,
             stop: vec![],
+            ..Default::default()
         })
         .await
     {

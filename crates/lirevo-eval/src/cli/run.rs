@@ -134,8 +134,12 @@ async fn run_one_backend(
     let req = BakeCellRequest {
         spec: spec.to_string(),
         latency_probe_runs: 5,
-        max_tokens: 800,
-        temperature: 0.2,
+        // Higher cap than a pure refiner would need, so thinking models
+        // (Qwen3 / Qwen3.5 hybrid) have room for their `<think>` block to
+        // close before the child's strip_think pass. Per-model sampler
+        // params (incl. temperature) are resolved in the child via
+        // `best_practices_for` once the backend id is known.
+        max_tokens: 2048,
         no_think_for: no_think_for.to_vec(),
         cases: cases.to_vec(),
         system_prompts: system_prompts.clone(),
