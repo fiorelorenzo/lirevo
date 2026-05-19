@@ -49,6 +49,9 @@ pub fn run() {
             // Settings + AppState.
             let settings = Settings::load(app.handle())?;
             let onboarding_complete = settings.onboarding_complete;
+            // Apply the persisted paste delay before any pasteboard inject
+            // could run — the injector reads it from env on every paste.
+            commands::settings::apply_paste_delay(settings.paste_delay_ms);
             let app_state = AppState::new(settings);
             app.manage(app_state);
 
@@ -181,7 +184,6 @@ pub fn run() {
             commands::windows::open_window,
             commands::windows::close_window,
             commands::windows::complete_wizard,
-            commands::windows::restart_app,
             commands::dialog::pick_file,
             commands::updater::check_for_updates,
         ])

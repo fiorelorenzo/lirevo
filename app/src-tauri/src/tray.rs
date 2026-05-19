@@ -35,13 +35,20 @@ pub fn install(app: &AppHandle) -> Result<(), AppError> {
         let state = app2.state::<AppState>();
         let mut model_rx = state.model_state_tx.subscribe();
         let mut rec_rx = state.recording_state_tx.subscribe();
+        let mut was_recording = false;
         loop {
             let model = model_rx.borrow().clone();
             let recording = *rec_rx.borrow();
             let _ = update_for_state(&app2, &model, recording);
-            if recording {
+            // Only spawn the pulse animation on the RISING edge of
+            // `recording`. The previous code spawned a fresh task on every
+            // model-state change while recording — multiple pulse tasks
+            // would then race on `tray.set_icon` and the icon would
+            // sometimes get stuck on a single frame.
+            if recording && !was_recording {
                 tauri::async_runtime::spawn(spawn_recording_pulse(app2.clone()));
             }
+            was_recording = recording;
             tokio::select! {
                 _ = model_rx.changed() => {}
                 _ = rec_rx.changed() => {}

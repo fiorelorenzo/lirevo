@@ -39,11 +39,25 @@ pub async fn update_settings(
     if before.force_pasteboard != after.force_pasteboard {
         state.rebuild_injector(after.force_pasteboard);
     }
+    if before.paste_delay_ms != after.paste_delay_ms {
+        apply_paste_delay(after.paste_delay_ms);
+    }
     if before.launch_at_login != after.launch_at_login {
         update_autostart(&app, after.launch_at_login)?;
     }
 
     Ok(after)
+}
+
+/// The pasteboard injector reads `SIDECAR_INJECT_PASTE_DELAY_MS` from the
+/// process environment on every paste. Mirror the settings field into it so
+/// the Settings → Paste delay slider actually does something. Also called
+/// once at startup so the stored value applies before the first paste.
+pub fn apply_paste_delay(ms: u32) {
+    // SAFETY: env vars are process-global; mutating one is unsafe in 2024
+    // edition. This runs on a Tauri command thread or at setup, before any
+    // pasteboard inject can read it, so there's no concurrent reader race.
+    unsafe { std::env::set_var("SIDECAR_INJECT_PASTE_DELAY_MS", ms.to_string()) };
 }
 
 fn update_autostart(app: &AppHandle, enabled: bool) -> Result<(), AppError> {
