@@ -15,6 +15,11 @@ pub enum Hotkey {
     F5,
 }
 
+/// Bump when introducing a new one-shot migration in [`Settings::migrate`].
+/// Existing `settings.json` files written before the bump carry a lower
+/// `schema_version` (or none at all → 0) and the migration runs once.
+const SCHEMA_VERSION: u32 = 1;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
@@ -34,6 +39,10 @@ pub struct Settings {
     pub ui_language: String,
     pub onboarding_complete: bool,
     pub app_version: String,
+    /// Persisted schema version — see [`SCHEMA_VERSION`]. Defaults to 0 for
+    /// settings.json files written before this field existed.
+    #[serde(default)]
+    pub schema_version: u32,
 }
 
 impl Default for Settings {
@@ -52,6 +61,7 @@ impl Default for Settings {
             ui_language: "en".into(),
             onboarding_complete: false,
             app_version: env!("CARGO_PKG_VERSION").to_string(),
+            schema_version: SCHEMA_VERSION,
         }
     }
 }
@@ -98,28 +108,28 @@ impl Settings {
             defaults.persist(app)?;
             defaults
         };
-        let mut migrated = s.migrate();
+        let mut migrated = s;
+        let mut dirty = migrated.migrate();
         // Clear stale model paths that point to files which no longer exist on
         // disk. Otherwise the UI shows a picker with a path to nothing and
         // load_models surfaces a confusing "all configured models failed to
         // load" — happens when the user deletes a model from the data folder
         // or switches between dev / release builds whose models dirs differ.
-        let mut stale_cleared = false;
         if let Some(p) = &migrated.whisper_model_path {
             if !p.exists() {
                 tracing::warn!(path = %p.display(), "whisper_model_path missing on disk — clearing");
                 migrated.whisper_model_path = None;
-                stale_cleared = true;
+                dirty = true;
             }
         }
         if let Some(p) = &migrated.llm_model_path {
             if !p.exists() {
                 tracing::warn!(path = %p.display(), "llm_model_path missing on disk — clearing");
                 migrated.llm_model_path = None;
-                stale_cleared = true;
+                dirty = true;
             }
         }
-        if stale_cleared {
+        if dirty {
             migrated.persist(app)?;
         }
         Ok(migrated)
@@ -170,10 +180,33 @@ impl Settings {
             || before.whisper_coreml_disable != after.whisper_coreml_disable
     }
 
-    fn migrate(mut self) -> Self {
-        // M3 baseline = v1, no transformations. Bump version on every load.
+    /// One-shot upgrades for settings.json files written by older versions of
+    /// the app. Returns `true` if anything changed and the caller should
+    /// re-persist. Always refreshes `app_version` to the running binary's
+    /// version, but does not flag that alone as dirty.
+    fn migrate(&mut self) -> bool {
         self.app_version = env!("CARGO_PKG_VERSION").to_string();
-        self
+
+        let mut dirty = false;
+        if self.schema_version < 1 {
+            // `language: "auto"` was the hardcoded default before
+            // `default_dictation_language()` existed. Pre-existing installs
+            // were stuck on it even after we started deriving from the OS
+            // locale. Re-derive once on first launch after the upgrade.
+            if self.language == "auto" {
+                let derived = default_dictation_language();
+                if derived != self.language {
+                    tracing::info!(from = %self.language, to = %derived, "migrating dictation language from OS locale");
+                    self.language = derived;
+                    dirty = true;
+                }
+            }
+        }
+        if self.schema_version != SCHEMA_VERSION {
+            self.schema_version = SCHEMA_VERSION;
+            dirty = true;
+        }
+        dirty
     }
 }
 
@@ -235,6 +268,42 @@ mod tests {
         let mut after = before.clone();
         after.whisper_model_path = Some("/new/path.bin".into());
         assert!(Settings::env_affecting_diff(&before, &after));
+    }
+
+    #[test]
+    fn migrate_v0_auto_language_rederives_from_locale() {
+        // Simulate a settings.json from before SCHEMA_VERSION was introduced.
+        let mut s = Settings {
+            schema_version: 0,
+            language: "auto".into(),
+            ..Settings::default()
+        };
+        let dirty = s.migrate();
+        assert_eq!(s.schema_version, SCHEMA_VERSION);
+        // If the host locale derives to a supported code, the migration
+        // should have upgraded "auto" → "<code>"; if not, the value stays
+        // "auto" but the version still bumps.
+        let derived = default_dictation_language();
+        if derived == "auto" {
+            assert_eq!(s.language, "auto");
+        } else {
+            assert_eq!(s.language, derived);
+        }
+        assert!(dirty, "version bump alone should flag the settings as dirty");
+    }
+
+    #[test]
+    fn migrate_v1_leaves_explicit_auto_alone() {
+        // A user on the current schema who explicitly picked "auto" must
+        // not have it silently overwritten on subsequent loads.
+        let mut s = Settings {
+            schema_version: SCHEMA_VERSION,
+            language: "auto".into(),
+            ..Settings::default()
+        };
+        let dirty = s.migrate();
+        assert_eq!(s.language, "auto");
+        assert!(!dirty, "no-op migration must not flag dirty");
     }
 
     #[test]
