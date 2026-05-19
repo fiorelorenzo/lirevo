@@ -5,6 +5,8 @@ use std::path::PathBuf;
 use async_trait::async_trait;
 use thiserror::Error;
 
+pub mod gguf;
+
 #[derive(Debug, Clone)]
 pub struct GenerateReq {
     pub system_prompt: String,
@@ -125,6 +127,34 @@ pub fn parse_spec(s: &str) -> Result<BackendSpec, SpecError> {
         other => return Err(SpecError::UnknownKind(other.into())),
     };
     Ok(BackendSpec { kind, id, path })
+}
+
+// ---- Runtime factory ----
+
+/// Build a runtime backend from a spec string. Returns a boxed trait object.
+///
+/// Spec-parser errors are widened into `BackendError::Inference(string)` so
+/// callers can handle a single error surface. The `parse_spec` validation
+/// already guarantees `gguf` carries a path, but the factory keeps an explicit
+/// guard so a future regression cannot turn into a panic.
+// `async` is kept because Task 4's `ClaudeCli` arm will perform async work
+// (PATH probe + subprocess); changing the signature later would ripple through
+// every caller (`build_from_spec(&spec).await`).
+#[allow(clippy::unused_async)]
+pub async fn build_from_spec(spec: &str) -> Result<Box<dyn EvalBackend>, BackendError> {
+    let parsed = parse_spec(spec).map_err(|e| BackendError::Inference(e.to_string()))?;
+    match parsed.kind {
+        BackendKind::Gguf => {
+            let path = parsed
+                .path
+                .ok_or_else(|| BackendError::Inference("gguf needs path".into()))?;
+            let b = gguf::GgufBackend::load(parsed.id, path)?;
+            Ok(Box::new(b))
+        }
+        BackendKind::ClaudeCli => Err(BackendError::Unsupported(
+            "claude-p not yet implemented".into(),
+        )),
+    }
 }
 
 #[cfg(test)]
