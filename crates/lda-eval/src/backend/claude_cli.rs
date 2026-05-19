@@ -59,7 +59,11 @@ impl EvalBackend for ClaudeCliBackend {
             .arg(&self.model)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped());
+            .stderr(std::process::Stdio::piped())
+            // Kill the child if the parent timeout fires; without this,
+            // tokio drops the Child on timeout but the OS process keeps
+            // running, leaking claude invocations across a full sweep.
+            .kill_on_drop(true);
 
         let start = Instant::now();
         let child = cmd.spawn().map_err(|e| match e.kind() {
