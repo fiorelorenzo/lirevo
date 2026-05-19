@@ -42,11 +42,11 @@ mod imp {
         microseconds: integer_t,
     }
 
-    #[allow(clippy::cast_possible_truncation)]
-    pub fn peak_rss_kb() -> Option<u64> {
+    fn read_info() -> Option<MachTaskBasicInfo> {
         let mut info = MachTaskBasicInfo::default();
         let info_size = std::mem::size_of::<MachTaskBasicInfo>();
         let count_units = info_size / std::mem::size_of::<natural_t>();
+        #[allow(clippy::cast_possible_truncation)]
         let mut count = count_units as mach_msg_type_number_t;
         // SAFETY: `mach_task_self()` returns a valid task port for the current
         // process. We pass a mutable pointer to a stack-allocated
@@ -62,10 +62,15 @@ mod imp {
                 std::ptr::addr_of_mut!(count),
             )
         };
-        if kr != KERN_SUCCESS {
-            return None;
-        }
-        Some(info.resident_size_max / 1024)
+        if kr == KERN_SUCCESS { Some(info) } else { None }
+    }
+
+    pub fn peak_rss_kb() -> Option<u64> {
+        read_info().map(|i| i.resident_size_max / 1024)
+    }
+
+    pub fn current_rss_kb() -> Option<u64> {
+        read_info().map(|i| i.resident_size / 1024)
     }
 }
 
@@ -75,6 +80,16 @@ pub fn peak_rss_kb() -> Option<u64> {
     imp::peak_rss_kb()
 }
 
+/// Live resident-set size at the moment of the call. Unlike [`peak_rss_kb`]
+/// (which returns a monotonically-growing process-lifetime maximum), this
+/// shrinks when memory is freed and lets callers attribute RSS deltas to a
+/// specific load/unload window.
+#[cfg(target_os = "macos")]
+#[must_use]
+pub fn current_rss_kb() -> Option<u64> {
+    imp::current_rss_kb()
+}
+
 #[cfg(not(target_os = "macos"))]
 #[must_use]
 #[allow(clippy::missing_const_for_fn)]
@@ -82,16 +97,31 @@ pub fn peak_rss_kb() -> Option<u64> {
     None
 }
 
+#[cfg(not(target_os = "macos"))]
+#[must_use]
+#[allow(clippy::missing_const_for_fn)]
+pub fn current_rss_kb() -> Option<u64> {
+    None
+}
+
 #[cfg(test)]
 mod tests {
-    use super::peak_rss_kb;
+    use super::{current_rss_kb, peak_rss_kb};
 
     #[cfg(target_os = "macos")]
     #[test]
     fn macos_peak_rss_returns_some_positive_value() {
-        // Allocate a heavy buffer to make sure RSS is non-trivial.
         let _heavy = vec![0u8; 16 * 1024 * 1024];
         let r = peak_rss_kb();
+        assert!(r.is_some());
+        assert!(r.unwrap() > 1024, "expected RSS > 1 MiB, got {r:?}");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_current_rss_returns_some_positive_value() {
+        let _heavy = vec![0u8; 16 * 1024 * 1024];
+        let r = current_rss_kb();
         assert!(r.is_some());
         assert!(r.unwrap() > 1024, "expected RSS > 1 MiB, got {r:?}");
     }
@@ -100,5 +130,6 @@ mod tests {
     #[test]
     fn non_macos_returns_none() {
         assert!(peak_rss_kb().is_none());
+        assert!(current_rss_kb().is_none());
     }
 }
