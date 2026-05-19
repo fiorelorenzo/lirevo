@@ -24,9 +24,27 @@ pub struct Profile {
     pub system_prompts: HashMap<String, String>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct ScoringConfig {
+    #[serde(default)]
+    pub embedding: Option<EmbeddingScoringConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct EmbeddingScoringConfig {
+    pub model_url: String,
+    pub tokenizer_url: String,
+    #[serde(default)]
+    pub model_sha256: String,
+    #[serde(default)]
+    pub tokenizer_sha256: String,
+}
+
 #[derive(Debug, Deserialize)]
 struct ProfilesFile {
     profile: HashMap<String, Profile>,
+    #[serde(default)]
+    scoring: ScoringConfig,
 }
 
 #[derive(Debug, Error)]
@@ -57,6 +75,18 @@ pub fn parse_toml(raw: &str) -> Result<HashMap<String, Profile>, ProfileError> {
     Ok(f.profile)
 }
 
+#[must_use = "loaded scoring config should be used"]
+pub fn load_scoring(path: &Path) -> Result<ScoringConfig, ProfileError> {
+    let raw = std::fs::read_to_string(path)?;
+    parse_scoring(&raw)
+}
+
+#[must_use = "parsed scoring config should be used"]
+pub fn parse_scoring(raw: &str) -> Result<ScoringConfig, ProfileError> {
+    let f: ProfilesFile = toml::from_str(raw)?;
+    Ok(f.scoring)
+}
+
 pub fn validate<S: std::hash::BuildHasher>(
     cases: &[TestCase],
     profiles: &HashMap<String, Profile, S>,
@@ -81,7 +111,7 @@ pub fn validate<S: std::hash::BuildHasher>(
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_toml, validate};
+    use super::{parse_scoring, parse_toml, validate};
     use crate::corpus::TestCase;
 
     #[test]
@@ -149,5 +179,43 @@ en = "only english"
         };
         let err = validate(&[case], &profiles).unwrap_err();
         assert!(err.to_string().contains("system_prompts.it"), "got: {err}");
+    }
+
+    #[test]
+    fn parses_scoring_embedding_config() {
+        let raw = r#"
+[profile.plain]
+post_assertions = []
+[profile.plain.system_prompts]
+it = "x"
+en = "x"
+fr = "x"
+de = "x"
+es = "x"
+
+[scoring.embedding]
+model_url = "https://example.com/model.onnx"
+tokenizer_url = "https://example.com/tokenizer.json"
+"#;
+        let s = parse_scoring(raw).unwrap();
+        let e = s.embedding.expect("embedding present");
+        assert_eq!(e.model_url, "https://example.com/model.onnx");
+        assert_eq!(e.model_sha256, "");
+    }
+
+    #[test]
+    fn scoring_default_is_empty() {
+        let raw = r#"
+[profile.plain]
+post_assertions = []
+[profile.plain.system_prompts]
+it = "x"
+en = "x"
+fr = "x"
+de = "x"
+es = "x"
+"#;
+        let s = parse_scoring(raw).unwrap();
+        assert!(s.embedding.is_none());
     }
 }
