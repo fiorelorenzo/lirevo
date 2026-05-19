@@ -317,7 +317,9 @@
       onValueChange={(v) => selectDevice(v === '__default__' ? null : (v ?? null))}
       disabled={testing || devices.length === 0}
     >
-      <Select.Trigger class="w-full">{triggerLabel}</Select.Trigger>
+      <Select.Trigger class="w-full">
+        <span class="flex-1 min-w-0 truncate text-left">{triggerLabel}</span>
+      </Select.Trigger>
       <Select.Content>
         <Select.Item value="__default__">
           {devices.find((d) => d.isDefault)?.name
