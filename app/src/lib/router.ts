@@ -5,7 +5,6 @@ const ROUTE_PATHS: Record<Route, string> = {
   'home': '/',
   'settings': '/settings',
   'wizard': '/wizard',
-  'model-manager': '/model-manager',
 };
 
 export function navigate(route: Route): void {

@@ -2,20 +2,38 @@
   import { Button } from '$lib/components/ui/button';
   import { Input } from '$lib/components/ui/input';
   import { Label } from '$lib/components/ui/label';
+  import { Separator } from '$lib/components/ui/separator';
   import * as Select from '$lib/components/ui/select';
   import * as RadioGroup from '$lib/components/ui/radio-group';
   import { Switch } from '$lib/components/ui/switch';
   import { Slider } from '$lib/components/ui/slider';
   import FilePicker from '$lib/components/FilePicker.svelte';
+  import ModelCard from '$lib/components/ModelCard.svelte';
+  import SkeletonRow from '$lib/components/SkeletonRow.svelte';
   import { settings, updateSettings } from '$lib/stores/settings.svelte';
   import { t } from '$lib/i18n';
   import { navigate } from '$lib/router';
-  import { lda, type Hotkey, type InputDeviceEntry } from '$lib/tauri';
+  import {
+    lda,
+    type CatalogEntry,
+    type Hotkey,
+    type InputDeviceEntry,
+    type LocalModel,
+  } from '$lib/tauri';
   import { showToast } from '$lib/stores/toasts';
-  import { onMount } from 'svelte';
+  import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+  import { page } from '$app/state';
+  import { onDestroy, onMount } from 'svelte';
 
   type Tab = 'general' | 'models' | 'hotkey' | 'about';
-  let activeTab: Tab = $state('general');
+  const TABS: Tab[] = ['general', 'models', 'hotkey', 'about'];
+
+  function isTab(v: string | null): v is Tab {
+    return v === 'general' || v === 'models' || v === 'hotkey' || v === 'about';
+  }
+
+  const initialTab = page.url.searchParams.get('tab');
+  let activeTab: Tab = $state(isTab(initialTab) ? initialTab : 'general');
   let checkingUpdates = $state(false);
 
   const HOTKEY_OPTIONS: { value: Hotkey; label: string }[] = [
@@ -35,22 +53,86 @@
     { value: 'es', label: 'Español' },
   ];
 
-  const TABS: Tab[] = ['general', 'models', 'hotkey', 'about'];
-
   let devices = $state<InputDeviceEntry[]>([]);
+
+  // Model-tab state: catalog + locally installed models + download events.
+  let catalog = $state<CatalogEntry[]>([]);
+  let local = $state<LocalModel[]>([]);
+  let modelsLoaded = $state(false);
+  let unlistenDownload: UnlistenFn | null = null;
+  let unlistenTabSwitch: UnlistenFn | null = null;
+
+  async function refreshModels() {
+    [catalog, local] = await Promise.all([lda.modelsCatalog(), lda.modelsListLocal()]);
+    modelsLoaded = true;
+  }
+
   onMount(async () => {
+    // Tray "Models..." entry re-focuses an already-open window: we can't
+    // re-read the URL in that case, so the backend re-emits the tab choice.
+    unlistenTabSwitch = await listen<string>('settings:tab', (e) => {
+      if (isTab(e.payload)) activeTab = e.payload;
+    });
+
     // Only enumerate input devices if mic permission was already granted.
     // On macOS 14+ Core Audio HAL surfaces the TCC prompt the moment we
     // open the device list, even read-only — we don't want to flash that
     // dialog every time the user opens Settings.
     const mic = await lda.checkMicrophone().catch(() => 'denied' as const);
-    if (mic !== 'granted') return;
-    try {
-      devices = await lda.listInputDevices();
-    } catch {
-      // not fatal — keep dropdown empty
+    if (mic === 'granted') {
+      try {
+        devices = await lda.listInputDevices();
+      } catch {
+        // not fatal — keep dropdown empty
+      }
     }
+
+    await refreshModels();
+    unlistenDownload = await lda.onDownloadProgress(async (p) => {
+      if (p.state === 'complete') {
+        await refreshModels();
+        const entry = catalog.find((c) => c.id === p.id);
+        const localMatch = local.find((l) => l.id === p.id);
+        if (entry && localMatch) {
+          const patch = entry.kind === 'stt'
+            ? { whisperModelPath: localMatch.path }
+            : { llmModelPath: localMatch.path };
+          await updateSettings(patch);
+        }
+      }
+    });
   });
+
+  onDestroy(() => {
+    unlistenDownload?.();
+    unlistenTabSwitch?.();
+  });
+
+  function installed(id: string): boolean {
+    return local.some((l) => l.id === id);
+  }
+
+  function selectedFor(kind: 'stt' | 'llm'): string | null {
+    if (!$settings) return null;
+    return kind === 'stt' ? $settings.whisperModelPath : $settings.llmModelPath;
+  }
+
+  function selectModel(entry: CatalogEntry) {
+    const match = local.find((l) => l.id === entry.id);
+    if (!match) return;
+    const patch = entry.kind === 'stt'
+      ? { whisperModelPath: match.path }
+      : { llmModelPath: match.path };
+    void updateSettings(patch);
+  }
+
+  function fmtSize(bytes: number): string {
+    return bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.round(bytes / 1e6)} MB`;
+  }
+
+  let usedBytes = $derived(local.reduce((s, l) => s + l.sizeBytes, 0));
+  let installedCount = $derived(local.filter((l) => l.inCatalog).length);
+  const KINDS: ('stt' | 'llm')[] = ['stt', 'llm'];
 
   async function checkUpdates() {
     checkingUpdates = true;
@@ -104,7 +186,9 @@
                 onValueChange={(v) => v && updateSettings({ language: v })}
               >
                 <Select.Trigger class="w-56">
-                  {LANGUAGE_OPTIONS.find((o) => o.value === $settings.language)?.label ?? $settings.language}
+                  <span class="flex-1 min-w-0 truncate text-left">
+                    {LANGUAGE_OPTIONS.find((o) => o.value === $settings.language)?.label ?? $settings.language}
+                  </span>
                 </Select.Trigger>
                 <Select.Content>
                   {#each LANGUAGE_OPTIONS as opt (opt.value)}
@@ -124,10 +208,12 @@
                 disabled={devices.length === 0}
               >
                 <Select.Trigger class="w-56">
-                  {$settings.inputDeviceName
-                    ?? (devices.find((d) => d.isDefault)?.name
-                        ? `${devices.find((d) => d.isDefault)?.name} (${t('settings.general.input_device_default')})`
-                        : t('settings.general.input_device_default'))}
+                  <span class="flex-1 min-w-0 truncate text-left">
+                    {$settings.inputDeviceName
+                      ?? (devices.find((d) => d.isDefault)?.name
+                          ? `${devices.find((d) => d.isDefault)?.name} (${t('settings.general.input_device_default')})`
+                          : t('settings.general.input_device_default'))}
+                  </span>
                 </Select.Trigger>
                 <Select.Content>
                   <Select.Item value="__default__">
@@ -195,63 +281,82 @@
       </div>
 
     {:else if $settings && activeTab === 'models'}
-      <div class="space-y-8 max-w-lg">
-        <section>
-          <h2 class="text-xs font-semibold tracking-wide uppercase text-muted-foreground mb-3">
-            {t('wizard.models.stt_section')}
-          </h2>
-          <div class="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden">
-            <div class="p-4 space-y-2">
-              <Label>{t('settings.models.whisper_model')}</Label>
-              <FilePicker
-                value={$settings.whisperModelPath}
-                filters={[{ name: 'Whisper ggml', extensions: ['bin'] }]}
-                onpick={(p) => updateSettings({ whisperModelPath: p })}
-              />
-            </div>
-            <div class="p-4 flex items-center justify-between gap-4">
-              <Label>{t('settings.models.whisper_coreml_disable')}</Label>
-              <Switch
-                checked={$settings.whisperCoreMLDisable}
-                onCheckedChange={(v) => updateSettings({ whisperCoreMLDisable: v })}
-              />
-            </div>
+      <div class="space-y-8 max-w-2xl">
+        {#if modelsLoaded}
+          <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-muted/50 text-xs text-muted-foreground">
+            {t('settings.models.stats', { used: fmtSize(usedBytes), installed: installedCount, total: catalog.length })}
           </div>
-        </section>
 
-        <section>
-          <h2 class="text-xs font-semibold tracking-wide uppercase text-muted-foreground mb-3">
-            {t('wizard.models.llm_section')}
-          </h2>
-          <div class="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden">
-            <div class="p-4 space-y-2">
-              <Label>{t('settings.models.llm_model')}</Label>
+          {#each KINDS as kind, i (kind)}
+            <section>
+              <h2 class="text-xs font-semibold tracking-wide uppercase text-muted-foreground mb-3">
+                {kind === 'stt' ? t('wizard.models.stt_section') : t('wizard.models.llm_section')}
+              </h2>
+
+              <div class="space-y-2">
+                {#each catalog.filter((c) => c.kind === kind) as entry (entry.id)}
+                  <ModelCard
+                    {entry}
+                    installed={installed(entry.id)}
+                    selected={selectedFor(kind) === local.find((l) => l.id === entry.id)?.path}
+                    onselect={() => selectModel(entry)}
+                  />
+                {/each}
+              </div>
+
+              <div class="text-xs uppercase tracking-wide text-muted-foreground mt-4 mb-2">
+                {t('wizard.models.use_existing')}
+              </div>
               <FilePicker
-                value={$settings.llmModelPath}
-                filters={[{ name: 'GGUF', extensions: ['gguf'] }]}
-                onpick={(p) => updateSettings({ llmModelPath: p })}
+                value={selectedFor(kind)}
+                filters={kind === 'stt'
+                  ? [{ name: 'Whisper ggml', extensions: ['bin'] }]
+                  : [{ name: 'GGUF', extensions: ['gguf'] }]}
+                onpick={(p) => updateSettings(kind === 'stt' ? { whisperModelPath: p } : { llmModelPath: p })}
               />
-            </div>
-            <div class="p-4 flex items-center justify-between gap-4">
-              <Label>{t('settings.models.llm_ctx_size')}</Label>
-              <Input
-                type="number"
-                class="w-32"
-                value={String($settings.llmCtxSize)}
-                onchange={(e) => {
-                  const n = Number((e.currentTarget as HTMLInputElement).value);
-                  if (!Number.isNaN(n) && n >= 512 && n <= 32768) {
-                    updateSettings({ llmCtxSize: n });
-                  }
-                }}
-              />
-            </div>
-          </div>
-        </section>
 
-        <Button variant="outline" onclick={() => navigate('model-manager')}>
-          {t('settings.models.open_manager')}
-        </Button>
+              {#if i < KINDS.length - 1}
+                <Separator class="mt-6" />
+              {/if}
+            </section>
+          {/each}
+
+          <section>
+            <h2 class="text-xs font-semibold tracking-wide uppercase text-muted-foreground mb-3">
+              {t('settings.models.advanced_section')}
+            </h2>
+            <div class="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden">
+              <div class="p-4 flex items-center justify-between gap-4">
+                <Label>{t('settings.models.whisper_coreml_disable')}</Label>
+                <Switch
+                  checked={$settings.whisperCoreMLDisable}
+                  onCheckedChange={(v) => updateSettings({ whisperCoreMLDisable: v })}
+                />
+              </div>
+              <div class="p-4 flex items-center justify-between gap-4">
+                <Label>{t('settings.models.llm_ctx_size')}</Label>
+                <Input
+                  type="number"
+                  class="w-32"
+                  value={String($settings.llmCtxSize)}
+                  onchange={(e) => {
+                    const n = Number((e.currentTarget as HTMLInputElement).value);
+                    if (!Number.isNaN(n) && n >= 512 && n <= 32768) {
+                      updateSettings({ llmCtxSize: n });
+                    }
+                  }}
+                />
+              </div>
+            </div>
+          </section>
+        {:else}
+          <div class="space-y-3">
+            <SkeletonRow class="h-4 w-32" />
+            <SkeletonRow class="h-16 w-full" />
+            <SkeletonRow class="h-16 w-full" />
+            <SkeletonRow class="h-16 w-full" />
+          </div>
+        {/if}
       </div>
 
     {:else if $settings && activeTab === 'hotkey'}

@@ -120,7 +120,7 @@ fn build_menu(app: &AppHandle, recording: bool, status_label: &str) -> Result<Me
     let hotkey_item = MenuItem::with_id(app, "hotkey", &hotkey_label, false, None::<&str>).map_err(menu_err)?;
     let sep1 = PredefinedMenuItem::separator(app).map_err(menu_err)?;
     let settings_item = MenuItem::with_id(app, "open-settings", "Settings...", true, Some("CmdOrCtrl+,")).map_err(menu_err)?;
-    let mm_item = MenuItem::with_id(app, "open-mm", "Open Model Manager...", true, None::<&str>).map_err(menu_err)?;
+    let mm_item = MenuItem::with_id(app, "open-models", "Models...", true, None::<&str>).map_err(menu_err)?;
     let wiz_item = MenuItem::with_id(app, "open-wizard", "Re-run setup wizard", true, None::<&str>).map_err(menu_err)?;
     let sep2 = PredefinedMenuItem::separator(app).map_err(menu_err)?;
     let logs_item = MenuItem::with_id(app, "view-logs", "View logs", true, None::<&str>).map_err(menu_err)?;
@@ -151,7 +151,7 @@ fn hotkey_display(h: crate::settings::Hotkey) -> &'static str {
 fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
     match event.id().as_ref() {
         "open-settings" => { let _ = crate::commands::windows::open_window_internal(app, "settings"); }
-        "open-mm" => { let _ = crate::commands::windows::open_window_internal(app, "model-manager"); }
+        "open-models" => { let _ = crate::commands::windows::open_settings_at_tab(app, "models"); }
         "open-wizard" => { let _ = crate::commands::windows::open_window_internal(app, "wizard"); }
         "view-logs" => {
             if let Ok(dir) = app.path().app_log_dir() {

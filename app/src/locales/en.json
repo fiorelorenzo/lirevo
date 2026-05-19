@@ -91,7 +91,8 @@
       "llm_model": "Language model",
       "llm_ctx_size": "LLM context size (tokens)",
       "whisper_coreml_disable": "Disable CoreML encoder",
-      "open_manager": "Open Model Manager..."
+      "advanced_section": "Advanced",
+      "stats": "{{used}} used · {{installed}} of {{total}} catalog models installed"
     },
     "hotkey": {
       "label": "Push-to-talk key"
@@ -103,14 +104,6 @@
       "rerun_wizard": "Re-run setup wizard",
       "license": "Open source · MIT License"
     }
-  },
-  "model_manager": {
-    "title": "Model Manager",
-    "back": "Settings",
-    "stats": "{{used}} used · {{installed}} of {{total}} catalog models installed",
-    "stt_section": "Speech-to-text",
-    "llm_section": "Language model",
-    "use_existing": "Or use existing file"
   },
   "home": {
     "title": "Hold to dictate",

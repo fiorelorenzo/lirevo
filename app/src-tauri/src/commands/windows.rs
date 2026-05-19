@@ -1,4 +1,4 @@
-use tauri::{AppHandle, WebviewWindowBuilder, WebviewUrl};
+use tauri::{AppHandle, Emitter, WebviewWindowBuilder, WebviewUrl};
 
 use crate::{AppError, AppState};
 
@@ -39,6 +39,18 @@ pub async fn complete_wizard(
 }
 
 pub fn open_window_internal(app: &AppHandle, route: &str) -> Result<(), AppError> {
+    open_window_internal_with_query(app, route, None)
+}
+
+/// Like [`open_window_internal`] but appends `?<query>` to the loaded URL on
+/// first build. When the window already exists this is a no-op for the URL
+/// (the webview is not reloaded). Callers that need to nudge an already-open
+/// window into a specific sub-view should emit a window-scoped event instead.
+pub fn open_window_internal_with_query(
+    app: &AppHandle,
+    route: &str,
+    query: Option<&str>,
+) -> Result<(), AppError> {
     use tauri::Manager;
     // Overlay is its own thing — special-case it before the regular flow.
     if route == "overlay" {
@@ -58,13 +70,16 @@ pub fn open_window_internal(app: &AppHandle, route: &str) -> Result<(), AppError
         "home" => (720u32, 520u32, true),
         "wizard" => (760, 620, false),
         "settings" => (820, 600, true),
-        "model-manager" => (720, 640, true),
         _ => return Err(AppError::Internal(format!("unknown route: {route}"))),
     };
     // SvelteKit with adapter-static: routes are paths like /settings, /wizard, etc.
     // Tauri loads build/<route>/index.html which prerendered SvelteKit gives us.
     // For "home" we load the root (/).
-    let path = if route == "home" { "/".to_string() } else { format!("/{route}") };
+    let base = if route == "home" { String::new() } else { format!("/{route}") };
+    let path = match query {
+        Some(q) if !q.is_empty() => format!("{}?{q}", if base.is_empty() { "/" } else { base.as_str() }),
+        _ => if base.is_empty() { "/".to_string() } else { base },
+    };
     let url = WebviewUrl::App(path.into());
     let mut builder = WebviewWindowBuilder::new(app, route, url)
         .title("local-dictation-app")
@@ -80,6 +95,25 @@ pub fn open_window_internal(app: &AppHandle, route: &str) -> Result<(), AppError
     builder
         .build()
         .map_err(|e| AppError::Internal(format!("window build: {e}")))?;
+    Ok(())
+}
+
+/// Open (or focus) the Settings window with a specific tab pre-selected.
+///
+/// On a fresh window the tab is encoded in the URL (`?tab=...`) and read by
+/// the page on mount. When the window already exists the URL is not re-read,
+/// so we emit a `settings:tab` event to nudge the page; the event is only
+/// emitted in the focus path to avoid racing the freshly-mounted listener.
+pub fn open_settings_at_tab(app: &AppHandle, tab: &str) -> Result<(), AppError> {
+    use tauri::Manager;
+    let existed = app.get_webview_window("settings").is_some();
+    let query = format!("tab={tab}");
+    open_window_internal_with_query(app, "settings", Some(&query))?;
+    if existed {
+        if let Some(w) = app.get_webview_window("settings") {
+            let _ = w.emit("settings:tab", tab.to_string());
+        }
+    }
     Ok(())
 }
 
