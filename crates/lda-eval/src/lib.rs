@@ -7,3 +7,4 @@ pub mod backend;
 pub mod cli;
 pub mod corpus;
 pub mod profiles;
+pub mod scoring;
