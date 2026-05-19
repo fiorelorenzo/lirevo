@@ -1,6 +1,7 @@
 //! Runtime probes: latency, memory.
 //!
-//! Latency is backend-agnostic (any `EvalBackend` impl). Memory currently
-//! depends on macOS APIs and is added in Task 10.
+//! Latency is backend-agnostic (any `EvalBackend` impl). Memory is macOS-only
+//! today (returns `None` on other targets).
 
 pub mod latency;
+pub mod memory;
