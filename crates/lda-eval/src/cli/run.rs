@@ -43,24 +43,37 @@ pub async fn run(args: RunArgs) -> Result<()> {
         embedder = Some(Embedder::load(&ec).context("load embedder")?);
     }
 
-    let mut backends: Vec<Box<dyn EvalBackend>> = Vec::new();
-    let mut descriptors: Vec<BackendDescriptor> = Vec::new();
+    // Per-backend RSS attribution. We snapshot live RSS BEFORE the backend
+    // loads and AFTER, take the delta, and report that as the backend's
+    // footprint. Caveats: (a) the system allocator may retain freed pages
+    // from a previously-dropped backend, biasing the next backend's baseline
+    // slightly upward (so attributed RSS may UNDER-report by tens to
+    // hundreds of MB for backends after the first); (b) for truly
+    // independent measurements we'd need subprocess isolation.
+    let no_think_set: std::collections::HashSet<String> = args.no_think_for.iter().cloned().collect();
+    let mut descriptors: Vec<BackendDescriptor> = Vec::with_capacity(args.backends.len());
+    let mut outcomes: Vec<CellOutcome> = Vec::with_capacity(args.backends.len() * cases.len());
+
     for spec in &args.backends {
-        let b = build_from_spec(spec)
+        let baseline_rss = memory::current_rss_kb();
+        let mut backend = build_from_spec(spec)
             .await
             .with_context(|| format!("backend {spec}"))?;
-        descriptors.push(BackendDescriptor {
+        let descriptor = BackendDescriptor {
             spec: spec.clone(),
-            id: b.id().to_string(),
-            kind: format!("{:?}", b.kind()),
-        });
-        backends.push(b);
-    }
+            id: backend.id().to_string(),
+            kind: format!("{:?}", backend.kind()),
+        };
+        let no_think = no_think_set.contains(&descriptor.id);
 
-    let mut outcomes: Vec<CellOutcome> = Vec::with_capacity(backends.len() * cases.len());
-    let no_think_set: std::collections::HashSet<String> = args.no_think_for.iter().cloned().collect();
-    for (idx, backend) in backends.iter_mut().enumerate() {
-        let no_think = no_think_set.contains(&descriptors[idx].id);
+        // Snapshot post-load RSS. Done before any generation so it reflects
+        // the model weights + context allocation only, not transient KV buffers.
+        let rss_after_load = memory::current_rss_kb();
+        let attributed_rss_kb = match (baseline_rss, rss_after_load) {
+            (Some(base), Some(after)) => Some(after.saturating_sub(base)),
+            _ => None,
+        };
+
         for case in &cases {
             let outcome = run_one_cell(
                 backend.as_mut(),
@@ -68,11 +81,18 @@ pub async fn run(args: RunArgs) -> Result<()> {
                 &profiles,
                 embedder.as_mut(),
                 no_think,
+                attributed_rss_kb,
             )
             .await
-            .with_context(|| format!("backend={} case={}", descriptors[idx].id, case.id))?;
+            .with_context(|| format!("backend={} case={}", descriptor.id, case.id))?;
             outcomes.push(outcome);
         }
+
+        descriptors.push(descriptor);
+        // Backend drops here at end of iteration scope. Allocator may not
+        // return all RSS to the OS, but the next backend's baseline-relative
+        // measurement is still independent of this one's allocations.
+        drop(backend);
     }
 
     let report = ReportData {
@@ -100,6 +120,7 @@ async fn run_one_cell(
     profiles: &HashMap<String, Profile>,
     embedder: Option<&mut Embedder>,
     no_think: bool,
+    attributed_rss_kb: Option<u64>,
 ) -> Result<CellOutcome> {
     let profile = profiles.get(&case.profile).expect("validated upstream");
     let mut sys = profile
@@ -160,7 +181,7 @@ async fn run_one_cell(
             judge_rationale: None,
         },
         latency: latency_cell,
-        peak_rss_kb: memory::peak_rss_kb(),
+        peak_rss_kb: attributed_rss_kb,
     })
 }
 
