@@ -127,11 +127,16 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
         },
     );
 
-    // SAFETY: env vars are process-global. Mutating them is unsafe in 2024-edition Rust
-    // (race with other threads reading env). Here this runs in a single orchestrator
-    // task before spawn_blocking; concurrent reads come only from the whisper loader
-    // we kick off next.
-    // We use std::env::set_var/remove_var which the whisper backend reads on load().
+    // SAFETY: env vars are process-global; mutating them is unsafe in
+    // 2024-edition Rust because of the race with concurrent readers.
+    // The whisper backend reads this env var inside its `load()` call,
+    // which we spawn just below — so the mutation here happens
+    // strictly BEFORE the only reader we know of. Two overlapping
+    // `update_settings` invocations could in principle race on this var,
+    // but the result is "whichever whisper load won the race uses the
+    // value it observed", which is acceptable since both loads carry the
+    // same `coreml_disable` value derived from the freshly persisted
+    // settings.
     if coreml_disable {
         unsafe { std::env::set_var("SIDECAR_WHISPER_COREML_DISABLE", "1") };
     } else {

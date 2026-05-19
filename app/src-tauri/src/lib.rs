@@ -57,16 +57,16 @@ pub fn run() {
 
             crate::models::init_active_downloads();
 
-            // Install tray (no-op stub until T18).
+            // Install tray.
             if let Err(e) = tray::install(app.handle()) {
-                tracing::warn!(?e, "tray install failed (stub)");
+                tracing::warn!(?e, "tray install failed");
             }
 
             // Install hotkey listener. Fails when Accessibility permission
-            // is missing; the home page renders a persistent banner from
-            // its `permissionsState` store + an automatic
-            // `retry_hotkey_install` when AX flips back to granted, so no
-            // toast is needed here — would just be redundant noise.
+            // is missing; the home page's `permissionsState` store polls
+            // AX status and calls `retry_hotkey_install` from its `$effect`
+            // when it flips to granted, so we don't surface a toast here
+            // (the persistent banner already covers the case visually).
             let hotkey = {
                 let state = app.state::<AppState>();
                 let inner = state.inner.lock().unwrap();

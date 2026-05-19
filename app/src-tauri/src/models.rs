@@ -169,7 +169,8 @@ pub fn list_local(app: &tauri::AppHandle) -> std::io::Result<Vec<LocalModel>> {
     Ok(out)
 }
 
-/// Active downloads: id → cancel sender. T16 fills usage.
+/// Active downloads keyed by catalog id, holding the oneshot sender used by
+/// `cancel()` to interrupt the streaming download.
 pub static ACTIVE_DOWNLOADS: Mutex<Option<HashMap<String, oneshot::Sender<()>>>> = Mutex::new(None);
 
 pub fn init_active_downloads() {
@@ -381,7 +382,7 @@ async fn download_inner(
         }
     }
 
-    // T17 fills CoreML encoder extraction.
+    // Whisper CoreML companion (separate zip download + unzip).
     if entry.coreml_encoder_url.is_some() {
         download_and_extract_coreml(app, entry, cancel_rx).await?;
     }
