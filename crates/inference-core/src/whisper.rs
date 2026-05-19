@@ -165,6 +165,7 @@ impl WhisperBackend {
     }
 }
 
+#[must_use]
 pub fn coreml_sidecar_path(model_path: &Path) -> PathBuf {
     let stem = model_path
         .file_stem()

@@ -15,6 +15,11 @@ use crate::{to_mono_into_f32, to_mono_into_i16, AudioError};
 /// Throttle interval for RMS level emission — roughly 33 Hz.
 const LEVEL_EMIT_INTERVAL: Duration = Duration::from_millis(30);
 
+/// Audio buffer sizes are typically 256-2048 frames; pre-allocate to the
+/// upper end so the mono-mix scratch never reallocs on the audio thread
+/// (which runs the cpal callback ~100×/sec).
+const MONO_SCRATCH_CAP: usize = 4096;
+
 /// Compute the root-mean-square of a slice of normalized samples (range
 /// roughly `[-1.0, 1.0]`). Empty input yields `0.0`; the result is clamped
 /// to `1.0` so out-of-range inputs cannot produce a level above unity.
@@ -97,11 +102,6 @@ impl Recorder {
         let max_samples = cap;
 
         let err_fn = |err| tracing::error!(?err, "cpal stream error");
-
-        // Audio buffer sizes are typically 256-2048 frames; pre-allocate to
-        // the upper end so the mono-mix scratch never reallocs on the audio
-        // thread (which runs the cpal callback ~100×/sec).
-        const MONO_SCRATCH_CAP: usize = 4096;
 
         let stream = match sample_format {
             cpal::SampleFormat::F32 => {

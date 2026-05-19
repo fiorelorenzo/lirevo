@@ -101,10 +101,10 @@ extern "C" {
     fn CFRelease(cf: *const std::ffi::c_void);
 }
 
-/// RAII guard for a `+1` retained CFType pointer obtained from an AX `Copy*`
+/// RAII guard for a `+1` retained `CFType` pointer obtained from an AX `Copy*`
 /// call. `AXUIElementCopyAttributeValue` follows Core Foundation's "Copy"
 /// rule: the caller owns one retain count and must release it. We were
-/// leaking one AXUIElement per `try_ax_inject` invocation for both
+/// leaking one `AXUIElement` per `try_ax_inject` invocation for both
 /// `focused_app` and `focused_elem`. The guard ensures cleanup runs on
 /// every early-return path.
 struct CFGuard(*const std::ffi::c_void);

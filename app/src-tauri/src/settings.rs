@@ -4,18 +4,15 @@ use tauri_plugin_store::StoreExt;
 
 use crate::error::AppError;
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum Hotkey {
+    #[default]
     RightOption,
     LeftOption,
     RightCommand,
     Fn,
     F5,
-}
-
-impl Default for Hotkey {
-    fn default() -> Self { Hotkey::RightOption }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -200,6 +197,9 @@ mod tests {
     }
 
     #[test]
+    // Multiple sequential reassignments to exercise validation thresholds;
+    // a single struct expression would obscure intent.
+    #[allow(clippy::field_reassign_with_default)]
     fn validate_rejects_out_of_range() {
         let mut s = Settings::default();
         s.llm_ctx_size = 100;

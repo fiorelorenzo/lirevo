@@ -19,6 +19,7 @@ pub struct StubLlmBackend {
 }
 
 impl StubLlmBackend {
+    #[must_use]
     pub fn new() -> Self {
         let sleep_ms = std::env::var("SIDECAR_LLM_STUB_SLEEP_MS")
             .ok()

@@ -235,8 +235,8 @@ pub async fn test_mic(
     })
 }
 
-/// Simulated test_mic for `LDA_DEV_SKIP_PERMS=1` so the wizard's listening UI
-/// + result-state UI can be iterated under `tauri dev` (where real cpal
+/// Simulated test_mic for `LDA_DEV_SKIP_PERMS=1` so the wizard's listening
+/// and result-state UI can be iterated under `tauri dev` (where real cpal
 /// capture returns silence because TCC auto-denies bare-binary launches).
 /// Streams a 1.5s synthetic sine-ish envelope on `recording:level`, then
 /// resolves as a successful detection — or cancelled if the user pressed Stop.

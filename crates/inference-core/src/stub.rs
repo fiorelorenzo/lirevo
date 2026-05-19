@@ -15,6 +15,7 @@ pub struct StubBackend {
 }
 
 impl StubBackend {
+    #[must_use]
     pub fn new() -> Self {
         let ms = std::env::var("SIDECAR_STUB_SLEEP_MS")
             .ok()

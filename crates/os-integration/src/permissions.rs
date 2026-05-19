@@ -97,11 +97,12 @@ pub fn prompt_accessibility() -> PermissionStatus {
 /// Returns the current TCC state without prompting the user.
 #[must_use]
 pub fn check_microphone() -> PermissionStatus {
+    use objc2_av_foundation::{AVAuthorizationStatus, AVCaptureDevice, AVMediaTypeAudio};
+
     if dev_skip_perms() {
         tracing::warn!("check_microphone: LDA_DEV_SKIP_PERMS active — returning Granted");
         return PermissionStatus::Granted;
     }
-    use objc2_av_foundation::{AVAuthorizationStatus, AVCaptureDevice, AVMediaTypeAudio};
 
     // Safety: `AVMediaTypeAudio` is a process-lifetime NSString constant.
     let media_type = unsafe { AVMediaTypeAudio.unwrap() };
@@ -111,7 +112,6 @@ pub fn check_microphone() -> PermissionStatus {
         AVAuthorizationStatus::Denied | AVAuthorizationStatus::Restricted => {
             PermissionStatus::Denied
         }
-        AVAuthorizationStatus::NotDetermined => PermissionStatus::NotDetermined,
         _ => PermissionStatus::NotDetermined,
     }
 }
@@ -129,14 +129,15 @@ pub fn check_microphone() -> PermissionStatus {
 /// `app/src-tauri/embedded-info.plist` + `build.rs`).
 #[must_use]
 pub fn prompt_microphone() -> PermissionStatus {
-    if dev_skip_perms() {
-        tracing::warn!("prompt_microphone: LDA_DEV_SKIP_PERMS active — returning Granted");
-        return PermissionStatus::Granted;
-    }
     use block2::RcBlock;
     use objc2::runtime::Bool;
     use objc2_av_foundation::{AVCaptureDevice, AVMediaTypeAudio};
     use std::sync::{Arc, Condvar, Mutex};
+
+    if dev_skip_perms() {
+        tracing::warn!("prompt_microphone: LDA_DEV_SKIP_PERMS active — returning Granted");
+        return PermissionStatus::Granted;
+    }
 
     let current = check_microphone();
     tracing::info!(?current, "prompt_microphone: pre-request status");

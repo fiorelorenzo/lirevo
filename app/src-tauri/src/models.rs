@@ -221,7 +221,7 @@ async fn verify_sha256(
     let digest = hasher.finalize();
     let mut actual = String::with_capacity(64);
     for b in digest.iter() {
-        let _ = write!(&mut actual, "{:02x}", b);
+        let _ = write!(&mut actual, "{b:02x}");
     }
     if actual.eq_ignore_ascii_case(expected) {
         Ok(())

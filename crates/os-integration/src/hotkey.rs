@@ -173,6 +173,13 @@ impl Drop for HotkeyListener {
     }
 }
 
+// The worker is a single conceptually-cohesive unit: QoS bump → tap install
+// → run-loop pump → teardown. Splitting it would mean threading half a
+// dozen captured state references through helpers for no real readability
+// win. `init_tx` is owned by value so the channel closes when the worker
+// returns; taking `&SyncSender` would force the caller to keep its end
+// alive past the worker's lifetime.
+#[allow(clippy::too_many_lines, clippy::needless_pass_by_value)]
 fn hotkey_worker(
     hotkey: Hotkey,
     tx: &mpsc::Sender<HotkeyEvent>,
@@ -327,7 +334,7 @@ fn hotkey_worker(
     {
         use core_foundation::base::TCFType;
         let mach_port_ref = tap.mach_port().as_concrete_TypeRef();
-        TAP_MACH_PORT.store(mach_port_ref as *mut _, Ordering::SeqCst);
+        TAP_MACH_PORT.store(mach_port_ref.cast::<std::ffi::c_void>(), Ordering::SeqCst);
     }
 
     // Block on the run loop until someone calls `CFRunLoopStop` (the Drop

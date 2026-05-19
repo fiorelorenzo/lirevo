@@ -147,6 +147,14 @@ pub fn run() {
                         raise(sig);
                     }
                 }
+                // Two `signal` declarations exist in the lda_sigabrt_handler
+                // body above (handler typed as `usize` so we can pass SIG_DFL)
+                // and here (handler typed as the fn pointer we install). Rust
+                // surfaces this as `clashing_extern_declarations`; both shapes
+                // are correct for their callsite — installing uses a typed fn
+                // pointer, restoring uses 0. Keeping them separate avoids a
+                // transmute. Allowed locally with a one-line justification.
+                #[allow(clashing_extern_declarations)]
                 unsafe extern "C" {
                     fn signal(
                         signum: std::ffi::c_int,
