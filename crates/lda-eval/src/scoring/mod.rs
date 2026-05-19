@@ -2,6 +2,7 @@
 
 pub mod assertions;
 pub mod chrf;
+pub mod embedding;
 pub mod length;
 
 /// Aggregated score record per (case, backend) — populated incrementally

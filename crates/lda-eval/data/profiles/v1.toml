@@ -254,3 +254,11 @@ es = """Traduce y reescribe un dictado como UN SOLO comentario de código en ING
 - Inglés técnico conciso, sea cual sea el idioma del dictado.
 - Sin comentarios adicionales, sin comillas.
 Devuelve SOLO la línea `// ...`."""
+
+[scoring.embedding]
+model_url = "https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/resolve/main/onnx/model.onnx"
+tokenizer_url = "https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/resolve/main/tokenizer.json"
+# Leave empty on first install. The first `lda-eval run --embed ...` invocation
+# logs the SHA-256 of each downloaded file; paste the values back here, commit.
+model_sha256 = ""
+tokenizer_sha256 = ""
