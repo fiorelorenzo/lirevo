@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use async_trait::async_trait;
 use thiserror::Error;
 
+pub mod claude_cli;
 pub mod gguf;
 
 #[derive(Debug, Clone)]
@@ -137,9 +138,9 @@ pub fn parse_spec(s: &str) -> Result<BackendSpec, SpecError> {
 /// callers can handle a single error surface. The `parse_spec` validation
 /// already guarantees `gguf` carries a path, but the factory keeps an explicit
 /// guard so a future regression cannot turn into a panic.
-// `async` is kept because Task 4's `ClaudeCli` arm will perform async work
-// (PATH probe + subprocess); changing the signature later would ripple through
-// every caller (`build_from_spec(&spec).await`).
+// `async` kept so the public signature is stable: future backends (or warm-cache
+// paths) may need to `.await`, and changing the signature later would ripple
+// through every caller.
 #[allow(clippy::unused_async)]
 pub async fn build_from_spec(spec: &str) -> Result<Box<dyn EvalBackend>, BackendError> {
     let parsed = parse_spec(spec).map_err(|e| BackendError::Inference(e.to_string()))?;
@@ -151,9 +152,12 @@ pub async fn build_from_spec(spec: &str) -> Result<Box<dyn EvalBackend>, Backend
             let b = gguf::GgufBackend::load(parsed.id, path)?;
             Ok(Box::new(b))
         }
-        BackendKind::ClaudeCli => Err(BackendError::Unsupported(
-            "claude-p not yet implemented".into(),
-        )),
+        BackendKind::ClaudeCli => {
+            let id = parsed.id.clone();
+            let model = parsed.id;
+            let b = claude_cli::ClaudeCliBackend::with_defaults(id, model);
+            Ok(Box::new(b))
+        }
     }
 }
 
