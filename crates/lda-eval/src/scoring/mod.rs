@@ -7,7 +7,7 @@ pub mod length;
 
 /// Aggregated score record per (case, backend) — populated incrementally
 /// by the run subcommand as each scorer fires.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ScoreCard {
     pub case_id: String,
     pub backend_id: String,

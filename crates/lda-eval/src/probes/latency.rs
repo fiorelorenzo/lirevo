@@ -3,14 +3,14 @@
 
 use crate::backend::{EvalBackend, GenerateReq};
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LatencyStats {
     pub runs: usize,
     pub p50_ms: u64,
     pub p99_ms: u64,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LatencyCell {
     pub cold_ms: u64,
     pub warm: LatencyStats,

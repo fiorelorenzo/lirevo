@@ -8,4 +8,5 @@ pub mod cli;
 pub mod corpus;
 pub mod probes;
 pub mod profiles;
+pub mod report;
 pub mod scoring;
