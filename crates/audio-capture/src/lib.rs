@@ -77,19 +77,59 @@ pub fn to_mono(interleaved: Vec<f32>, channels: u16) -> Vec<f32> {
     if channels <= 1 {
         return interleaved;
     }
+    let mut out = Vec::with_capacity(interleaved.len() / usize::from(channels));
+    to_mono_into_f32(&interleaved, channels, &mut out);
+    out
+}
+
+/// Streaming variant of `to_mono` that writes into a caller-provided
+/// scratch `Vec<f32>` instead of allocating. The cpal callback runs on the
+/// realtime audio thread ~100 times a second; allocating two `Vec`s per
+/// frame (one for `data.to_vec()`, one for the output of `to_mono`) thrashes
+/// the audio-thread allocator and contributes directly to dropouts.
+pub fn to_mono_into_f32(interleaved: &[f32], channels: u16, out: &mut Vec<f32>) {
+    out.clear();
+    if channels <= 1 {
+        out.extend_from_slice(interleaved);
+        return;
+    }
     let ch = usize::from(channels);
-    let mut out = Vec::with_capacity(interleaved.len() / ch);
+    #[allow(clippy::cast_precision_loss)]
+    let inv = 1.0_f32 / ch as f32;
     let mut i = 0;
     while i + ch <= interleaved.len() {
         let mut sum = 0.0_f32;
         for k in 0..ch {
             sum += interleaved[i + k];
         }
-        #[allow(clippy::cast_precision_loss)]
-        out.push(sum / ch as f32);
+        out.push(sum * inv);
         i += ch;
     }
-    out
+}
+
+/// Same as `to_mono_into_f32` but takes raw i16 samples (cpal's I16 stream
+/// format) and decodes-plus-mixes in one pass, so the i16 path needs zero
+/// allocations per callback (was previously `data.iter().map(...).collect()`
+/// to convert to f32, then `to_mono` on top of that — two Vec allocs).
+pub fn to_mono_into_i16(interleaved: &[i16], channels: u16, out: &mut Vec<f32>) {
+    out.clear();
+    let denom = 1.0_f32 / f32::from(i16::MAX);
+    if channels <= 1 {
+        out.extend(interleaved.iter().map(|s| f32::from(*s) * denom));
+        return;
+    }
+    let ch = usize::from(channels);
+    #[allow(clippy::cast_precision_loss)]
+    let inv = 1.0_f32 / ch as f32;
+    let mut i = 0;
+    while i + ch <= interleaved.len() {
+        let mut sum = 0.0_f32;
+        for k in 0..ch {
+            sum += f32::from(interleaved[i + k]) * denom;
+        }
+        out.push(sum * inv);
+        i += ch;
+    }
 }
 
 #[cfg(test)]

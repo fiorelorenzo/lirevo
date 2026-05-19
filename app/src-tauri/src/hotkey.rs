@@ -98,13 +98,18 @@ fn handle_down(app: &AppHandle, state: &tauri::State<AppState>) {
         return;
     }
 
-    let mut inner = state.inner.lock().unwrap();
-    if inner.recorder.is_some() {
-        tracing::info!("handle_down: already recording (duplicate Down)");
-        // Already recording (duplicate Down). Ignore — Up will clean up.
-        return;
-    }
-    let device_name = inner.settings.input_device_name.clone();
+    // Snapshot what we need under the lock, then drop the guard before any
+    // heavy work (Recorder::new opens the CoreAudio device — tens of ms).
+    // Holding std::sync::Mutex across that blocks other Tauri commands that
+    // also lock AppState.
+    let device_name = {
+        let inner = state.inner.lock().unwrap();
+        if inner.recorder.is_some() {
+            tracing::info!("handle_down: already recording (duplicate Down)");
+            return;
+        }
+        inner.settings.input_device_name.clone()
+    };
 
     let result = (|| -> Result<Recorder, String> {
         let cfg = RecorderConfig { device_name, ..Default::default() };
@@ -118,7 +123,7 @@ fn handle_down(app: &AppHandle, state: &tauri::State<AppState>) {
             tracing::info!("handle_down: recorder started");
             play_cue(CueSound::Start);
             // Forward audio levels (RMS, throttled to ~33 Hz inside the recorder)
-            // to the shared watch channel + a Tauri event for the RecordingIndicator.
+            // to the shared watch channel + a Tauri event for the overlay.
             let mut level_rx = recorder.level_rx();
             let app2 = app.clone();
             let level_tx = state.audio_level_tx.clone();
@@ -130,7 +135,11 @@ fn handle_down(app: &AppHandle, state: &tauri::State<AppState>) {
                 }
             });
 
-            inner.recorder = Some(recorder);
+            // Re-acquire briefly to install the recorder.
+            {
+                let mut inner = state.inner.lock().unwrap();
+                inner.recorder = Some(recorder);
+            }
             let _ = state.recording_state_tx.send(true);
             let _ = app.emit("recording:state", true);
             show_overlay(app);
@@ -154,11 +163,11 @@ fn handle_up(app: &AppHandle, state: &tauri::State<AppState>) {
         return;
     };
 
-    let wav = match r.stop() {
+    let samples = match r.stop() {
         Ok(recording) => {
             tracing::info!(samples = recording.samples.len(), "handle_up: recording stopped");
             play_cue(CueSound::Stop);
-            convert_recording_to_wav(&recording)
+            recording.samples
         }
         Err(e) => {
             tracing::warn!(error = %e, "recorder stop failed");
@@ -178,7 +187,7 @@ fn handle_up(app: &AppHandle, state: &tauri::State<AppState>) {
 
     let app2 = app.clone();
     tauri::async_runtime::spawn(async move {
-        run_pipeline(app2, wav).await;
+        run_pipeline(app2, samples).await;
     });
 }
 
@@ -202,12 +211,6 @@ fn hide_overlay_with_delay(app: &AppHandle) {
             let _ = w.hide();
         }
     });
-}
-
-/// Encode the captured 16 kHz mono f32 samples to a PCM16 WAV byte vector.
-/// Mirrors `lda-prototype`: `audio_capture::samples_to_wav(&rec.samples)`.
-fn convert_recording_to_wav(recording: &audio_capture::Recording) -> Vec<u8> {
-    audio_capture::samples_to_wav(&recording.samples)
 }
 
 #[derive(Clone, Copy)]
@@ -247,7 +250,7 @@ fn play_cue(_kind: CueSound) {
 ///
 /// Each failure mode emits a `toast` event so the UI can surface it. Successful
 /// runs emit a single tracing line with per-stage and total wall-clock timings.
-async fn run_pipeline(app: AppHandle, wav: Vec<u8>) {
+async fn run_pipeline(app: AppHandle, samples: Vec<f32>) {
     let t0 = std::time::Instant::now();
     let state = app.state::<AppState>();
 
@@ -271,14 +274,15 @@ async fn run_pipeline(app: AppHandle, wav: Vec<u8>) {
         return;
     };
 
-    // 1. Transcribe.
+    // 1. Transcribe. The recorder already produces 16 kHz mono f32 — call
+    // `transcribe_samples` directly to skip the WAV encode + decode + no-op
+    // resample round-trip that `transcribe(wav_bytes)` would do.
     let lang_for_stt = if language == "auto" {
         String::new()
     } else {
         language.clone()
     };
-    let wav_for_stt = wav;
-    let stt = tokio::task::spawn_blocking(move || whisper.transcribe(&wav_for_stt, &lang_for_stt))
+    let stt = tokio::task::spawn_blocking(move || whisper.transcribe_samples(&samples, &lang_for_stt))
         .await;
     let raw_text = match stt {
         Ok(Ok(t)) => t,

@@ -141,6 +141,15 @@ impl WhisperBackend {
     /// purely synchronous (non-tokio) context it works directly.
     pub fn transcribe(&self, wav_bytes: &[u8], language: &str) -> Result<String, SttError> {
         let samples = audio::process_wav(wav_bytes)?;
+        self.transcribe_samples(&samples, language)
+    }
+
+    /// Hot-path entrypoint that skips the WAV round-trip. The recorder
+    /// already produces 16 kHz mono f32 (the format whisper wants), so the
+    /// hotkey pipeline can hand the buffer straight here instead of encoding
+    /// to PCM16 WAV and then re-decoding it. Saves ~10-30 ms of user-
+    /// perceived latency on every dictation.
+    pub fn transcribe_samples(&self, samples: &[f32], language: &str) -> Result<String, SttError> {
         let opts = SttOptions {
             language: if language.is_empty() {
                 None
@@ -151,7 +160,7 @@ impl WhisperBackend {
             want_segments: false,
         };
         let ctx_guard = self.ctx.blocking_lock();
-        let (text, _language, _segments) = run_whisper_inference(&ctx_guard, &samples, &opts)?;
+        let (text, _language, _segments) = run_whisper_inference(&ctx_guard, samples, &opts)?;
         Ok(text)
     }
 }

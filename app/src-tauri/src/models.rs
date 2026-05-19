@@ -169,7 +169,8 @@ pub fn list_local(app: &tauri::AppHandle) -> std::io::Result<Vec<LocalModel>> {
     Ok(out)
 }
 
-/// Active downloads: id → cancel sender. T16 fills usage.
+/// Active downloads keyed by catalog id, holding the oneshot sender used by
+/// `cancel()` to interrupt the streaming download.
 pub static ACTIVE_DOWNLOADS: Mutex<Option<HashMap<String, oneshot::Sender<()>>>> = Mutex::new(None);
 
 pub fn init_active_downloads() {
@@ -381,7 +382,7 @@ async fn download_inner(
         }
     }
 
-    // T17 fills CoreML encoder extraction.
+    // Whisper CoreML companion (separate zip download + unzip).
     if entry.coreml_encoder_url.is_some() {
         download_and_extract_coreml(app, entry, cancel_rx).await?;
     }
@@ -503,8 +504,55 @@ pub(crate) async fn download_and_extract_coreml(
         let _ = tokio::fs::remove_dir_all(&macosx_dir).await;
     }
 
+    // Defense-in-depth against zip-slip (CVE-2018-1002201 family). The
+    // SHA-256 pin above already ensures we only extract a zip whose
+    // contents are known-good, but if HF were ever compromised or our
+    // pinned hash drifted, macOS' system `unzip` (Info-ZIP 5.52, very old)
+    // does not reliably reject `..` traversal entries. Walk the models dir
+    // post-extract and assert every resolved path stays under it; remove
+    // anything that escaped.
+    let mdir_for_check = models_dir.clone();
+    let _ = tokio::task::spawn_blocking(move || {
+        assert_no_traversal(&mdir_for_check);
+    })
+    .await;
+
     let _ = tokio::fs::remove_file(&zip_path).await;
     Ok(())
+}
+
+fn assert_no_traversal(root: &std::path::Path) {
+    let Ok(root_canon) = std::fs::canonicalize(root) else {
+        return;
+    };
+    let mut stack: Vec<std::path::PathBuf> = vec![root_canon.clone()];
+    while let Some(dir) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in rd.flatten() {
+            let path = entry.path();
+            // Resolve the symlink target so a `link → ..` can't sneak by.
+            let canon = match std::fs::canonicalize(&path) {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+            if !canon.starts_with(&root_canon) {
+                tracing::error!(
+                    path = %path.display(),
+                    canon = %canon.display(),
+                    "zip-slip: extracted path escaped models dir — removing",
+                );
+                let _ = std::fs::remove_file(&path);
+                continue;
+            }
+            let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+            let is_sym = entry.file_type().map(|t| t.is_symlink()).unwrap_or(false);
+            if is_dir && !is_sym {
+                stack.push(canon);
+            }
+        }
+    }
 }
 
 pub fn cancel(id: &str) -> Result<(), crate::AppError> {

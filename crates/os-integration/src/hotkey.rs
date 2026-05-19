@@ -211,11 +211,17 @@ fn hotkey_worker(
     let callback_count_cb = callback_count.clone();
     let tap_callback =
         move |_proxy: CGEventTapProxy, event_type: CGEventType, event: &CGEvent| -> CallbackResult {
-            let n = callback_count_cb.fetch_add(1, Ordering::SeqCst);
-            // Log the first event so we can confirm the tap is actually receiving.
-            if n == 0 {
-                tracing::info!(?event_type, "tap_callback: first event received");
-            }
+            // The closure is invoked from a Core Foundation C trampoline.
+            // Unwinding a Rust panic across that FFI boundary is undefined
+            // behavior — catch any panic and convert it into "let the event
+            // pass through". Any captured state is logically Send + UnwindSafe
+            // (atomic flags + a tokio mpsc sender); assert it so the borrow
+            // checker stays happy.
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let n = callback_count_cb.fetch_add(1, Ordering::SeqCst);
+                if n == 0 {
+                    tracing::info!(?event_type, "tap_callback: first event received");
+                }
             // Re-enable immediately on disable events. macOS sends these for
             // "secondary mouse button" presses or any callback that exceeded
             // its CPU budget; the tap stops dispatching until re-enabled.
@@ -226,7 +232,7 @@ fn hotkey_worker(
             ) {
                 tracing::warn!(?event_type, "tap disabled by macOS; re-enabling synchronously");
                 reenable_tap_from_callback();
-                return CallbackResult::Keep;
+                return;
             }
             if matches!(
                 event_type,
@@ -256,9 +262,16 @@ fn hotkey_worker(
                     }
                 }
             }
-            // Always pass the event through — we are a passive observer.
-            CallbackResult::Keep
-        };
+        }));
+        if result.is_err() {
+            // Panic was caught right at the FFI boundary. Log via plain
+            // eprintln rather than tracing — tracing's spans may have been
+            // poisoned by whatever caused the panic.
+            eprintln!("tap_callback: panicked, suppressing to keep FFI boundary intact");
+        }
+        // Always pass the event through — we are a passive observer.
+        CallbackResult::Keep
+    };
 
     // Session-level + Default options. We tried `ListenOnly` first (matching
     // FreeFlow's Swift code) but the tap kept getting hit with

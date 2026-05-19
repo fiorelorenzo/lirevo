@@ -66,7 +66,6 @@
     }
   },
   "settings": {
-    "title": "Settings",
     "back_to_home": "Back",
     "tabs": {
       "general": "General",
@@ -99,12 +98,9 @@
     },
     "about": {
       "version": "Version",
-      "platform": "Platform",
       "check_updates": "Check for updates",
       "checking": "Checking...",
       "rerun_wizard": "Re-run setup wizard",
-      "view_logs": "View logs",
-      "open_data_folder": "Open data folder",
       "license": "Open source · MIT License"
     }
   },
@@ -114,11 +110,6 @@
     "stats": "{{used}} used · {{installed}} of {{total}} catalog models installed",
     "stt_section": "Speech-to-text",
     "llm_section": "Language model",
-    "download": "Download",
-    "downloading": "Downloading...",
-    "installed": "Installed",
-    "cancel": "Cancel",
-    "retry": "Retry",
     "use_existing": "Or use existing file"
   },
   "home": {
@@ -135,16 +126,7 @@
     "models_not_loaded_body": "Open Settings to pick or download Whisper + LLM models.",
     "open_settings": "Open Settings"
   },
-  "toast": {
-    "sidecar_reloading": "Reloading models...",
-    "cleanup_failed": "Cleanup failed — typed raw transcript",
-    "inject_failed_clipboard": "Couldn't type into focused app — copied to clipboard instead"
-  },
   "common": {
-    "ok": "OK",
-    "cancel": "Cancel",
-    "save": "Save",
-    "close": "Close",
-    "step_n_of_total": "Step {{step}} of {{total}}"
+    "ok": "OK"
   }
 }

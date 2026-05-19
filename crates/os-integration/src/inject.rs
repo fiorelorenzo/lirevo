@@ -96,6 +96,26 @@ extern "C" {
     ) -> AXError;
 }
 
+#[link(name = "CoreFoundation", kind = "framework")]
+extern "C" {
+    fn CFRelease(cf: *const std::ffi::c_void);
+}
+
+/// RAII guard for a `+1` retained CFType pointer obtained from an AX `Copy*`
+/// call. `AXUIElementCopyAttributeValue` follows Core Foundation's "Copy"
+/// rule: the caller owns one retain count and must release it. We were
+/// leaking one AXUIElement per `try_ax_inject` invocation for both
+/// `focused_app` and `focused_elem`. The guard ensures cleanup runs on
+/// every early-return path.
+struct CFGuard(*const std::ffi::c_void);
+impl Drop for CFGuard {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe { CFRelease(self.0) };
+        }
+    }
+}
+
 fn try_ax_inject(text: &str) -> Result<(), InjectError> {
     unsafe {
         let system = AXUIElementCreateSystemWide();
@@ -126,6 +146,7 @@ fn try_ax_inject(text: &str) -> Result<(), InjectError> {
         if focused_app_raw.is_null() {
             return Err(InjectError::NoFocusedApp);
         }
+        let _focused_app_guard = CFGuard(focused_app_raw);
         let focused_app = focused_app_raw.cast_mut();
 
         // Focused UI element
@@ -151,6 +172,7 @@ fn try_ax_inject(text: &str) -> Result<(), InjectError> {
         if focused_elem_raw.is_null() {
             return Err(InjectError::NoFocusedElement);
         }
+        let _focused_elem_guard = CFGuard(focused_elem_raw);
         let focused_elem = focused_elem_raw.cast_mut();
 
         // Role check
