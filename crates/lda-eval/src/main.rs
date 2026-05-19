@@ -13,9 +13,14 @@ fn main() -> anyhow::Result<()> {
         .init();
 
     let cli = Cli::parse();
-    match cli.command {
-        Command::Run(_) => anyhow::bail!("run: not implemented yet"),
-        Command::GenCorpus(_) => anyhow::bail!("gen-corpus: not implemented yet"),
-        Command::Judge(_) => anyhow::bail!("judge: not implemented yet"),
-    }
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    rt.block_on(async move {
+        match cli.command {
+            Command::Run(args) => lda_eval::cli::run::run(args).await,
+            Command::GenCorpus(args) => lda_eval::cli::gen_corpus::run(args).await,
+            Command::Judge(args) => lda_eval::cli::judge::run(args).await,
+        }
+    })
 }

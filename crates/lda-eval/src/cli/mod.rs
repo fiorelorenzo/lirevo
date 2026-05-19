@@ -1,3 +1,7 @@
+pub mod gen_corpus;
+pub mod judge;
+pub mod run;
+
 use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug)]
