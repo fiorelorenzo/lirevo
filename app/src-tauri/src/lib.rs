@@ -17,6 +17,15 @@ use tracing_appender::non_blocking::WorkerGuard;
 // Hold the guard for the program's lifetime to avoid losing buffered log lines.
 static LOGGING_GUARD: std::sync::OnceLock<WorkerGuard> = std::sync::OnceLock::new();
 
+// Flipped to true the moment Tauri reports `RunEvent::ExitRequested`. The
+// macOS SIGABRT handler only short-circuits to `_exit(0)` when this is set
+// — otherwise it restores the default handler and re-raises so genuine
+// runtime aborts (assertion failures, double-frees, panic=abort) still
+// surface in the crash reporter instead of being silently swallowed.
+#[cfg(target_os = "macos")]
+static LDA_EXIT_REQUESTED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -85,11 +94,9 @@ pub fn run() {
                 commands::inference::load_models(&app_handle_for_load, state).await;
             });
 
-            // macOS-only: install a SIGABRT handler that converts the abort
-            // raised inside ggml-metal's teardown assertion into a clean
-            // `_exit(0)`.
+            // macOS-only: install a scoped SIGABRT handler.
             //
-            // Full path:
+            // Full crash path we work around:
             //   [NSApplication terminate:]
             //     → libc::exit
             //       → __cxa_finalize_ranges
@@ -105,20 +112,37 @@ pub fn run() {
             // (registered in setup) is registered BEFORE ggml-metal's, and
             // LIFO ordering means ggml's handler fires first → crash.
             //
-            // The signal handler is order-independent: whenever SIGABRT
-            // arrives, we _exit(0) immediately. No conflict with tokio's
-            // signal handling (tokio uses kqueue/signalfd, not the C
-            // `signal()` table).
+            // CRITICAL: the handler only short-circuits to `_exit(0)` when
+            // `LDA_EXIT_REQUESTED` is set (flipped in the `RunEvent::
+            // ExitRequested` branch below). Outside the exit sequence we
+            // restore the default handler and re-raise, so real runtime
+            // aborts (panics, debug assertions, double-frees) still surface
+            // as crashes rather than being swallowed silently with exit 0.
             //
-            // Other platforms hit the RunEvent::ExitRequested branch below
-            // (Tauri's run loop handles their shutdown normally).
+            // No conflict with tokio's signal handling — tokio uses
+            // kqueue/signalfd, not the C `signal()` table.
             #[cfg(target_os = "macos")]
             {
-                extern "C" fn lda_clean_exit_on_sigabrt(_sig: std::ffi::c_int) {
+                extern "C" fn lda_sigabrt_handler(sig: std::ffi::c_int) {
                     unsafe extern "C" {
                         fn _exit(status: std::ffi::c_int) -> !;
+                        fn signal(
+                            signum: std::ffi::c_int,
+                            handler: usize,
+                        ) -> *const ();
+                        fn raise(sig: std::ffi::c_int) -> std::ffi::c_int;
                     }
-                    unsafe { _exit(0) }
+                    use std::sync::atomic::Ordering;
+                    if LDA_EXIT_REQUESTED.load(Ordering::SeqCst) {
+                        unsafe { _exit(0) }
+                    }
+                    // Genuine runtime abort. Re-raise with default handler
+                    // so the OS crash reporter sees it.
+                    const SIG_DFL: usize = 0;
+                    unsafe {
+                        signal(sig, SIG_DFL);
+                        raise(sig);
+                    }
                 }
                 unsafe extern "C" {
                     fn signal(
@@ -127,7 +151,7 @@ pub fn run() {
                     ) -> *const ();
                 }
                 const SIGABRT: std::ffi::c_int = 6;
-                unsafe { signal(SIGABRT, lda_clean_exit_on_sigabrt); }
+                unsafe { signal(SIGABRT, lda_sigabrt_handler); }
             }
 
             Ok(())
@@ -164,15 +188,14 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_app, event| {
-            // Defensive cover for non-macOS shutdown paths (Tauri's run
-            // loop emits ExitRequested before destructors there). On macOS
-            // the atexit handler registered in setup() handles the
-            // [NSApplication terminate:] → libc::exit path that doesn't
-            // route through this callback at all; std::process::exit here
-            // would still trigger the ggml-metal destructor abort.
+            // Flip the macOS shutdown flag so the SIGABRT handler installed
+            // in setup() converts ggml-metal's teardown abort into
+            // `_exit(0)`. Outside this branch the handler re-raises with
+            // the default action, preserving real-crash visibility.
             if let tauri::RunEvent::ExitRequested { .. } = event {
                 #[cfg(target_os = "macos")]
                 {
+                    LDA_EXIT_REQUESTED.store(true, std::sync::atomic::Ordering::SeqCst);
                     unsafe extern "C" {
                         fn _exit(status: std::ffi::c_int) -> !;
                     }

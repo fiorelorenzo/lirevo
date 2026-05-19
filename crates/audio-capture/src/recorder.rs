@@ -10,7 +10,7 @@ use tokio::sync::watch;
 use tracing::warn;
 
 use crate::device;
-use crate::{to_mono, AudioError};
+use crate::{to_mono_into_f32, to_mono_into_i16, AudioError};
 
 /// Throttle interval for RMS level emission — roughly 33 Hz.
 const LEVEL_EMIT_INTERVAL: Duration = Duration::from_millis(30);
@@ -98,24 +98,30 @@ impl Recorder {
 
         let err_fn = |err| tracing::error!(?err, "cpal stream error");
 
+        // Audio buffer sizes are typically 256-2048 frames; pre-allocate to
+        // the upper end so the mono-mix scratch never reallocs on the audio
+        // thread (which runs the cpal callback ~100×/sec).
+        const MONO_SCRATCH_CAP: usize = 4096;
+
         let stream = match sample_format {
             cpal::SampleFormat::F32 => {
                 let level_tx = self.level_tx.clone();
-                let last_emit: Arc<Mutex<Instant>> = Arc::new(Mutex::new(Instant::now()));
+                let mut last_emit = Instant::now();
+                let mut mono_scratch: Vec<f32> = Vec::with_capacity(MONO_SCRATCH_CAP);
                 dev.device
                     .build_input_stream(
                         &stream_cfg,
                         move |data: &[f32], _| {
-                            let mono = to_mono(data.to_vec(), channels);
-                            emit_level_if_due(&level_tx, &last_emit, &mono);
+                            to_mono_into_f32(data, channels, &mut mono_scratch);
+                            emit_level_if_due(&level_tx, &mut last_emit, &mono_scratch);
                             let mut g = buf_cb.lock().expect("buf lock");
                             let take = max_samples.saturating_sub(g.len());
                             if take == 0 {
                                 warn!("max_duration_secs reached; dropping further audio");
                                 return;
                             }
-                            let n = mono.len().min(take);
-                            g.extend_from_slice(&mono[..n]);
+                            let n = mono_scratch.len().min(take);
+                            g.extend_from_slice(&mono_scratch[..n]);
                         },
                         err_fn,
                         None,
@@ -124,25 +130,25 @@ impl Recorder {
             }
             cpal::SampleFormat::I16 => {
                 let level_tx = self.level_tx.clone();
-                let last_emit: Arc<Mutex<Instant>> = Arc::new(Mutex::new(Instant::now()));
+                let mut last_emit = Instant::now();
+                let mut mono_scratch: Vec<f32> = Vec::with_capacity(MONO_SCRATCH_CAP);
                 dev.device
                     .build_input_stream(
                         &stream_cfg,
                         move |data: &[i16], _| {
-                            let f32_buf: Vec<f32> = data
-                                .iter()
-                                .map(|s| f32::from(*s) / f32::from(i16::MAX))
-                                .collect();
-                            let mono = to_mono(f32_buf, channels);
-                            emit_level_if_due(&level_tx, &last_emit, &mono);
+                            // Fused decode + mono-mix: was two separate
+                            // allocations per callback (Vec<f32> for the
+                            // decode pass, then Vec<f32> again from to_mono).
+                            to_mono_into_i16(data, channels, &mut mono_scratch);
+                            emit_level_if_due(&level_tx, &mut last_emit, &mono_scratch);
                             let mut g = buf_cb.lock().expect("buf lock");
                             let take = max_samples.saturating_sub(g.len());
                             if take == 0 {
                                 warn!("max_duration_secs reached; dropping further audio");
                                 return;
                             }
-                            let n = mono.len().min(take);
-                            g.extend_from_slice(&mono[..n]);
+                            let n = mono_scratch.len().min(take);
+                            g.extend_from_slice(&mono_scratch[..n]);
                         },
                         err_fn,
                         None,
@@ -187,18 +193,15 @@ impl Recorder {
 
 /// Compute RMS over `samples` and publish on `level_tx`, but only if at
 /// least `LEVEL_EMIT_INTERVAL` has elapsed since the previous emission. Send
-/// errors (no live receivers) are intentionally ignored.
-fn emit_level_if_due(
-    level_tx: &watch::Sender<f32>,
-    last_emit: &Arc<Mutex<Instant>>,
-    samples: &[f32],
-) {
+/// errors (no live receivers) are intentionally ignored. The cpal callback
+/// is a single producer so the `last_emit` cursor can be owned by the
+/// closure (no Arc/Mutex needed).
+fn emit_level_if_due(level_tx: &watch::Sender<f32>, last_emit: &mut Instant, samples: &[f32]) {
     let now = Instant::now();
-    let mut guard = last_emit.lock().expect("last_emit lock");
-    if now.duration_since(*guard) >= LEVEL_EMIT_INTERVAL {
+    if now.duration_since(*last_emit) >= LEVEL_EMIT_INTERVAL {
         let level = rms(samples);
         let _ = level_tx.send(level);
-        *guard = now;
+        *last_emit = now;
     }
 }
 
