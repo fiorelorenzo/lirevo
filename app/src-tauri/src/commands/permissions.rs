@@ -102,7 +102,21 @@ pub async fn retry_hotkey_install(
 /// Debug helper — pipe a string from any webview into the backend tracing
 /// stream so we can see it in `~/Library/Logs/app.localdictation/*.log`
 /// without needing devtools on the overlay window (which is click-through).
+/// Caps + sanitizes inputs so a compromised renderer can't fill the disk
+/// with multi-GB log lines or sneak ANSI escapes / newlines into log files
+/// that are read by support workflows.
+const FRONTEND_LOG_MAX_SOURCE: usize = 32;
+const FRONTEND_LOG_MAX_MSG: usize = 4 * 1024;
+
 #[tauri::command]
 pub fn frontend_log(source: &str, msg: &str) {
-    tracing::info!(source, msg, "frontend_log");
+    fn sanitize(s: &str, max: usize) -> String {
+        s.chars()
+            .filter(|c| !c.is_control() || *c == ' ')
+            .take(max)
+            .collect()
+    }
+    let source = sanitize(source, FRONTEND_LOG_MAX_SOURCE);
+    let msg = sanitize(msg, FRONTEND_LOG_MAX_MSG);
+    tracing::info!(%source, %msg, "frontend_log");
 }

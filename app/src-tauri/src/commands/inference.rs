@@ -6,12 +6,26 @@ use inference_core::{ChatRequest, LlamaBackend, WhisperBackend};
 use crate::state::ModelState;
 use crate::{AppError, AppState};
 
+/// Hard ceilings on Tauri-command inputs from the webview. The renderer is
+/// the only caller, and at 200 MB PCM16 / 100 KB text these caps are far
+/// above any legitimate dictation but well below what would let a
+/// compromised webview exhaust process RAM with a single `invoke()`.
+const MAX_TRANSCRIBE_WAV_BYTES: usize = 200 * 1024 * 1024;
+const MAX_CLEAN_TEXT_BYTES: usize = 100 * 1024;
+
 #[tauri::command]
 pub async fn transcribe(
     state: State<'_, AppState>,
     wav: Vec<u8>,
     language: Option<String>,
 ) -> Result<String, AppError> {
+    if wav.len() > MAX_TRANSCRIBE_WAV_BYTES {
+        return Err(AppError::Internal(format!(
+            "transcribe: wav too large ({} > {} bytes)",
+            wav.len(),
+            MAX_TRANSCRIBE_WAV_BYTES
+        )));
+    }
     let whisper = {
         let inner = state.inner.lock().unwrap();
         inner
@@ -38,6 +52,13 @@ pub async fn clean(
     text: String,
     language: String,
 ) -> Result<String, AppError> {
+    if text.len() > MAX_CLEAN_TEXT_BYTES {
+        return Err(AppError::Internal(format!(
+            "clean: text too large ({} > {} bytes)",
+            text.len(),
+            MAX_CLEAN_TEXT_BYTES
+        )));
+    }
     let llama = {
         let inner = state.inner.lock().unwrap();
         inner

@@ -12,7 +12,7 @@
   "app": {
     "windows": [],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; connect-src 'self' ipc: https://ipc.localhost; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; script-src 'self'"
     },
     "macOSPrivateApi": true
   },
