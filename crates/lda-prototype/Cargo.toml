@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
+dirs = "5"
 hyper = { version = "1", features = ["client", "http1"] }
 hyper-util = { version = "0.1", features = ["client", "client-legacy", "tokio", "http1"] }
 hyperlocal = "0.9"

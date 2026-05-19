@@ -2549,7 +2549,6 @@ dependencies = [
  "futures-util",
  "inference-core",
  "lda-prompts",
- "objc2",
  "once_cell",
  "os-integration",
  "reqwest",

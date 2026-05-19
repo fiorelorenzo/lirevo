@@ -72,10 +72,10 @@ fn resolve_socket(arg: Option<PathBuf>) -> Result<PathBuf> {
     if let Ok(s) = std::env::var("SIDECAR_SOCKET_PATH") {
         return Ok(PathBuf::from(s));
     }
-    let home = std::env::var("HOME").map_err(|_| anyhow!("$HOME not set"))?;
-    Ok(PathBuf::from(format!(
-        "{home}/Library/Application Support/app/sidecar.sock"
-    )))
+    // Per-user app data dir: macOS ~/Library/Application Support,
+    // Linux $XDG_DATA_HOME or ~/.local/share, Windows %APPDATA%.
+    let base = dirs::data_dir().ok_or_else(|| anyhow!("could not resolve user data dir"))?;
+    Ok(base.join("app").join("sidecar.sock"))
 }
 
 async fn check_sidecar_health(socket: &Path) -> Result<HealthBody> {

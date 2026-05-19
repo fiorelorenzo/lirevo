@@ -122,34 +122,21 @@ fn build_overlay_window(app: &AppHandle) -> Result<(), AppError> {
         let _ = window.set_position(tauri::LogicalPosition::new(x, y));
     }
 
-    // macOS: raise above frontmost app windows + make sticky across spaces +
-    // pass clicks through to whatever is underneath. None of this is reachable
-    // from Tauri's portable API surface so we drop to objc2.
+    // Native window tweaks (float above frontmost apps, sticky across
+    // spaces, click-through) live in `os_integration::overlay`. The cfg
+    // here is only around obtaining the macOS NSWindow handle from Tauri,
+    // which is the platform-specific bit Tauri itself gates.
     #[cfg(target_os = "macos")]
     {
-        use objc2::msg_send;
         match window.ns_window() {
             Ok(ns_window) => {
-                tracing::info!(
-                    ptr = ?ns_window,
-                    "overlay: applying NSWindow level + collection behavior",
-                );
-                let ns_window = ns_window as *mut objc2::runtime::AnyObject;
-                unsafe {
-                    // NSStatusWindowLevel = 25 — above NSNormalWindowLevel (0)
-                    // and NSFloatingWindowLevel (3), below the screensaver/menu.
-                    // setLevel: takes NSInteger; on 64-bit macOS that's i64.
-                    let _: () = msg_send![ns_window, setLevel: 25_i64];
-                    // CanJoinAllSpaces (1) | Stationary (16) | IgnoresCycle (64).
-                    let _: () = msg_send![ns_window, setCollectionBehavior: 81_u64];
-                    // Clicks fall through to the app below.
-                    let _: () = msg_send![ns_window, setIgnoresMouseEvents: true];
-                    // Read it back so we can confirm in the logs whether the
-                    // setter actually stuck.
-                    let level: i64 = msg_send![ns_window, level];
-                    let behavior: u64 = msg_send![ns_window, collectionBehavior];
-                    let ignores: bool = msg_send![ns_window, ignoresMouseEvents];
-                    tracing::info!(level, behavior, ignores, "overlay: NSWindow attrs after set");
+                tracing::info!(ptr = ?ns_window, "overlay: applying NSWindow attrs");
+                // SAFETY: `ns_window` is a live `NSWindow *` returned by
+                // Tauri; it remains valid for the duration of this call.
+                if let Err(e) = unsafe {
+                    os_integration::overlay::apply_floating_click_through(ns_window)
+                } {
+                    tracing::warn!(?e, "overlay: apply_floating_click_through failed");
                 }
             }
             Err(e) => {

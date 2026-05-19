@@ -14,6 +14,7 @@ use once_cell::sync::Lazy;
 use tauri::{AppHandle, Emitter, Manager};
 
 use audio_capture::{Recorder, RecorderConfig};
+use os_integration::audio_cue::{self, CueKind};
 use os_integration::{Hotkey as OsHotkey, HotkeyEvent, HotkeyListener};
 
 use crate::settings::Hotkey;
@@ -121,7 +122,7 @@ fn handle_down(app: &AppHandle, state: &tauri::State<AppState>) {
     match result {
         Ok(recorder) => {
             tracing::info!("handle_down: recorder started");
-            play_cue(CueSound::Start);
+            audio_cue::play(CueKind::Start);
             // Forward audio levels (RMS, throttled to ~33 Hz inside the recorder)
             // to the shared watch channel + a Tauri event for the overlay.
             let mut level_rx = recorder.level_rx();
@@ -166,7 +167,7 @@ fn handle_up(app: &AppHandle, state: &tauri::State<AppState>) {
     let samples = match r.stop() {
         Ok(recording) => {
             tracing::info!(samples = recording.samples.len(), "handle_up: recording stopped");
-            play_cue(CueSound::Stop);
+            audio_cue::play(CueKind::Stop);
             recording.samples
         }
         Err(e) => {
@@ -211,32 +212,6 @@ fn hide_overlay_with_delay(app: &AppHandle) {
             let _ = w.hide();
         }
     });
-}
-
-#[derive(Clone, Copy)]
-enum CueSound {
-    Start,
-    Stop,
-}
-
-/// Fire-and-forget audio cue at start/stop of recording. macOS ships
-/// system sounds under `/System/Library/Sounds/`; we shell out to `afplay`
-/// (always present on macOS) to play them without bringing in a full audio
-/// playback crate. Non-blocking — we don't wait for completion.
-#[cfg(target_os = "macos")]
-fn play_cue(kind: CueSound) {
-    let path = match kind {
-        // Tink = soft confirmation click — the cleaner "ready to listen" cue.
-        CueSound::Start => "/System/Library/Sounds/Tink.aiff",
-        // Pop = thumpier, signals the act of release / commit.
-        CueSound::Stop => "/System/Library/Sounds/Pop.aiff",
-    };
-    let _ = std::process::Command::new("/usr/bin/afplay").arg(path).spawn();
-}
-
-#[cfg(not(target_os = "macos"))]
-fn play_cue(_kind: CueSound) {
-    // TODO: per-platform cue when we port beyond macOS.
 }
 
 /// Full STT → cleanup → inject pipeline.

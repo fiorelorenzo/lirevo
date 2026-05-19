@@ -1,5 +1,12 @@
-//! macOS OS integration for the dictation app: hotkey, text injection,
-//! accessibility permission helpers.
+//! OS integration for the dictation app: hotkey, text injection,
+//! accessibility / microphone permissions, and small native helpers
+//! (audio cue, overlay window tweaks).
+//!
+//! Today only macOS has real implementations; non-macOS targets get a
+//! stub module that returns `NotSupported` errors and `Denied`
+//! permission status so the workspace compiles everywhere. Adding a new
+//! platform means filling in a sibling module — consumer code keeps the
+//! same imports.
 
 #![warn(clippy::pedantic)]
 #![allow(clippy::missing_errors_doc, clippy::missing_panics_doc)]
@@ -30,4 +37,13 @@ pub mod clipboard {
 }
 
 #[cfg(not(target_os = "macos"))]
-compile_error!("os-integration currently supports macOS only");
+mod stub;
+#[cfg(not(target_os = "macos"))]
+pub use stub::{
+    check_accessibility, check_microphone, clipboard, dev_skip_perms, prompt_accessibility,
+    prompt_microphone, Hotkey, HotkeyError, HotkeyEvent, HotkeyListener, InjectError,
+    InjectionMethod, Injector, PermissionStatus,
+};
+
+pub mod audio_cue;
+pub mod overlay;
