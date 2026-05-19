@@ -28,7 +28,6 @@
     const path = page.url.pathname;
     if (path.startsWith('/settings')) return 'Settings';
     if (path.startsWith('/wizard')) return 'Setup';
-    if (path.startsWith('/model-manager')) return 'Model Manager';
     return '';
   });
 

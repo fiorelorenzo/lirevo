@@ -3,7 +3,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 export type Hotkey = 'right-option' | 'left-option' | 'right-command' | 'fn' | 'f5';
 export type PermissionStatus = 'granted' | 'denied' | 'not_determined';
-export type Route = 'home' | 'settings' | 'wizard' | 'model-manager';
+export type Route = 'home' | 'settings' | 'wizard';
 
 export interface Settings {
   whisperModelPath: string | null;
