@@ -47,6 +47,15 @@ pub struct RunArgs {
     /// on first run to fetch the ONNX model.
     #[arg(long, default_value_t = false)]
     pub embed: bool,
+    /// Comma-separated list of backend IDs for which `/no_think` should be
+    /// appended to the system prompt. Use for Qwen3 / Qwen3.5 hybrid models
+    /// that default to thinking-on and would otherwise emit
+    /// `<think>...</think>` blocks polluting the refiner output. Do NOT
+    /// include non-Qwen IDs here — Gemma / Llama don't understand the
+    /// directive and would treat it as literal text in their prompt.
+    /// Example: `--no-think-for qwen3-1.7b,qwen3.5-0.8b,qwen3.5-2b`.
+    #[arg(long, value_delimiter = ',')]
+    pub no_think_for: Vec<String>,
 }
 
 #[derive(clap::Args, Debug)]
