@@ -4,7 +4,7 @@ use clap::{Parser, Subcommand};
 #[command(
     name = "lda-eval",
     version,
-    about = "Refiner-stage model evaluation harness",
+    about = "Refiner-stage model evaluation harness"
 )]
 pub struct Cli {
     #[command(subcommand)]
