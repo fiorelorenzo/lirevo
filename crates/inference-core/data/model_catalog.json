@@ -1,5 +1,12 @@
 {
   "schemaVersion": 1,
+  "lastRun": {
+    "runId": "ts-1779281384",
+    "host": "macos-aarch64",
+    "corpusPath": "crates/lda-eval/data/corpus/v1-seed.jsonl",
+    "profilesPath": "crates/lda-eval/data/profiles/v1.toml",
+    "tsUnix": 1779281415
+  },
   "stt": [
     {
       "id": "ggml-large-v3-turbo",
@@ -43,6 +50,17 @@
       "filename": "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
       "url": "https://huggingface.co/lmstudio-community/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
       "sha256": "8cdb57cbb880d313736a9bc4e3d3d2485f145b5e19cf33783746e753e82641fc",
+      "scores": {
+        "quality": 100,
+        "latency": 0,
+        "ram": 100,
+        "compositeEqual": 66,
+        "compositeWeighted": 70,
+        "rawChrfMean": 0.7321224069824683,
+        "rawWarmP50Ms": 767,
+        "rawPeakRssKb": 1186656,
+        "nCells": 60
+      },
       "recommended": true
     },
     {
@@ -53,6 +71,17 @@
       "filename": "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
       "url": "https://huggingface.co/lmstudio-community/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf",
       "sha256": "e4f1a04d927b09ec18eb2f233d85ecd760fc2d35cec97e37f8604d3632210d9a",
+      "scores": {
+        "quality": 0,
+        "latency": 100,
+        "ram": 0,
+        "compositeEqual": 33,
+        "compositeWeighted": 30,
+        "rawChrfMean": 0.5308339703529805,
+        "rawWarmP50Ms": 556,
+        "rawPeakRssKb": 2378624,
+        "nCells": 60
+      },
       "recommended": false
     }
   ]

@@ -260,5 +260,5 @@ model_url = "https://huggingface.co/sentence-transformers/paraphrase-multilingua
 tokenizer_url = "https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/resolve/main/tokenizer.json"
 # Leave empty on first install. The first `lda-eval run --embed ...` invocation
 # logs the SHA-256 of each downloaded file; paste the values back here, commit.
-model_sha256 = ""
-tokenizer_sha256 = ""
+model_sha256 = "10f7a088420252b26caf819236ca2c9d2987afd0fc06fec7553b542a5655a05a"
+tokenizer_sha256 = "2c3387be76557bd40970cec13153b3bbf80407865484b209e655e5e4729076b8"
