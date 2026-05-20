@@ -23,8 +23,37 @@ static LOGGING_GUARD: std::sync::OnceLock<WorkerGuard> = std::sync::OnceLock::ne
 // runtime aborts (assertion failures, double-frees, panic=abort) still
 // surface in the crash reporter instead of being silently swallowed.
 #[cfg(target_os = "macos")]
-static LDA_EXIT_REQUESTED: std::sync::atomic::AtomicBool =
+pub(crate) static LDA_EXIT_REQUESTED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
+
+/// macOS-only: register a late `atexit` handler that flips `LDA_EXIT_REQUESTED`
+/// before `libc::exit`'s C++ destructor chain runs. Call this AFTER ggml-metal
+/// has been touched (i.e. after a whisper-rs / llama-cpp-2 load) so our
+/// handler is registered LATER than ggml's `__cxa_atexit` and therefore runs
+/// EARLIER in the LIFO finalize order. Idempotent in effect — multiple
+/// registrations just queue multiple no-op flag flips. Safe to call from
+/// every `load_models` invocation.
+#[cfg(target_os = "macos")]
+pub(crate) fn register_quit_safety_atexit() {
+    extern "C" fn flip_exit_flag() {
+        LDA_EXIT_REQUESTED.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+    unsafe extern "C" {
+        fn atexit(handler: extern "C" fn()) -> std::ffi::c_int;
+    }
+    // Return value is 0 on success, non-zero on the (extremely unlikely)
+    // failure to register. A failure here means we fall back to the
+    // existing RunEvent::ExitRequested path; logging it is enough.
+    let rc = unsafe { atexit(flip_exit_flag) };
+    if rc != 0 {
+        tracing::warn!(rc, "atexit registration for quit-safety handler failed");
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn register_quit_safety_atexit() {
+    // Non-macOS hosts don't have the ggml-metal teardown crash path.
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -106,6 +135,9 @@ pub fn run() {
 
             // Kick off model loading in the background. With no paths configured
             // this returns immediately after transitioning to ModelState::Idle.
+            // load_models itself calls `register_quit_safety_atexit` on completion
+            // so the macOS shutdown-abort short-circuit (see below) works for
+            // both the initial load and any subsequent reloads from Settings.
             let app_handle_for_load = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let state = app_handle_for_load.state::<AppState>();
@@ -123,19 +155,29 @@ pub fn run() {
             //             → GGML_ASSERT([rsets->data count] == 0)  // Metal still draining
             //               → ggml_abort → abort() → raise(SIGABRT)
             //
-            // We tried `atexit` first, but C++ statics register their own
-            // __cxa_atexit handlers when first initialized — ggml-metal
-            // initializes inside `load_models`, which is spawned as a
-            // background tokio task that runs AFTER setup. So our atexit
-            // (registered in setup) is registered BEFORE ggml-metal's, and
-            // LIFO ordering means ggml's handler fires first → crash.
-            //
             // CRITICAL: the handler only short-circuits to `_exit(0)` when
-            // `LDA_EXIT_REQUESTED` is set (flipped in the `RunEvent::
-            // ExitRequested` branch below). Outside the exit sequence we
-            // restore the default handler and re-raise, so real runtime
-            // aborts (panics, debug assertions, double-frees) still surface
-            // as crashes rather than being swallowed silently with exit 0.
+            // `LDA_EXIT_REQUESTED` is set. The flag flips in two places:
+            //   1. The `RunEvent::ExitRequested` branch below — covers Cmd+Q,
+            //      tray Quit, and any other path Tauri surfaces as an exit
+            //      event. We then call `_exit(0)` directly and never reach
+            //      `libc::exit` at all.
+            //   2. An `atexit` handler registered by `register_quit_safety_atexit`
+            //      from inside `load_models` AFTER ggml-metal has been
+            //      initialized. This covers the paths Tauri does NOT surface
+            //      as `ExitRequested` (notably Dock right-click → Quit on some
+            //      macOS versions), where `libc::exit` is reached without our
+            //      event handler firing. atexit handlers run in LIFO order
+            //      during `__cxa_finalize`; by registering AFTER ggml's
+            //      `__cxa_atexit` we guarantee our flag-flip runs BEFORE
+            //      ggml's destructor aborts. Registering this in `setup()`
+            //      directly would be the wrong order — ggml hasn't initialized
+            //      yet and our handler would be the OLDEST entry, running LAST
+            //      (i.e. after the abort, too late).
+            //
+            // Outside the exit sequence the handler restores the default and
+            // re-raises so real runtime aborts (panics, debug assertions,
+            // double-frees) still surface as crashes rather than being
+            // swallowed silently with exit 0.
             //
             // No conflict with tokio's signal handling — tokio uses
             // kqueue/signalfd, not the C `signal()` table.
