@@ -62,18 +62,33 @@ pub fn run() {
                 tracing::warn!(?e, "tray install failed");
             }
 
-            // Install hotkey listener. Fails when Accessibility permission
-            // is missing; the home page's `permissionsState` store polls
-            // AX status and calls `retry_hotkey_install` from its `$effect`
-            // when it flips to granted, so we don't surface a toast here
-            // (the persistent banner already covers the case visually).
+            // Install hotkey listener — but only when Accessibility is
+            // already granted. Calling `CGEventTapCreate` against an
+            // untrusted process triggers macOS' "this app would like to
+            // control your computer using accessibility features" dialog,
+            // and we don't want that to fire at app launch (before the
+            // wizard has even rendered the explanation + button). The
+            // wizard's accessibility step calls `prompt_accessibility`
+            // when the user clicks the grant button — that's the right
+            // moment for the dialog. After grant, the home page's
+            // `permissionsState` store polls AX status and calls
+            // `retry_hotkey_install` from its `$effect`, which performs
+            // the deferred install transparently.
             let hotkey = {
                 let state = app.state::<AppState>();
                 let inner = state.inner.lock().unwrap();
                 inner.settings.hotkey
             };
-            if let Err(e) = hotkey::install(app.handle().clone(), hotkey) {
-                tracing::warn!(?e, "hotkey install failed");
+            if os_integration::check_accessibility()
+                == os_integration::PermissionStatus::Granted
+            {
+                if let Err(e) = hotkey::install(app.handle().clone(), hotkey) {
+                    tracing::warn!(?e, "hotkey install failed");
+                }
+            } else {
+                tracing::info!(
+                    "hotkey install deferred: Accessibility not granted yet — wizard / home will retry after the user grants it"
+                );
             }
 
             // Open initial window: wizard if first-run, home otherwise.
