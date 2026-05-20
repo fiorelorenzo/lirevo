@@ -84,7 +84,13 @@
       "force_pasteboard": "Always use pasteboard",
       "force_pasteboard_helper": "Skip Accessibility text injection; paste via clipboard instead.",
       "paste_delay_ms": "Paste delay",
-      "launch_at_login": "Launch at login"
+      "launch_at_login": "Launch at login",
+      "launch_minimized": "Launch minimized",
+      "launch_minimized_helper": "Start without opening a window. The tray icon stays the only entry point until you click it. Combine with launch at login for a background-only experience.",
+      "stay_running_on_window_close": "Stay running on window close",
+      "stay_running_on_window_close_helper": "Hide the window instead of quitting when you close it. The hotkey keeps working; reopen from the tray.",
+      "keep_models_warm": "Keep models warm",
+      "keep_models_warm_helper": "Run a tiny warm-up inference after loading so the first dictation isn't delayed by Metal kernel compile + KV cache allocation."
     },
     "models": {
       "whisper_model": "Whisper model",

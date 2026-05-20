@@ -16,6 +16,9 @@ export interface Settings {
   forcePasteboard: boolean;
   pasteDelayMs: number;
   launchAtLogin: boolean;
+  launchMinimized: boolean;
+  stayRunningOnWindowClose: boolean;
+  keepModelsWarm: boolean;
   uiLanguage: string;
   onboardingComplete: boolean;
   appVersion: string;

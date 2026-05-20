@@ -121,9 +121,27 @@ pub fn run() {
             }
 
             // Open initial window: wizard if first-run, home otherwise.
-            let route = if onboarding_complete { "home" } else { "wizard" };
-            if let Err(e) = commands::windows::open_window_internal(app.handle(), route) {
-                tracing::warn!(?e, "open initial window failed (stub)");
+            // Exception: when `launch_minimized` is on AND onboarding is
+            // already complete, skip opening a window — the user opted into
+            // a background-only experience and the tray icon is the entry
+            // point. Wizard always opens regardless of the setting because
+            // hiding the wizard on first run would leave the user with no
+            // way to configure the app.
+            let launch_minimized = {
+                let state = app.state::<AppState>();
+                let inner = state.inner.lock().unwrap();
+                inner.settings.launch_minimized
+            };
+            let should_open_window = !(onboarding_complete && launch_minimized);
+            if should_open_window {
+                let route = if onboarding_complete { "home" } else { "wizard" };
+                if let Err(e) = commands::windows::open_window_internal(app.handle(), route) {
+                    tracing::warn!(?e, "open initial window failed (stub)");
+                }
+            } else {
+                tracing::info!(
+                    "launch_minimized: skipping initial window — tray icon is the only entry point"
+                );
             }
 
             // Always create the recording overlay up-front so it's ready to
@@ -254,7 +272,32 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|_app, event| {
+        .run(|app, event| {
+            // Intercept window close: when `stay_running_on_window_close` is
+            // on (default), hide the window instead of letting Tauri destroy
+            // it. Lets the user re-open instantly from the tray without
+            // re-creating the webview. Skipped for the overlay (which has
+            // its own show/hide lifecycle driven by recording state).
+            if let tauri::RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::CloseRequested { api, .. },
+                ..
+            } = &event
+            {
+                if label != "overlay" {
+                    let stay_running = app
+                        .try_state::<AppState>()
+                        .map(|s| s.inner.lock().unwrap().settings.stay_running_on_window_close)
+                        .unwrap_or(true);
+                    if stay_running {
+                        api.prevent_close();
+                        if let Some(w) = app.get_webview_window(label) {
+                            let _ = w.hide();
+                        }
+                        return;
+                    }
+                }
+            }
             // Flip the macOS shutdown flag so the SIGABRT handler installed
             // in setup() converts ggml-metal's teardown abort into
             // `_exit(0)`. Outside this branch the handler re-raises with

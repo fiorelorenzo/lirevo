@@ -270,10 +270,48 @@
           </h2>
           <div class="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden">
             <div class="p-4 flex items-center justify-between gap-4">
-              <Label>{t('settings.general.launch_at_login')}</Label>
+              <div class="min-w-0">
+                <Label>{t('settings.general.launch_at_login')}</Label>
+              </div>
               <Switch
                 checked={$settings.launchAtLogin}
                 onCheckedChange={(v) => updateSettings({ launchAtLogin: v })}
+              />
+            </div>
+            <div class="p-4 flex items-center justify-between gap-4">
+              <div class="min-w-0">
+                <Label>{t('settings.general.launch_minimized')}</Label>
+                <p class="text-xs text-muted-foreground mt-1">
+                  {t('settings.general.launch_minimized_helper')}
+                </p>
+              </div>
+              <Switch
+                checked={$settings.launchMinimized}
+                onCheckedChange={(v) => updateSettings({ launchMinimized: v })}
+              />
+            </div>
+            <div class="p-4 flex items-center justify-between gap-4">
+              <div class="min-w-0">
+                <Label>{t('settings.general.stay_running_on_window_close')}</Label>
+                <p class="text-xs text-muted-foreground mt-1">
+                  {t('settings.general.stay_running_on_window_close_helper')}
+                </p>
+              </div>
+              <Switch
+                checked={$settings.stayRunningOnWindowClose}
+                onCheckedChange={(v) => updateSettings({ stayRunningOnWindowClose: v })}
+              />
+            </div>
+            <div class="p-4 flex items-center justify-between gap-4">
+              <div class="min-w-0">
+                <Label>{t('settings.general.keep_models_warm')}</Label>
+                <p class="text-xs text-muted-foreground mt-1">
+                  {t('settings.general.keep_models_warm_helper')}
+                </p>
+              </div>
+              <Switch
+                checked={$settings.keepModelsWarm}
+                onCheckedChange={(v) => updateSettings({ keepModelsWarm: v })}
               />
             </div>
           </div>
