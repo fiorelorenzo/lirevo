@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "stt": [
+    {
+      "id": "ggml-large-v3-turbo",
+      "displayName": "Whisper large-v3-turbo",
+      "description": "Best balance · CoreML supported",
+      "sizeBytes": 1624555275,
+      "filename": "ggml-large-v3-turbo.bin",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
+      "sha256": "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69",
+      "coremlEncoder": {
+        "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-encoder.mlmodelc.zip",
+        "filename": "ggml-large-v3-turbo-encoder.mlmodelc.zip",
+        "sha256": "84bedfe895bd7b5de6e8e89a0803dfc5addf8c0c5bc4c937451716bf7cf7988a"
+      }
+    },
+    {
+      "id": "ggml-distil-large-v3",
+      "displayName": "Whisper distil-large-v3",
+      "description": "Faster, similar quality (~1.5 GB, multilingual)",
+      "sizeBytes": 1519521155,
+      "filename": "ggml-distil-large-v3.bin",
+      "url": "https://huggingface.co/distil-whisper/distil-large-v3-ggml/resolve/main/ggml-distil-large-v3.bin",
+      "sha256": "2883a11b90fb10ed592d826edeaee7d2929bf1ab985109fe9e1e7b4d2b69a298"
+    },
+    {
+      "id": "ggml-small-en",
+      "displayName": "Whisper small.en",
+      "description": "English only, very fast (~490 MB)",
+      "sizeBytes": 487614201,
+      "filename": "ggml-small.en.bin",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin",
+      "sha256": "c6138d6d58ecc8322097e0f987c32f1be8bb0a18532a3f88f734d1bbf9c41e5d"
+    }
+  ],
+  "llm": [
+    {
+      "id": "qwen3-4b-instruct-2507-q4",
+      "displayName": "Qwen3 4B Instruct 2507 (Q4_K_M)",
+      "description": "Recommended default. Multilingual, non-thinking.",
+      "sizeBytes": 2497280448,
+      "filename": "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+      "url": "https://huggingface.co/lmstudio-community/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+      "sha256": "8cdb57cbb880d313736a9bc4e3d3d2485f145b5e19cf33783746e753e82641fc",
+      "recommended": true
+    },
+    {
+      "id": "llama-3.2-3b-instruct-q4",
+      "displayName": "Llama 3.2 3B Instruct (Q4_K_M)",
+      "description": "Meta alternative, ~2 GB.",
+      "sizeBytes": 2019377440,
+      "filename": "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+      "url": "https://huggingface.co/lmstudio-community/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+      "sha256": "e4f1a04d927b09ec18eb2f233d85ecd760fc2d35cec97e37f8604d3632210d9a",
+      "recommended": false
+    }
+  ]
+}

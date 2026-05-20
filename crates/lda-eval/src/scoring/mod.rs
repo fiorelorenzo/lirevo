@@ -2,6 +2,7 @@
 
 pub mod assertions;
 pub mod chrf;
+pub mod composite;
 pub mod embedding;
 pub mod length;
 

@@ -62,6 +62,8 @@ pub fn render(data: &ReportData) -> String {
             id = desc.id,
         );
     }
+    render_scores_section(&mut s, data);
+
     let _ = writeln!(s);
     let _ = writeln!(s, "## Worst 10 cases by chrF (per backend)");
     for desc in &data.backends {
@@ -96,6 +98,50 @@ pub fn render(data: &ReportData) -> String {
         }
     }
     s
+}
+
+fn render_scores_section(s: &mut String, data: &ReportData) {
+    if data.model_scores.is_empty() {
+        return;
+    }
+    let _ = writeln!(s);
+    let _ = writeln!(s, "## Scores (0-100, higher is better)");
+    let _ = writeln!(
+        s,
+        "| backend | quality | latency | RAM | composite (equal) | composite (weighted) |"
+    );
+    let _ = writeln!(s, "|---|---|---|---|---|---|");
+    let by_id: std::collections::HashMap<&str, &crate::scoring::composite::ModelScore> = data
+        .model_scores
+        .iter()
+        .map(|m| (m.backend_id.as_str(), m))
+        .collect();
+    // Determine the weighted-composite winner so we can flag it inline.
+    let winner_id = data
+        .model_scores
+        .iter()
+        .max_by_key(|m| m.composite_weighted)
+        .map(|m| m.backend_id.as_str());
+    for desc in &data.backends {
+        let Some(ms) = by_id.get(desc.id.as_str()) else {
+            continue;
+        };
+        let star = if Some(desc.id.as_str()) == winner_id {
+            " ⭐"
+        } else {
+            ""
+        };
+        let _ = writeln!(
+            s,
+            "| {id}{star} | {q} | {l} | {r} | {ce} | {cw} |",
+            id = desc.id,
+            q = ms.quality_score,
+            l = ms.latency_score,
+            r = ms.ram_score,
+            ce = ms.composite_equal,
+            cw = ms.composite_weighted,
+        );
+    }
 }
 
 fn avg_opt<I>(it: I) -> Option<f64>
@@ -191,6 +237,7 @@ mod tests {
                 }),
                 peak_rss_kb: Some(720 * 1024),
             }],
+            model_scores: Vec::new(),
         }
     }
 

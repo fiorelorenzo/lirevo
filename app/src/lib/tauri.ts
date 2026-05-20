@@ -28,6 +28,21 @@ export type ModelState =
   | { kind: 'reloading'; reason: string }
   | { kind: 'error'; reason: string };
 
+export interface ModelScores {
+  /** 0-100, higher is better. */
+  quality: number;
+  latency: number;
+  ram: number;
+  /** Unweighted mean of the three axes. */
+  compositeEqual: number;
+  /** 0.5·quality + 0.3·latency + 0.2·ram. UI default. */
+  compositeWeighted: number;
+  rawChrfMean: number;
+  rawWarmP50Ms?: number;
+  rawPeakRssKb?: number;
+  nCells: number;
+}
+
 export interface CatalogEntry {
   id: string;
   kind: 'stt' | 'llm';
@@ -35,6 +50,10 @@ export interface CatalogEntry {
   description: string;
   sizeBytes: number;
   filename: string;
+  /** Bake-off scores. Always undefined for STT entries. */
+  scores?: ModelScores;
+  /** Marked by `lda-eval bless` on the weighted-composite winner. */
+  recommended: boolean;
 }
 
 export interface LocalModel {

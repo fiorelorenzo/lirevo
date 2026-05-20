@@ -294,7 +294,15 @@
               </h2>
 
               <div class="space-y-2">
-                {#each catalog.filter((c) => c.kind === kind) as entry (entry.id)}
+                {#each catalog
+                  .filter((c) => c.kind === kind)
+                  .toSorted((a, b) => {
+                    if (a.recommended !== b.recommended) return a.recommended ? -1 : 1;
+                    const sa = a.scores?.compositeWeighted ?? -1;
+                    const sb = b.scores?.compositeWeighted ?? -1;
+                    if (sa !== sb) return sb - sa;
+                    return b.sizeBytes - a.sizeBytes;
+                  }) as entry (entry.id)}
                   <ModelCard
                     {entry}
                     installed={installed(entry.id)}

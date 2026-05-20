@@ -12,6 +12,7 @@
 
 pub mod audio;
 pub mod backend;
+pub mod catalog;
 pub mod llama;
 pub mod server;
 pub mod stub;

@@ -103,6 +103,7 @@ pub async fn run(args: RunArgs) -> Result<()> {
         backends: descriptors,
         judge: None,
         outcomes,
+        model_scores: Vec::new(),
     };
 
     write_pair(&report, &args.out).context("write report")?;

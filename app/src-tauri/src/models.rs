@@ -1,22 +1,37 @@
 use std::path::PathBuf;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use serde::Serialize;
 use tokio::sync::oneshot;
 
-#[derive(Clone, Copy, Debug, Serialize)]
+use inference_core::catalog as ic_catalog;
+use inference_core::catalog::{Catalog as IcCatalog, LlmEntry as IcLlm, SttEntry as IcStt};
+
+/// Wire shape exposed to the frontend. Mirrors the JSON catalog in
+/// `inference-core/data/model_catalog.json`, flattened so the frontend can
+/// treat STT and LLM models uniformly.
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogEntry {
-    pub id: &'static str,
+    pub id: String,
     pub kind: ModelKind,
-    pub display_name: &'static str,
-    pub description: &'static str,
+    pub display_name: String,
+    pub description: String,
     pub size_bytes: u64,
-    pub filename: &'static str,
-    pub url: &'static str,
-    pub sha256: Option<&'static str>,
-    pub coreml_encoder_url: Option<&'static str>,
-    pub coreml_encoder_filename: Option<&'static str>,
+    pub filename: String,
+    pub url: String,
+    pub sha256: Option<String>,
+    pub coreml_encoder_url: Option<String>,
+    pub coreml_encoder_filename: Option<String>,
+    /// SHA-256 of the CoreML encoder zip, when known. The download path uses
+    /// this to verify the zip before extracting.
+    pub coreml_encoder_sha256: Option<String>,
+    /// Bake-off scores for LLMs. `None` for STT entries and for LLMs that
+    /// have not been blessed yet.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scores: Option<ic_catalog::ModelScores>,
+    /// Marked by `lda-eval bless` on the weighted-composite winner.
+    pub recommended: bool,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
@@ -54,79 +69,68 @@ pub struct DownloadProgress {
     pub error_message: Option<String>,
 }
 
-// SHA256 hashes are the git-LFS object IDs from the Hugging Face repo
-// metadata at the time the catalog was last refreshed. If HF re-uploads a
-// file, these need to be updated — `download_inner` rejects mismatches.
-pub const CATALOG: &[CatalogEntry] = &[
-    CatalogEntry {
-        id: "ggml-large-v3-turbo",
-        kind: ModelKind::Stt,
-        display_name: "Whisper large-v3-turbo",
-        description: "Best balance · CoreML supported",
-        size_bytes: 1_624_555_275,
-        filename: "ggml-large-v3-turbo.bin",
-        url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
-        sha256: Some("1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69"),
-        coreml_encoder_url: Some("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-encoder.mlmodelc.zip"),
-        coreml_encoder_filename: Some("ggml-large-v3-turbo-encoder.mlmodelc.zip"),
-    },
-    CatalogEntry {
-        id: "ggml-distil-large-v3",
-        kind: ModelKind::Stt,
-        display_name: "Whisper distil-large-v3",
-        description: "Faster, similar quality (~1.5 GB, multilingual)",
-        size_bytes: 1_519_521_155,
-        filename: "ggml-distil-large-v3.bin",
-        url: "https://huggingface.co/distil-whisper/distil-large-v3-ggml/resolve/main/ggml-distil-large-v3.bin",
-        sha256: Some("2883a11b90fb10ed592d826edeaee7d2929bf1ab985109fe9e1e7b4d2b69a298"),
-        coreml_encoder_url: None,
-        coreml_encoder_filename: None,
-    },
-    CatalogEntry {
-        id: "ggml-small-en",
-        kind: ModelKind::Stt,
-        display_name: "Whisper small.en",
-        description: "English only, very fast (~490 MB)",
-        size_bytes: 487_614_201,
-        filename: "ggml-small.en.bin",
-        url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin",
-        sha256: Some("c6138d6d58ecc8322097e0f987c32f1be8bb0a18532a3f88f734d1bbf9c41e5d"),
-        coreml_encoder_url: None,
-        coreml_encoder_filename: None,
-    },
-    CatalogEntry {
-        id: "qwen3-4b-instruct-2507-q4",
-        kind: ModelKind::Llm,
-        display_name: "Qwen3 4B Instruct 2507 (Q4_K_M)",
-        description: "Recommended default. Multilingual, non-thinking.",
-        size_bytes: 2_497_280_448,
-        filename: "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
-        url: "https://huggingface.co/lmstudio-community/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
-        sha256: Some("8cdb57cbb880d313736a9bc4e3d3d2485f145b5e19cf33783746e753e82641fc"),
-        coreml_encoder_url: None,
-        coreml_encoder_filename: None,
-    },
-    CatalogEntry {
-        id: "llama-3.2-3b-instruct-q4",
-        kind: ModelKind::Llm,
-        display_name: "Llama 3.2 3B Instruct (Q4_K_M)",
-        description: "Meta alternative, ~2 GB.",
-        size_bytes: 2_019_377_440,
-        filename: "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
-        url: "https://huggingface.co/lmstudio-community/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf",
-        sha256: Some("e4f1a04d927b09ec18eb2f233d85ecd760fc2d35cec97e37f8604d3632210d9a"),
-        coreml_encoder_url: None,
-        coreml_encoder_filename: None,
-    },
-];
+fn raw_catalog() -> &'static IcCatalog {
+    static CATALOG: OnceLock<IcCatalog> = OnceLock::new();
+    CATALOG.get_or_init(ic_catalog::load_embedded)
+}
 
-/// CoreML encoder zip SHA256s, keyed by `coreml_encoder_filename`. Kept here
-/// instead of on CatalogEntry to avoid bloating the struct with an Optional
-/// second hash that only Whisper-CoreML entries use.
-pub const COREML_ZIP_SHA256: &[(&str, &str)] = &[
-    ("ggml-large-v3-turbo-encoder.mlmodelc.zip",
-     "84bedfe895bd7b5de6e8e89a0803dfc5addf8c0c5bc4c937451716bf7cf7988a"),
-];
+fn stt_to_wire(e: &IcStt) -> CatalogEntry {
+    let (url, filename, sha) = match &e.coreml_encoder {
+        Some(c) => (Some(c.url.clone()), Some(c.filename.clone()), c.sha256.clone()),
+        None => (None, None, None),
+    };
+    CatalogEntry {
+        id: e.id.clone(),
+        kind: ModelKind::Stt,
+        display_name: e.display_name.clone(),
+        description: e.description.clone(),
+        size_bytes: e.size_bytes,
+        filename: e.filename.clone(),
+        url: e.url.clone(),
+        sha256: e.sha256.clone(),
+        coreml_encoder_url: url,
+        coreml_encoder_filename: filename,
+        coreml_encoder_sha256: sha,
+        scores: None,
+        recommended: false,
+    }
+}
+
+fn llm_to_wire(e: &IcLlm) -> CatalogEntry {
+    CatalogEntry {
+        id: e.id.clone(),
+        kind: ModelKind::Llm,
+        display_name: e.display_name.clone(),
+        description: e.description.clone(),
+        size_bytes: e.size_bytes,
+        filename: e.filename.clone(),
+        url: e.url.clone(),
+        sha256: e.sha256.clone(),
+        coreml_encoder_url: None,
+        coreml_encoder_filename: None,
+        coreml_encoder_sha256: None,
+        scores: e.scores,
+        recommended: e.recommended,
+    }
+}
+
+/// Flattened catalog used by the frontend (STT first, then LLM).
+#[must_use]
+pub fn catalog() -> Vec<CatalogEntry> {
+    let c = raw_catalog();
+    let mut out = Vec::with_capacity(c.stt.len() + c.llm.len());
+    out.extend(c.stt.iter().map(stt_to_wire));
+    out.extend(c.llm.iter().map(llm_to_wire));
+    out
+}
+
+fn find_by_id(id: &str) -> Option<CatalogEntry> {
+    catalog().into_iter().find(|c| c.id == id)
+}
+
+fn find_by_filename(name: &str) -> Option<CatalogEntry> {
+    catalog().into_iter().find(|c| c.filename == name)
+}
 
 pub fn models_dir(app: &tauri::AppHandle) -> std::io::Result<PathBuf> {
     use tauri::Manager;
@@ -157,13 +161,13 @@ pub fn list_local(app: &tauri::AppHandle) -> std::io::Result<Vec<LocalModel>> {
             None
         };
         let Some(ext_kind) = kind_from_ext else { continue; };
-        let catalog = CATALOG.iter().find(|c| c.filename == name);
+        let catalog_hit = find_by_filename(&name);
         out.push(LocalModel {
-            id: catalog.map(|c| c.id.to_string()).unwrap_or_else(|| format!("custom:{name}")),
-            kind: catalog.map(|c| c.kind).unwrap_or(ext_kind),
+            id: catalog_hit.as_ref().map(|c| c.id.clone()).unwrap_or_else(|| format!("custom:{name}")),
+            kind: catalog_hit.as_ref().map(|c| c.kind).unwrap_or(ext_kind),
             path,
             size_bytes: meta.len(),
-            in_catalog: catalog.is_some(),
+            in_catalog: catalog_hit.is_some(),
         });
     }
     Ok(out)
@@ -239,7 +243,7 @@ pub async fn download(
     use tauri::Emitter;
     use crate::AppError;
 
-    let entry = CATALOG.iter().find(|c| c.id == id)
+    let entry = find_by_id(&id)
         .ok_or_else(|| AppError::Download(format!("unknown model id: {id}")))?;
 
     let (cancel_tx, mut cancel_rx) = oneshot::channel::<()>();
@@ -260,7 +264,7 @@ pub async fn download(
         error_message: None,
     });
 
-    let result = download_inner(&app, entry, &mut cancel_rx).await;
+    let result = download_inner(&app, &entry, &mut cancel_rx).await;
 
     {
         let mut g = ACTIVE_DOWNLOADS.lock().unwrap();
@@ -308,14 +312,14 @@ async fn download_inner(
 ) -> Result<(), DownloadError> {
     use tauri::Emitter;
     let models_dir = models_dir(app).map_err(|e| DownloadError::Failed(e.to_string()))?;
-    let dest = models_dir.join(entry.filename);
+    let dest = models_dir.join(&entry.filename);
     let tmp = dest.with_extension(format!(
         "{}.partial",
         dest.extension().and_then(|e| e.to_str()).unwrap_or("")
     ));
 
     let client = reqwest::Client::new();
-    let resp = client.get(entry.url).send().await
+    let resp = client.get(&entry.url).send().await
         .map_err(|e| DownloadError::Failed(format!("http: {e}")))?;
     if !resp.status().is_success() {
         return Err(DownloadError::Failed(format!("HTTP {}", resp.status())));
@@ -344,7 +348,7 @@ async fn download_inner(
         if last_emit.elapsed() >= std::time::Duration::from_millis(100) {
             last_emit = std::time::Instant::now();
             let _ = app.emit("download:progress", DownloadProgress {
-                id: entry.id.to_string(),
+                id: entry.id.clone(),
                 state: DownloadProgressState::Downloading,
                 bytes_received: received,
                 bytes_total: total,
@@ -355,7 +359,7 @@ async fn download_inner(
     // Always emit a final downloading event so the UI shows 100% before
     // transitioning to Complete (avoids a visual "snap" at the end).
     let _ = app.emit("download:progress", DownloadProgress {
-        id: entry.id.to_string(),
+        id: entry.id.clone(),
         state: DownloadProgressState::Downloading,
         bytes_received: received,
         bytes_total: total,
@@ -367,9 +371,9 @@ async fn download_inner(
     tokio::fs::rename(&tmp, &dest).await
         .map_err(|e| DownloadError::Failed(format!("rename: {e}")))?;
 
-    if let Some(expected) = entry.sha256 {
+    if let Some(expected) = &entry.sha256 {
         let _ = app.emit("download:progress", DownloadProgress {
-            id: entry.id.to_string(),
+            id: entry.id.clone(),
             state: DownloadProgressState::Verifying,
             bytes_received: received,
             bytes_total: total,
@@ -396,8 +400,8 @@ pub(crate) async fn download_and_extract_coreml(
     cancel_rx: &mut oneshot::Receiver<()>,
 ) -> Result<(), DownloadError> {
     use tauri::Emitter;
-    let Some(url) = entry.coreml_encoder_url else { return Ok(()); };
-    let Some(filename) = entry.coreml_encoder_filename else { return Ok(()); };
+    let Some(url) = entry.coreml_encoder_url.as_deref() else { return Ok(()); };
+    let Some(filename) = entry.coreml_encoder_filename.as_deref() else { return Ok(()); };
     let models_dir = models_dir(app).map_err(|e| DownloadError::Failed(e.to_string()))?;
     let zip_path = models_dir.join(filename);
     let tmp = zip_path.with_extension("zip.partial");
@@ -463,11 +467,7 @@ pub(crate) async fn download_and_extract_coreml(
         bytes_total: received,
         error_message: None,
     });
-    if let Some(expected) = COREML_ZIP_SHA256
-        .iter()
-        .find(|(name, _)| *name == filename)
-        .map(|(_, hash)| *hash)
-    {
+    if let Some(expected) = entry.coreml_encoder_sha256.as_deref() {
         if let Err(e) = verify_sha256(&zip_path, expected).await {
             let _ = tokio::fs::remove_file(&zip_path).await;
             return Err(e);
@@ -571,8 +571,9 @@ mod tests {
 
     #[test]
     fn catalog_has_3_stt_and_2_llm() {
-        let stt = CATALOG.iter().filter(|c| c.kind == ModelKind::Stt).count();
-        let llm = CATALOG.iter().filter(|c| c.kind == ModelKind::Llm).count();
+        let c = catalog();
+        let stt = c.iter().filter(|c| c.kind == ModelKind::Stt).count();
+        let llm = c.iter().filter(|c| c.kind == ModelKind::Llm).count();
         assert_eq!(stt, 3);
         assert_eq!(llm, 2);
     }
@@ -580,14 +581,14 @@ mod tests {
     #[test]
     fn catalog_ids_unique() {
         let mut seen = std::collections::HashSet::new();
-        for c in CATALOG {
-            assert!(seen.insert(c.id), "duplicate id: {}", c.id);
+        for c in catalog() {
+            assert!(seen.insert(c.id.clone()), "duplicate id: {}", c.id);
         }
     }
 
     #[test]
     fn catalog_filenames_match_kind_ext() {
-        for c in CATALOG {
+        for c in catalog() {
             match c.kind {
                 ModelKind::Stt => assert!(c.filename.ends_with(".bin"), "{}", c.filename),
                 ModelKind::Llm => assert!(c.filename.ends_with(".gguf"), "{}", c.filename),
@@ -597,8 +598,14 @@ mod tests {
 
     #[test]
     fn coreml_encoder_paired() {
-        for c in CATALOG {
+        for c in catalog() {
             assert_eq!(c.coreml_encoder_url.is_some(), c.coreml_encoder_filename.is_some());
         }
+    }
+
+    #[test]
+    fn at_most_one_recommended_llm() {
+        let n = catalog().iter().filter(|c| c.recommended).count();
+        assert!(n <= 1, "expected ≤1 recommended entry, got {n}");
     }
 }

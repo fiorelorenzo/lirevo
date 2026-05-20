@@ -77,7 +77,17 @@
           {kind === 'stt' ? t('wizard.models.stt_section') : t('wizard.models.llm_section')}
         </h2>
         <div class="space-y-2">
-          {#each catalog.filter((c) => c.kind === kind) as entry (entry.id)}
+          {#each catalog
+            .filter((c) => c.kind === kind)
+            .toSorted((a, b) => {
+              // Recommended first, then highest composite score; size desc as
+              // a stable tiebreaker so order doesn't flicker pre-bake-off.
+              if (a.recommended !== b.recommended) return a.recommended ? -1 : 1;
+              const sa = a.scores?.compositeWeighted ?? -1;
+              const sb = b.scores?.compositeWeighted ?? -1;
+              if (sa !== sb) return sb - sa;
+              return b.sizeBytes - a.sizeBytes;
+            }) as entry (entry.id)}
             <ModelCard
               {entry}
               installed={installed(entry.id)}
