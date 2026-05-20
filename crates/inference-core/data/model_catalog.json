@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
   "lastRun": {
-    "runId": "ts-1779281384",
+    "runId": "ts-1779286074",
     "host": "macos-aarch64",
     "corpusPath": "crates/lda-eval/data/corpus/v1-seed.jsonl",
     "profilesPath": "crates/lda-eval/data/profiles/v1.toml",
-    "tsUnix": 1779281415
+    "tsUnix": 1779286152
   },
   "stt": [
     {
@@ -53,12 +53,12 @@
       "scores": {
         "quality": 100,
         "latency": 0,
-        "ram": 100,
-        "compositeEqual": 66,
-        "compositeWeighted": 70,
+        "ram": 0,
+        "compositeEqual": 33,
+        "compositeWeighted": 50,
         "rawChrfMean": 0.7321224069824683,
-        "rawWarmP50Ms": 767,
-        "rawPeakRssKb": 1186656,
+        "rawWarmP50Ms": 1655,
+        "rawPeakRssKb": 2343632,
         "nCells": 60
       },
       "recommended": true
@@ -74,12 +74,12 @@
       "scores": {
         "quality": 0,
         "latency": 100,
-        "ram": 0,
-        "compositeEqual": 33,
-        "compositeWeighted": 30,
+        "ram": 100,
+        "compositeEqual": 66,
+        "compositeWeighted": 50,
         "rawChrfMean": 0.5308339703529805,
-        "rawWarmP50Ms": 556,
-        "rawPeakRssKb": 2378624,
+        "rawWarmP50Ms": 817,
+        "rawPeakRssKb": 2335152,
         "nCells": 60
       },
       "recommended": false

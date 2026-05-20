@@ -22,6 +22,7 @@ fn main() -> anyhow::Result<()> {
             Command::GenCorpus(args) => lda_eval::cli::gen_corpus::run(args).await,
             Command::Judge(args) => lda_eval::cli::judge::run(args).await,
             Command::Bless(args) => lda_eval::cli::bless::run(&args),
+            Command::BakeCell => lda_eval::cli::bake_cell::run().await,
         }
     })
 }

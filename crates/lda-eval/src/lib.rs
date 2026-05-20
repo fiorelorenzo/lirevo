@@ -10,3 +10,4 @@ pub mod probes;
 pub mod profiles;
 pub mod report;
 pub mod scoring;
+pub mod util;

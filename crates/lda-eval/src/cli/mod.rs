@@ -1,3 +1,4 @@
+pub mod bake_cell;
 pub mod bless;
 pub mod gen_corpus;
 pub mod judge;
@@ -26,6 +27,11 @@ pub enum Command {
     Judge(JudgeArgs),
     /// Promote scores from a report JSON into the committed model catalog.
     Bless(BlessArgs),
+    /// Internal: subprocess worker spawned by `run` to isolate per-backend
+    /// RSS measurements. Hidden from `--help`; reads a JSON request from
+    /// stdin and writes a JSON response to stdout.
+    #[command(hide = true)]
+    BakeCell,
 }
 
 #[derive(clap::Args, Debug)]

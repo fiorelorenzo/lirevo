@@ -220,6 +220,30 @@ mod tests {
     }
 
     #[test]
+    fn tie_on_weighted_breaks_to_higher_quality() {
+        // The composite_weighted weights (0.5/0.3/0.2) can land both
+        // backends on 50 when one wins quality and the other wins
+        // latency+ram. In that case the user-visible default should follow
+        // quality — the most heavily weighted axis. Regression test for
+        // the case that bit us in production with the 2026-05-20 iso run.
+        let mut c = Catalog {
+            schema_version: 1,
+            last_run: None,
+            stt: vec![],
+            llm: vec![llm_entry("quality_wins", false), llm_entry("speed_wins", false)],
+        };
+        let scores = vec![
+            score("quality_wins", 100, 0, 0, 50),
+            score("speed_wins", 0, 100, 100, 50),
+        ];
+        apply_scores(&mut c, &scores, &empty_report()).unwrap();
+        let q = c.llm.iter().find(|e| e.id == "quality_wins").unwrap();
+        let s = c.llm.iter().find(|e| e.id == "speed_wins").unwrap();
+        assert!(q.recommended, "quality_wins should get the badge on tie");
+        assert!(!s.recommended);
+    }
+
+    #[test]
     fn unknown_backend_id_errors_with_hint() {
         let mut c = Catalog {
             schema_version: 1,
