@@ -29,14 +29,21 @@
     $modelState.kind === 'ready' && ($modelState as any).whisper === true
   );
 
-  // When Accessibility flips to granted, try to (re)install the hotkey
+  // When Accessibility is observed granted, try to (re)install the hotkey
   // listener. The listener bypasses the cached AXIsProcessTrusted check
-  // and probes CGEventTapCreate directly, so it picks up the fresh grant
+  // and probes CGEventTapCreate directly, so it picks up a fresh grant
   // without needing an app restart.
+  //
+  // Fires on first observation if already granted (because the backend may
+  // have skipped the at-launch install: it now defers when AX is missing,
+  // so the first-run grant-via-wizard flow needs the home page to drive
+  // the install). Steady-state granted does not fire — only the transition
+  // INTO granted (which includes the null → granted "first observation").
+  // The backend's reinstall is idempotent so a redundant fire is safe.
   let lastAccessibility: typeof $permissionsState.accessibility = null;
   $effect(() => {
     const current = $permissionsState.accessibility;
-    if (lastAccessibility !== null && lastAccessibility !== 'granted' && current === 'granted') {
+    if (lastAccessibility !== 'granted' && current === 'granted') {
       void lda.retryHotkeyInstall().catch((e) => console.warn('retryHotkeyInstall', e));
     }
     lastAccessibility = current;
