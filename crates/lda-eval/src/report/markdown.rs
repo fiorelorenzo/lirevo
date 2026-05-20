@@ -116,34 +116,27 @@ fn render_scores_section(s: &mut String, data: &ReportData) {
         .iter()
         .map(|m| (m.backend_id.as_str(), m))
         .collect();
-    // Determine the weighted-composite winner so we can flag it inline.
-    // Mirrors the tiebreaker used by `lda-eval bless` so the star and the
-    // catalog's `recommended` flag never disagree: composite_weighted, then
-    // quality, then backend_id (descending so the comparator's max picks
-    // ascending alphabetic on ties).
-    let winner_id = data
-        .model_scores
-        .iter()
-        .max_by(|a, b| {
-            a.composite_weighted
-                .cmp(&b.composite_weighted)
-                .then(a.quality_score.cmp(&b.quality_score))
-                .then(b.backend_id.cmp(&a.backend_id))
-        })
+    // Winner shares the helper with `lda-eval bless` — same tiebreaker,
+    // same quality floor — so the ⭐ and the catalog's `recommended`
+    // flag never disagree.
+    let winner_id = crate::scoring::composite::pick_winner(&data.model_scores)
         .map(|m| m.backend_id.as_str());
     for desc in &data.backends {
         let Some(ms) = by_id.get(desc.id.as_str()) else {
             continue;
         };
-        let star = if Some(desc.id.as_str()) == winner_id {
-            " ⭐"
+        // Winner row is bolded and tagged "(recommended)" in plain text — no
+        // emoji per project convention. The trailing-text marker also makes
+        // the row easy to grep / diff in CI.
+        let is_winner = Some(desc.id.as_str()) == winner_id;
+        let label = if is_winner {
+            format!("**{}** (recommended)", desc.id)
         } else {
-            ""
+            desc.id.clone()
         };
         let _ = writeln!(
             s,
-            "| {id}{star} | {q} | {l} | {r} | {ce} | {cw} |",
-            id = desc.id,
+            "| {label} | {q} | {l} | {r} | {ce} | {cw} |",
             q = ms.quality_score,
             l = ms.latency_score,
             r = ms.ram_score,
@@ -312,19 +305,90 @@ mod tests {
             },
         ];
         let md = render(&data);
-        // Star annotated only on quality_wins row, never on speed_wins row.
+        // Winner row in the scores table is the one tagged "(recommended)".
         // Match the table row specifically (starts with `|`, not the backend
-        // descriptor list at the top of the report).
+        // descriptor bullet list at the top of the report).
         let q_line = md
             .lines()
-            .find(|l| l.starts_with("| quality_wins"))
+            .find(|l| l.starts_with("| **quality_wins**"))
             .expect("quality table row present");
         let s_line = md
             .lines()
             .find(|l| l.starts_with("| speed_wins"))
             .expect("speed table row present");
-        assert!(q_line.contains('⭐'), "expected star on quality_wins: {q_line}");
-        assert!(!s_line.contains('⭐'), "speed_wins should NOT get the star: {s_line}");
+        assert!(
+            q_line.contains("(recommended)"),
+            "expected (recommended) tag on quality_wins: {q_line}"
+        );
+        assert!(
+            !s_line.contains("(recommended)"),
+            "speed_wins should NOT be tagged (recommended): {s_line}"
+        );
+    }
+
+    #[test]
+    fn scores_star_skips_models_below_chrf_floor() {
+        // Same shape as bless's `degenerate_quality_does_not_get_recommended`.
+        // If this test and the bless one ever disagree, the markdown render
+        // is using a different policy than the catalog — fix the shared
+        // helper, not these tests.
+        use crate::scoring::composite::ModelScore;
+        let mut data = fixture();
+        data.backends = vec![
+            BackendDescriptor {
+                spec: "x".into(),
+                id: "broken_fast".into(),
+                kind: "Gguf".into(),
+            },
+            BackendDescriptor {
+                spec: "y".into(),
+                id: "decent".into(),
+                kind: "Gguf".into(),
+            },
+        ];
+        data.model_scores = vec![
+            ModelScore {
+                backend_id: "broken_fast".into(),
+                n_cells: 1,
+                latency_score: 100,
+                quality_score: 0,
+                ram_score: 100,
+                composite_equal: 66,
+                composite_weighted: 50,
+                raw_chrf_mean: 0.22,
+                raw_warm_p50_ms: None,
+                raw_peak_rss_kb: None,
+            },
+            ModelScore {
+                backend_id: "decent".into(),
+                n_cells: 1,
+                latency_score: 0,
+                quality_score: 100,
+                ram_score: 0,
+                composite_equal: 33,
+                composite_weighted: 50,
+                raw_chrf_mean: 0.60,
+                raw_warm_p50_ms: None,
+                raw_peak_rss_kb: None,
+            },
+        ];
+        let md = render(&data);
+        let broken = md
+            .lines()
+            .find(|l| l.starts_with("| broken_fast"))
+            .expect("broken_fast row present");
+        let decent = md
+            .lines()
+            .find(|l| l.starts_with("| **decent**"))
+            .expect("decent winner row present");
+        assert!(
+            !broken.contains("(recommended)"),
+            "model below chrF floor should not be tagged recommended: {broken}"
+        );
+        assert!(
+            decent.contains("(recommended)"),
+            "eligible peer should pick up the recommended tag: {decent}"
+        );
     }
 
     #[test]

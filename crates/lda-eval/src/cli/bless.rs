@@ -16,7 +16,7 @@ use anyhow::{anyhow, Context, Result};
 
 use crate::cli::BlessArgs;
 use crate::report::ReportData;
-use crate::scoring::composite::ModelScore;
+use crate::scoring::composite::{pick_winner, ModelScore};
 use inference_core::catalog::{self, Catalog, LastRun, ModelScores};
 
 pub fn run(args: &BlessArgs) -> Result<()> {
@@ -96,17 +96,17 @@ fn apply_scores(
         ));
     }
 
-    // Winner = highest composite_weighted across all scored backends.
-    // Ties broken by quality, then by backend_id for determinism.
-    let winner_id = scores
-        .iter()
-        .max_by(|a, b| {
-            a.composite_weighted
-                .cmp(&b.composite_weighted)
-                .then(a.quality_score.cmp(&b.quality_score))
-                .then(b.backend_id.cmp(&a.backend_id))
-        })
-        .map(|m| m.backend_id.clone());
+    // Winner picked via the canonical helper (composite weighted, then
+    // quality, then id, after the chrF quality floor). Returns None if
+    // every scored model is below the floor — in which case we clear all
+    // `recommended` flags rather than promote a broken default.
+    let winner_id = pick_winner(scores).map(|m| m.backend_id.clone());
+    if winner_id.is_none() {
+        tracing::warn!(
+            threshold = crate::scoring::composite::MIN_CHRF_FOR_RECOMMENDATION,
+            "no backend cleared the chrF quality floor — clearing all `recommended` flags",
+        );
+    }
 
     for s in scores {
         let entry = catalog
@@ -187,6 +187,12 @@ mod tests {
     }
 
     fn score(id: &str, q: u8, l: u8, r: u8, cw: u8) -> ModelScore {
+        // Default chrF̄ = 0.99 so legacy tests stay above the quality floor.
+        // Tests that exercise the floor explicitly call `score_with_chrf`.
+        score_with_chrf(id, q, l, r, cw, 0.99)
+    }
+
+    fn score_with_chrf(id: &str, q: u8, l: u8, r: u8, cw: u8, chrf: f64) -> ModelScore {
         ModelScore {
             backend_id: id.into(),
             n_cells: 1,
@@ -199,7 +205,7 @@ mod tests {
                 .try_into()
                 .unwrap_or(0),
             composite_weighted: cw,
-            raw_chrf_mean: 0.0,
+            raw_chrf_mean: chrf,
             raw_warm_p50_ms: None,
             raw_peak_rss_kb: None,
         }
@@ -278,6 +284,50 @@ mod tests {
         assert!(!c.llm.iter().find(|e| e.id == "c").unwrap().recommended);
         // c keeps its score=None (no overwrite).
         assert!(c.llm.iter().find(|e| e.id == "c").unwrap().scores.is_none());
+    }
+
+    #[test]
+    fn degenerate_quality_does_not_get_recommended() {
+        // Replicates the Gemma-3-270M edge case: dominant on latency + RAM,
+        // chrF̄ 0.22 (well below the 0.40 floor). Even if it tops the
+        // weighted composite by being min-max-best on two axes, bless must
+        // route the badge to an eligible candidate.
+        let mut c = Catalog {
+            schema_version: 1,
+            last_run: None,
+            stt: vec![],
+            llm: vec![llm_entry("broken_fast", false), llm_entry("decent", false)],
+        };
+        let scores = vec![
+            score_with_chrf("broken_fast", 0, 100, 100, 50, 0.22),
+            score_with_chrf("decent", 100, 0, 0, 50, 0.60),
+        ];
+        apply_scores(&mut c, &scores, &empty_report()).unwrap();
+        let b = c.llm.iter().find(|e| e.id == "broken_fast").unwrap();
+        let d = c.llm.iter().find(|e| e.id == "decent").unwrap();
+        assert!(!b.recommended, "model below chrF floor must not be recommended");
+        assert!(d.recommended, "eligible peer should pick up the badge");
+    }
+
+    #[test]
+    fn all_below_floor_clears_all_recommended_flags() {
+        // No model clears the floor — the catalog should expose no
+        // Recommended badge rather than promote the least-bad broken one.
+        let mut c = Catalog {
+            schema_version: 1,
+            last_run: None,
+            stt: vec![],
+            llm: vec![llm_entry("a", true), llm_entry("b", false)],
+        };
+        let scores = vec![
+            score_with_chrf("a", 100, 0, 0, 50, 0.15),
+            score_with_chrf("b", 0, 100, 100, 50, 0.30),
+        ];
+        apply_scores(&mut c, &scores, &empty_report()).unwrap();
+        assert!(
+            c.llm.iter().all(|e| !e.recommended),
+            "no eligible candidates → no badge anywhere",
+        );
     }
 
     #[test]
