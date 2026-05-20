@@ -21,7 +21,7 @@
     type LocalModel,
   } from '$lib/tauri';
   import { showToast } from '$lib/stores/toasts';
-  import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+  import type { UnlistenFn } from '@tauri-apps/api/event';
   import { page } from '$app/state';
   import { onDestroy, onMount } from 'svelte';
 
@@ -60,7 +60,6 @@
   let local = $state<LocalModel[]>([]);
   let modelsLoaded = $state(false);
   let unlistenDownload: UnlistenFn | null = null;
-  let unlistenTabSwitch: UnlistenFn | null = null;
 
   async function refreshModels() {
     [catalog, local] = await Promise.all([lda.modelsCatalog(), lda.modelsListLocal()]);
@@ -68,12 +67,6 @@
   }
 
   onMount(async () => {
-    // Tray "Models..." entry re-focuses an already-open window: we can't
-    // re-read the URL in that case, so the backend re-emits the tab choice.
-    unlistenTabSwitch = await listen<string>('settings:tab', (e) => {
-      if (isTab(e.payload)) activeTab = e.payload;
-    });
-
     // Only enumerate input devices if mic permission was already granted.
     // On macOS 14+ Core Audio HAL surfaces the TCC prompt the moment we
     // open the device list, even read-only — we don't want to flash that
@@ -105,7 +98,6 @@
 
   onDestroy(() => {
     unlistenDownload?.();
-    unlistenTabSwitch?.();
   });
 
   function installed(id: string): boolean {
@@ -346,6 +338,7 @@
                     installed={installed(entry.id)}
                     selected={selectedFor(kind) === local.find((l) => l.id === entry.id)?.path}
                     onselect={() => selectModel(entry)}
+                    ondelete={refreshModels}
                   />
                 {/each}
               </div>

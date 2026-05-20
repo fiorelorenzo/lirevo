@@ -1,23 +1,28 @@
 <script lang="ts">
-  import { Download, X, Check, Sparkles } from '@lucide/svelte';
+  import { Download, X, Check, Sparkles, Trash2 } from '@lucide/svelte';
   import { Button } from '$lib/components/ui/button';
   import { Progress } from '$lib/components/ui/progress';
+  import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import { progressFor } from '$lib/stores/downloads';
   import { lda, type CatalogEntry } from '$lib/tauri';
+  import { t } from '$lib/i18n';
 
   interface Props {
     entry: CatalogEntry;
     installed: boolean;
     selected: boolean;
     onselect?: () => void;
+    ondelete?: () => void;
   }
-  let { entry, installed, selected, onselect }: Props = $props();
+  let { entry, installed, selected, onselect, ondelete }: Props = $props();
 
   // $derived so the store rebinds if `entry` is swapped (e.g. parent reuses
   // the component for a different catalog row). The earlier `const` form
   // captured the initial entry.id only and tripped Svelte's
   // `state_referenced_locally` warning.
   let progress = $derived(progressFor(entry.id));
+  let confirmOpen = $state(false);
+  let deleting = $state(false);
 
   function fmtSize(bytes: number): string {
     return bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.round(bytes / 1e6)} MB`;
@@ -44,8 +49,22 @@
       console.error(e);
     }
   }
+
+  async function confirmDelete() {
+    deleting = true;
+    try {
+      await lda.modelsDelete(entry.id);
+      ondelete?.();
+    } catch (e) {
+      console.error('modelsDelete', e);
+    } finally {
+      deleting = false;
+      confirmOpen = false;
+    }
+  }
 </script>
 
+<div class="relative">
 <button
   type="button"
   onclick={() => installed && onselect?.()}
@@ -143,3 +162,43 @@
     </div>
   </div>
 </button>
+
+  <!--
+    Delete affordance lives OUTSIDE the card-button to avoid nested
+    interactive content (HTML forbids <button> inside <button>). Sits
+    absolutely positioned in the bottom-right; only rendered when the
+    model is installed.
+  -->
+  {#if installed}
+    <button
+      type="button"
+      aria-label={t('settings.models.delete_aria', { name: entry.displayName })}
+      title={t('settings.models.delete_tooltip')}
+      onclick={() => (confirmOpen = true)}
+      class="absolute bottom-3 right-3 p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+    >
+      <Trash2 class="h-3.5 w-3.5" />
+    </button>
+  {/if}
+</div>
+
+<AlertDialog.Root bind:open={confirmOpen}>
+  <AlertDialog.Content>
+    <AlertDialog.Header>
+      <AlertDialog.Title>
+        {t('settings.models.delete_confirm_title', { name: entry.displayName })}
+      </AlertDialog.Title>
+      <AlertDialog.Description>
+        {t('settings.models.delete_confirm_body', { size: fmtSize(entry.sizeBytes) })}
+      </AlertDialog.Description>
+    </AlertDialog.Header>
+    <AlertDialog.Footer>
+      <AlertDialog.Action variant="destructive" disabled={deleting} onclick={confirmDelete}>
+        {t('settings.models.delete_confirm_action')}
+      </AlertDialog.Action>
+      <AlertDialog.Cancel variant="default" disabled={deleting}>
+        {t('settings.models.delete_confirm_cancel')}
+      </AlertDialog.Cancel>
+    </AlertDialog.Footer>
+  </AlertDialog.Content>
+</AlertDialog.Root>

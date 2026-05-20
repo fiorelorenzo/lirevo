@@ -93,6 +93,7 @@
               installed={installed(entry.id)}
               selected={selectedPath(kind) === local.find((l) => l.id === entry.id)?.path}
               onselect={() => selectModel(entry)}
+              ondelete={refresh}
             />
           {/each}
         </div>

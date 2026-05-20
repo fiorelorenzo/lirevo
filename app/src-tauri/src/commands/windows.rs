@@ -1,4 +1,4 @@
-use tauri::{AppHandle, Emitter, WebviewWindowBuilder, WebviewUrl};
+use tauri::{AppHandle, WebviewWindowBuilder, WebviewUrl};
 
 use crate::{AppError, AppState};
 
@@ -59,8 +59,14 @@ pub fn open_window_internal_with_query(
         }
         return build_overlay_window(app);
     }
-    // Focus existing window if alive.
+    // Focus existing window if alive. Order matters: `show` first (it's a
+    // no-op if already visible), then `unminimize` (handles macOS minimize),
+    // then `set_focus`. Without the `show`, a window that was hidden via the
+    // `stay_running_on_window_close` close-handler stays hidden forever
+    // because `set_focus` on an invisible window is silently ignored.
     if let Some(w) = app.get_webview_window(route) {
+        let _ = w.show();
+        let _ = w.unminimize();
         let _ = w.set_focus();
         return Ok(());
     }
@@ -95,25 +101,6 @@ pub fn open_window_internal_with_query(
     builder
         .build()
         .map_err(|e| AppError::Internal(format!("window build: {e}")))?;
-    Ok(())
-}
-
-/// Open (or focus) the Settings window with a specific tab pre-selected.
-///
-/// On a fresh window the tab is encoded in the URL (`?tab=...`) and read by
-/// the page on mount. When the window already exists the URL is not re-read,
-/// so we emit a `settings:tab` event to nudge the page; the event is only
-/// emitted in the focus path to avoid racing the freshly-mounted listener.
-pub fn open_settings_at_tab(app: &AppHandle, tab: &str) -> Result<(), AppError> {
-    use tauri::Manager;
-    let existed = app.get_webview_window("settings").is_some();
-    let query = format!("tab={tab}");
-    open_window_internal_with_query(app, "settings", Some(&query))?;
-    if existed {
-        if let Some(w) = app.get_webview_window("settings") {
-            let _ = w.emit("settings:tab", tab.to_string());
-        }
-    }
     Ok(())
 }
 

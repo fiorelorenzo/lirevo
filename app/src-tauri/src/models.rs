@@ -141,6 +141,62 @@ pub fn models_dir(app: &tauri::AppHandle) -> std::io::Result<PathBuf> {
     Ok(dir)
 }
 
+/// Delete a downloaded model file from the app's models directory.
+///
+/// Lookup happens by catalog id (the canonical handle used by the UI). The
+/// CoreML encoder sibling (for Whisper models that ship one) is removed
+/// alongside the main file. Currently-loaded backends keep their existing
+/// mmap mapping alive until they're dropped, so this never crashes a
+/// live dictation; the next `load_models` call will surface a missing-file
+/// error if the user picks the same path again.
+///
+/// Path safety: we resolve to `models_dir().join(filename)` and require
+/// the resulting path to canonicalize back under the models directory.
+/// That blocks any (hypothetical) future bug where a catalog filename
+/// contains `..` traversal segments.
+pub fn delete_by_id(app: &tauri::AppHandle, id: &str) -> std::io::Result<()> {
+    let entry = find_by_id(id).ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::NotFound, format!("unknown model id: {id}"))
+    })?;
+    let dir = models_dir(app)?;
+    let dir_canon = std::fs::canonicalize(&dir)?;
+
+    let main_path = dir.join(&entry.filename);
+    if let Ok(canon) = std::fs::canonicalize(&main_path) {
+        if !canon.starts_with(&dir_canon) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "delete target escaped models directory",
+            ));
+        }
+        std::fs::remove_file(&canon)?;
+        tracing::info!(path = %canon.display(), "model file deleted");
+    }
+
+    // CoreML encoder companion (Whisper only). Stored as an unpacked
+    // .mlmodelc DIRECTORY, not the zip — the zip is removed at the end of
+    // download_and_extract_coreml. The directory name strips the `.zip`
+    // suffix from the catalog filename: foo.mlmodelc.zip → foo.mlmodelc.
+    if let Some(zip_name) = entry.coreml_encoder_filename.as_deref() {
+        let mlmodelc_name = zip_name.trim_end_matches(".zip");
+        let coreml_path = dir.join(mlmodelc_name);
+        if let Ok(canon) = std::fs::canonicalize(&coreml_path) {
+            if !canon.starts_with(&dir_canon) {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "coreml delete target escaped models directory",
+                ));
+            }
+            if canon.is_dir() {
+                std::fs::remove_dir_all(&canon)?;
+                tracing::info!(path = %canon.display(), "coreml encoder deleted");
+            }
+        }
+    }
+
+    Ok(())
+}
+
 pub fn list_local(app: &tauri::AppHandle) -> std::io::Result<Vec<LocalModel>> {
     let dir = models_dir(app)?;
     let mut out = Vec::new();
