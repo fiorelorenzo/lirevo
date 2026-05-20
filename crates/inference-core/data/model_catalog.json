@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
   "lastRun": {
-    "runId": "ts-1779286074",
+    "runId": "ts-1779306351",
     "host": "macos-aarch64",
     "corpusPath": "crates/lda-eval/data/corpus/v1-seed.jsonl",
     "profilesPath": "crates/lda-eval/data/profiles/v1.toml",
-    "tsUnix": 1779286152
+    "tsUnix": 1779306388
   },
   "stt": [
     {
@@ -45,7 +45,7 @@
     {
       "id": "qwen3-4b-instruct-2507-q4",
       "displayName": "Qwen3 4B Instruct 2507 (Q4_K_M)",
-      "description": "Recommended default. Multilingual, non-thinking.",
+      "description": "Highest quality of the lineup, multilingual, non-thinking.",
       "sizeBytes": 2497280448,
       "filename": "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
       "url": "https://huggingface.co/lmstudio-community/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
@@ -57,11 +57,11 @@
         "compositeEqual": 33,
         "compositeWeighted": 50,
         "rawChrfMean": 0.7321224069824683,
-        "rawWarmP50Ms": 1655,
-        "rawPeakRssKb": 2343632,
+        "rawWarmP50Ms": 751,
+        "rawPeakRssKb": 3052944,
         "nCells": 60
       },
-      "recommended": true
+      "recommended": false
     },
     {
       "id": "llama-3.2-3b-instruct-q4",
@@ -72,14 +72,77 @@
       "url": "https://huggingface.co/lmstudio-community/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf",
       "sha256": "e4f1a04d927b09ec18eb2f233d85ecd760fc2d35cec97e37f8604d3632210d9a",
       "scores": {
+        "quality": 61,
+        "latency": 24,
+        "ram": 24,
+        "compositeEqual": 36,
+        "compositeWeighted": 43,
+        "rawChrfMean": 0.5308339703529805,
+        "rawWarmP50Ms": 574,
+        "rawPeakRssKb": 2417840,
+        "nCells": 60
+      },
+      "recommended": false
+    },
+    {
+      "id": "qwen3-1.7b-q4",
+      "displayName": "Qwen3 1.7B (Q4_K_M)",
+      "description": "Smaller Qwen3, faster + lighter than 4B (~1.1 GB).",
+      "sizeBytes": 1107409472,
+      "filename": "Qwen3-1.7B-Q4_K_M.gguf",
+      "url": "https://huggingface.co/lmstudio-community/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf",
+      "sha256": "b139949c5bd74937ad8ed8c8cf3d9ffb1e99c866c823204dc42c0d91fa181897",
+      "scores": {
+        "quality": 90,
+        "latency": 39,
+        "ram": 55,
+        "compositeEqual": 61,
+        "compositeWeighted": 68,
+        "rawChrfMean": 0.6821560330576274,
+        "rawWarmP50Ms": 471,
+        "rawPeakRssKb": 1613520,
+        "nCells": 60
+      },
+      "recommended": false
+    },
+    {
+      "id": "gemma-3-1b-it-q4",
+      "displayName": "Gemma 3 1B IT (Q4_K_M)",
+      "description": "Google Gemma 3 instruction-tuned, lightweight (~810 MB).",
+      "sizeBytes": 806058272,
+      "filename": "gemma-3-1b-it-Q4_K_M.gguf",
+      "url": "https://huggingface.co/unsloth/gemma-3-1b-it-GGUF/resolve/main/gemma-3-1b-it-Q4_K_M.gguf",
+      "sha256": "8270790f3ab69fdfe860b7b64008d9a19986d8df7e407bb018184caa08798ebd",
+      "scores": {
+        "quality": 73,
+        "latency": 75,
+        "ram": 79,
+        "compositeEqual": 75,
+        "compositeWeighted": 75,
+        "rawChrfMean": 0.5959847823651235,
+        "rawWarmP50Ms": 203,
+        "rawPeakRssKb": 982464,
+        "nCells": 60
+      },
+      "recommended": true
+    },
+    {
+      "id": "gemma-3-270m-it-q4",
+      "displayName": "Gemma 3 270M IT (Q4_K_M)",
+      "description": "Smallest Gemma 3 — ultra-low RAM, experimental quality (~250 MB).",
+      "sizeBytes": 253115424,
+      "filename": "gemma-3-270m-it-Q4_K_M.gguf",
+      "url": "https://huggingface.co/unsloth/gemma-3-270m-it-GGUF/resolve/main/gemma-3-270m-it-Q4_K_M.gguf",
+      "sha256": "b1baabd6b729e4041822220d3e648e00d99cac5df86b10dffb77bcccf0688e39",
+      "scores": {
         "quality": 0,
         "latency": 100,
         "ram": 100,
         "compositeEqual": 66,
         "compositeWeighted": 50,
-        "rawChrfMean": 0.5308339703529805,
-        "rawWarmP50Ms": 817,
-        "rawPeakRssKb": 2335152,
+        "rawChrfMean": 0.2220852478516694,
+        "rawWarmP50Ms": 24,
+        "rawPeakRssKb": 415728,
         "nCells": 60
       },
       "recommended": false

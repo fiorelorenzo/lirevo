@@ -157,6 +157,55 @@ pub fn score_run(outcomes: &[CellOutcome]) -> Vec<ModelScore> {
         .collect()
 }
 
+/// Below this raw chrF̄ a model is considered too broken to be the
+/// user-visible default, regardless of how it fares on latency or RAM.
+///
+/// The floor is anchored to the absolute chrF scale (0-1), not to the
+/// in-run min-max normalization, so the gate stays meaningful across
+/// corpora. Without it, a degenerate model can land in the Recommended
+/// slot just by being the lightest + fastest in its bake-off.
+///
+/// Calibration (May 2026 multilingual corpus): Gemma-3-270M scored chrF̄
+/// 0.22 (clearly broken output); every viable refiner stayed above 0.53.
+/// A floor at 0.40 excludes the broken case with comfortable headroom for
+/// future small candidates that might land between, say, 0.45 and 0.55.
+pub const MIN_CHRF_FOR_RECOMMENDATION: f64 = 0.40;
+
+/// Whether `s` clears the quality floor and is therefore eligible for the
+/// Recommended badge.
+#[must_use]
+pub fn eligible_for_recommendation(s: &ModelScore) -> bool {
+    s.raw_chrf_mean >= MIN_CHRF_FOR_RECOMMENDATION
+}
+
+/// Pick the bake-off winner using the canonical tiebreaker. Models below
+/// the quality floor are filtered out first. Returns `None` if no model in
+/// `scores` is eligible.
+///
+/// Tiebreaker (applied in order):
+/// 1. `composite_weighted` — higher wins.
+/// 2. `quality_score` — higher wins. Resolves the lat+ram-vs-quality tie
+///    where the weighted composite lands on 50/50.
+/// 3. `backend_id` ascending — deterministic across runs.
+///
+/// This is the single source of truth shared by `lda-eval bless`
+/// (sets `recommended: true`) and the markdown report (the ⭐ on the
+/// scores row). If you change the tiebreaker or floor, the test in
+/// `cli::bless::tests` and `report::markdown::tests` will fail until
+/// they're updated in lock-step.
+#[must_use]
+pub fn pick_winner(scores: &[ModelScore]) -> Option<&ModelScore> {
+    scores
+        .iter()
+        .filter(|s| eligible_for_recommendation(s))
+        .max_by(|a, b| {
+            a.composite_weighted
+                .cmp(&b.composite_weighted)
+                .then(a.quality_score.cmp(&b.quality_score))
+                .then(b.backend_id.cmp(&a.backend_id))
+        })
+}
+
 fn norm_higher_is_better(v: f64, lo: f64, hi: f64) -> u8 {
     if !v.is_finite() || !lo.is_finite() || !hi.is_finite() || (hi - lo).abs() < f64::EPSILON {
         // Degenerate range (1-backend runs, or all-equal metric): give the
@@ -274,6 +323,47 @@ mod tests {
         assert_eq!(scores[2].quality_score, 50);
         assert!(scores[2].latency_score > 40 && scores[2].latency_score < 60);
         assert!(scores[2].ram_score > 60 && scores[2].ram_score < 80);
+    }
+
+    #[test]
+    fn pick_winner_skips_models_below_quality_floor() {
+        // The fastest + lightest model in the run has chrF̄ 0.22 — well
+        // below the 0.40 floor. It must NOT take the badge even though it
+        // tops latency + RAM. The next-best eligible model wins instead.
+        let outs = vec![
+            outcome("broken_but_fast", 0.22, 24, Some(400_000)),
+            outcome("decent", 0.60, 200, Some(900_000)),
+            outcome("slow_quality_king", 0.73, 800, Some(2_500_000)),
+        ];
+        let scores = score_run(&outs);
+        let winner = super::pick_winner(&scores).expect("a winner exists");
+        assert_ne!(
+            winner.backend_id, "broken_but_fast",
+            "model below chrF floor should not win"
+        );
+    }
+
+    #[test]
+    fn pick_winner_returns_none_when_no_model_clears_floor() {
+        // All three are well below the 0.40 chrF threshold.
+        let outs = vec![
+            outcome("broken_a", 0.10, 50, Some(400_000)),
+            outcome("broken_b", 0.25, 100, Some(500_000)),
+            outcome("broken_c", 0.30, 200, Some(600_000)),
+        ];
+        let scores = score_run(&outs);
+        assert!(
+            super::pick_winner(&scores).is_none(),
+            "no eligible model — winner must be None so callers can clear the badge"
+        );
+    }
+
+    #[test]
+    fn eligible_threshold_includes_exactly_0_40() {
+        let outs_at = vec![outcome("at", 0.40, 100, Some(1024))];
+        let outs_below = vec![outcome("below", 0.399, 100, Some(1024))];
+        assert!(super::eligible_for_recommendation(&score_run(&outs_at)[0]));
+        assert!(!super::eligible_for_recommendation(&score_run(&outs_below)[0]));
     }
 
     #[test]
