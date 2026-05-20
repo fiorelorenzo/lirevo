@@ -62,6 +62,8 @@ pub fn render(data: &ReportData) -> String {
             id = desc.id,
         );
     }
+    render_scores_section(&mut s, data);
+
     let _ = writeln!(s);
     let _ = writeln!(s, "## Worst 10 cases by chrF (per backend)");
     for desc in &data.backends {
@@ -96,6 +98,59 @@ pub fn render(data: &ReportData) -> String {
         }
     }
     s
+}
+
+fn render_scores_section(s: &mut String, data: &ReportData) {
+    if data.model_scores.is_empty() {
+        return;
+    }
+    let _ = writeln!(s);
+    let _ = writeln!(s, "## Scores (0-100, higher is better)");
+    let _ = writeln!(
+        s,
+        "| backend | quality | latency | RAM | composite (equal) | composite (weighted) |"
+    );
+    let _ = writeln!(s, "|---|---|---|---|---|---|");
+    let by_id: std::collections::HashMap<&str, &crate::scoring::composite::ModelScore> = data
+        .model_scores
+        .iter()
+        .map(|m| (m.backend_id.as_str(), m))
+        .collect();
+    // Determine the weighted-composite winner so we can flag it inline.
+    // Mirrors the tiebreaker used by `lda-eval bless` so the star and the
+    // catalog's `recommended` flag never disagree: composite_weighted, then
+    // quality, then backend_id (descending so the comparator's max picks
+    // ascending alphabetic on ties).
+    let winner_id = data
+        .model_scores
+        .iter()
+        .max_by(|a, b| {
+            a.composite_weighted
+                .cmp(&b.composite_weighted)
+                .then(a.quality_score.cmp(&b.quality_score))
+                .then(b.backend_id.cmp(&a.backend_id))
+        })
+        .map(|m| m.backend_id.as_str());
+    for desc in &data.backends {
+        let Some(ms) = by_id.get(desc.id.as_str()) else {
+            continue;
+        };
+        let star = if Some(desc.id.as_str()) == winner_id {
+            " ⭐"
+        } else {
+            ""
+        };
+        let _ = writeln!(
+            s,
+            "| {id}{star} | {q} | {l} | {r} | {ce} | {cw} |",
+            id = desc.id,
+            q = ms.quality_score,
+            l = ms.latency_score,
+            r = ms.ram_score,
+            ce = ms.composite_equal,
+            cw = ms.composite_weighted,
+        );
+    }
 }
 
 fn avg_opt<I>(it: I) -> Option<f64>
@@ -191,6 +246,7 @@ mod tests {
                 }),
                 peak_rss_kb: Some(720 * 1024),
             }],
+            model_scores: Vec::new(),
         }
     }
 
@@ -208,6 +264,67 @@ mod tests {
         let md = render(&fixture());
         assert!(md.contains("Worst") || md.contains("worst"));
         assert!(md.contains("it-plain-001"));
+    }
+
+    #[test]
+    fn scores_star_picks_quality_winner_on_weighted_tie() {
+        // Mirrors bless's tiebreaker so the markdown ⭐ and the catalog's
+        // `recommended` flag never disagree. See the matching test in
+        // cli::bless::tests.
+        use crate::scoring::composite::ModelScore;
+        let mut data = fixture();
+        data.backends = vec![
+            BackendDescriptor {
+                spec: "x".into(),
+                id: "quality_wins".into(),
+                kind: "Gguf".into(),
+            },
+            BackendDescriptor {
+                spec: "y".into(),
+                id: "speed_wins".into(),
+                kind: "Gguf".into(),
+            },
+        ];
+        data.model_scores = vec![
+            ModelScore {
+                backend_id: "quality_wins".into(),
+                n_cells: 1,
+                latency_score: 0,
+                quality_score: 100,
+                ram_score: 0,
+                composite_equal: 33,
+                composite_weighted: 50,
+                raw_chrf_mean: 0.7,
+                raw_warm_p50_ms: None,
+                raw_peak_rss_kb: None,
+            },
+            ModelScore {
+                backend_id: "speed_wins".into(),
+                n_cells: 1,
+                latency_score: 100,
+                quality_score: 0,
+                ram_score: 100,
+                composite_equal: 66,
+                composite_weighted: 50,
+                raw_chrf_mean: 0.5,
+                raw_warm_p50_ms: None,
+                raw_peak_rss_kb: None,
+            },
+        ];
+        let md = render(&data);
+        // Star annotated only on quality_wins row, never on speed_wins row.
+        // Match the table row specifically (starts with `|`, not the backend
+        // descriptor list at the top of the report).
+        let q_line = md
+            .lines()
+            .find(|l| l.starts_with("| quality_wins"))
+            .expect("quality table row present");
+        let s_line = md
+            .lines()
+            .find(|l| l.starts_with("| speed_wins"))
+            .expect("speed table row present");
+        assert!(q_line.contains('⭐'), "expected star on quality_wins: {q_line}");
+        assert!(!s_line.contains('⭐'), "speed_wins should NOT get the star: {s_line}");
     }
 
     #[test]

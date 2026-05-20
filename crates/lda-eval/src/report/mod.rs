@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::corpus::TestCase;
 use crate::probes::latency::LatencyCell;
+use crate::scoring::composite::{score_run, ModelScore};
 use crate::scoring::ScoreCard;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,6 +34,12 @@ pub struct ReportData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub judge: Option<BackendDescriptor>,
     pub outcomes: Vec<CellOutcome>,
+    /// Per-backend aggregated scores, computed at write time from `outcomes`.
+    /// Populated by `write_pair`; deserialized reports may carry this field
+    /// from disk so downstream tooling (e.g. `lda-eval bless`) can avoid
+    /// recomputing.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub model_scores: Vec<ModelScore>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,9 +50,15 @@ pub struct BackendDescriptor {
 }
 
 pub fn write_pair(data: &ReportData, md_path: &Path) -> std::io::Result<()> {
-    std::fs::write(md_path, markdown::render(data))?;
+    // Populate `model_scores` so the JSON sidecar carries them for later
+    // consumption (e.g. `lda-eval bless`).
+    let mut data = data.clone();
+    if data.model_scores.is_empty() {
+        data.model_scores = score_run(&data.outcomes);
+    }
+    std::fs::write(md_path, markdown::render(&data))?;
     let json_path = md_path.with_extension("json");
-    let json = serde_json::to_string_pretty(data).map_err(std::io::Error::other)?;
+    let json = serde_json::to_string_pretty(&data).map_err(std::io::Error::other)?;
     std::fs::write(&json_path, json)?;
     Ok(())
 }

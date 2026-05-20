@@ -1,15 +1,33 @@
-//! `lda-eval run` — execute backends × corpus, score, write report.
+//! `lda-eval run` — orchestrate one bake-off across N backends × corpus.
+//!
+//! Each backend is loaded and generated inside its own `bake-cell`
+//! subprocess (see `cli::bake_cell`). The parent fans the same corpus + the
+//! resolved system prompts out to each child via stdin, reads candidate
+//! strings + per-cell latency back via stdout, and scores chrF / length /
+//! assertions / cosine in this process — which keeps the heavy model loaders
+//! out of the parent's address space.
+//!
+//! The per-backend RSS reported by each child is therefore the high-water
+//! mark of an address space that contains exactly one model — no allocator
+//! residue from a previously-dropped backend, no shared embedder weights.
+//! That's what makes the catalog's RAM score comparable across backends.
+//!
+//! Bringing the embedder up in the parent (when `--embed`) is intentional:
+//! it loads once for the whole run instead of being paid per child, and the
+//! ONNX session shouldn't bias an LLM's RSS measurement either way since
+//! each LLM lives in its own process.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::process::Stdio;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
+use tokio::io::AsyncWriteExt;
 
-use crate::backend::{build_from_spec, EvalBackend, GenerateReq};
+use crate::cli::bake_cell::{BakeCellRequest, BakeCellResponse, OUT_PATH_ENV};
 use crate::cli::RunArgs;
 use crate::corpus::{load_jsonl, TestCase};
-use crate::probes::{latency, memory};
 use crate::profiles::{load_scoring, load_toml, validate, Profile};
 use crate::report::{write_pair, BackendDescriptor, CellOutcome, ReportData};
 use crate::scoring::{
@@ -43,56 +61,52 @@ pub async fn run(args: RunArgs) -> Result<()> {
         embedder = Some(Embedder::load(&ec).context("load embedder")?);
     }
 
-    // Per-backend RSS attribution. We snapshot live RSS BEFORE the backend
-    // loads and AFTER, take the delta, and report that as the backend's
-    // footprint. Caveats: (a) the system allocator may retain freed pages
-    // from a previously-dropped backend, biasing the next backend's baseline
-    // slightly upward (so attributed RSS may UNDER-report by tens to
-    // hundreds of MB for backends after the first); (b) for truly
-    // independent measurements we'd need subprocess isolation.
-    let no_think_set: std::collections::HashSet<String> = args.no_think_for.iter().cloned().collect();
     let mut descriptors: Vec<BackendDescriptor> = Vec::with_capacity(args.backends.len());
     let mut outcomes: Vec<CellOutcome> = Vec::with_capacity(args.backends.len() * cases.len());
 
+    // Build the case-id → resolved system-prompt map once. The mapping is
+    // backend-independent (the /no_think suffix is appended by the child if
+    // applicable), and reusing it avoids re-cloning the profile state per
+    // subprocess.
+    let system_prompts = build_system_prompts(&cases, &profiles)?;
+
     for spec in &args.backends {
-        let baseline_rss = memory::current_rss_kb();
-        let mut backend = build_from_spec(spec)
-            .await
-            .with_context(|| format!("backend {spec}"))?;
+        let resp = run_one_backend(
+            spec,
+            &cases,
+            &system_prompts,
+            &args.no_think_for,
+        )
+        .await
+        .with_context(|| format!("backend {spec}"))?;
+
         let descriptor = BackendDescriptor {
             spec: spec.clone(),
-            id: backend.id().to_string(),
-            kind: format!("{:?}", backend.kind()),
-        };
-        let no_think = no_think_set.contains(&descriptor.id);
-
-        // Snapshot post-load RSS. Done before any generation so it reflects
-        // the model weights + context allocation only, not transient KV buffers.
-        let rss_after_load = memory::current_rss_kb();
-        let attributed_rss_kb = match (baseline_rss, rss_after_load) {
-            (Some(base), Some(after)) => Some(after.saturating_sub(base)),
-            _ => None,
+            id: resp.backend_id.clone(),
+            kind: resp.backend_kind.clone(),
         };
 
+        // Map child results back onto cases by case id.
+        let by_case: HashMap<&str, &crate::cli::bake_cell::BakeCellResult> =
+            resp.cells.iter().map(|c| (c.case_id.as_str(), c)).collect();
         for case in &cases {
-            let outcome = run_one_cell(
-                backend.as_mut(),
+            let cell = by_case.get(case.id.as_str()).ok_or_else(|| {
+                anyhow::anyhow!("child returned no result for case {}", case.id)
+            })?;
+            let profile = profiles.get(&case.profile).expect("validated upstream");
+            let outcome = score_one_cell(
                 case,
-                &profiles,
+                profile,
+                &descriptor.id,
+                &cell.candidate,
+                cell.latency.clone(),
+                resp.peak_rss_kb,
                 embedder.as_mut(),
-                no_think,
-                attributed_rss_kb,
-            )
-            .await
-            .with_context(|| format!("backend={} case={}", descriptor.id, case.id))?;
+            )?;
             outcomes.push(outcome);
         }
 
         descriptors.push(descriptor);
-        // Backend drops here at end of iteration scope. Allocator may not
-        // return all RSS to the OS, but the next backend's baseline-relative
-        // measurement is still independent of this one's allocations.
-        drop(backend);
     }
 
     let report = ReportData {
@@ -103,6 +117,7 @@ pub async fn run(args: RunArgs) -> Result<()> {
         backends: descriptors,
         judge: None,
         outcomes,
+        model_scores: Vec::new(),
     };
 
     write_pair(&report, &args.out).context("write report")?;
@@ -114,63 +129,115 @@ pub async fn run(args: RunArgs) -> Result<()> {
     Ok(())
 }
 
-async fn run_one_cell(
-    backend: &mut dyn EvalBackend,
-    case: &TestCase,
-    profiles: &HashMap<String, Profile>,
-    embedder: Option<&mut Embedder>,
-    no_think: bool,
-    attributed_rss_kb: Option<u64>,
-) -> Result<CellOutcome> {
-    let profile = profiles.get(&case.profile).expect("validated upstream");
-    let mut sys = profile
-        .system_prompts
-        .get(&case.language)
-        .expect("validated upstream")
-        .clone();
-    if no_think {
-        // Qwen3 / Qwen3.5 hybrid directive: disable the `<think>…</think>` prelude
-        // so the refiner output isn't polluted. Non-Qwen models silently ignore it.
-        sys.push_str("\n\n/no_think");
-    }
-
-    let req = GenerateReq {
-        system_prompt: sys,
-        transcript: case.transcript.clone(),
+async fn run_one_backend(
+    spec: &str,
+    cases: &[TestCase],
+    system_prompts: &HashMap<String, String>,
+    no_think_for: &[String],
+) -> Result<BakeCellResponse> {
+    let exe = std::env::current_exe().context("locate current_exe for subprocess spawn")?;
+    let req = BakeCellRequest {
+        spec: spec.to_string(),
+        latency_probe_runs: 5,
         max_tokens: 800,
         temperature: 0.2,
+        no_think_for: no_think_for.to_vec(),
+        cases: cases.to_vec(),
+        system_prompts: system_prompts.clone(),
     };
+    let req_json = serde_json::to_vec(&req).context("serialize bake-cell request")?;
 
-    // Latency probe drives 5 generations (1 cold + 4 warm).
-    let latency_cell = latency::probe_cell(backend, req.clone(), 5).await.ok();
+    // The child's JSON response lands in this temp file. stdin carries the
+    // request; stdout/stderr stay inherited so the user sees llama.cpp +
+    // tracing progress live (and so that output can't corrupt the response).
+    let out_file = tempfile::NamedTempFile::new().context("create bake-cell tempfile")?;
+    let out_path = out_file.path().to_path_buf();
 
-    // Canonical "candidate" text for scoring — one more generation after the probe
-    // so we don't depend on the probe internals.
-    let final_out = backend.generate(req).await?;
-    // Strip <think>...</think> blocks that Qwen3-family hybrid models emit
-    // before their actual answer. No-op for models that don't produce them.
-    let candidate = strip_think(&final_out.text);
+    let mut child = tokio::process::Command::new(&exe)
+        .arg("bake-cell")
+        .env(OUT_PATH_ENV, &out_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .with_context(|| format!("spawn {} bake-cell", exe.display()))?;
 
-    let chrf_val = chrf(&candidate, &case.expected, 6, 2.0);
-    let len = length_ratio(&candidate, &case.expected);
-    let asserts = run_all(&candidate, &profile.post_assertions);
+    {
+        let stdin = child
+            .stdin
+            .as_mut()
+            .context("child stdin missing")?;
+        stdin.write_all(&req_json).await.context("write child stdin")?;
+        stdin.shutdown().await.context("close child stdin")?;
+    }
+
+    let status = child.wait().await.context("await child")?;
+    if !status.success() {
+        anyhow::bail!(
+            "bake-cell subprocess for {spec} exited with status {status}; check stderr above",
+        );
+    }
+    let buf = std::fs::read(&out_path).with_context(|| {
+        format!(
+            "read bake-cell response from {} (child exited 0 but produced no output file)",
+            out_path.display()
+        )
+    })?;
+    serde_json::from_slice(&buf).context("parse bake-cell response")
+}
+
+fn build_system_prompts(
+    cases: &[TestCase],
+    profiles: &HashMap<String, Profile>,
+) -> Result<HashMap<String, String>> {
+    let mut out = HashMap::with_capacity(cases.len());
+    for case in cases {
+        let profile = profiles
+            .get(&case.profile)
+            .ok_or_else(|| anyhow::anyhow!("unknown profile: {}", case.profile))?;
+        let sys = profile
+            .system_prompts
+            .get(&case.language)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "profile {} missing system prompt for language {}",
+                    case.profile,
+                    case.language
+                )
+            })?
+            .clone();
+        out.insert(case.id.clone(), sys);
+    }
+    Ok(out)
+}
+
+fn score_one_cell(
+    case: &TestCase,
+    profile: &Profile,
+    backend_id: &str,
+    candidate: &str,
+    latency: Option<crate::probes::latency::LatencyCell>,
+    peak_rss_kb: Option<u64>,
+    embedder: Option<&mut Embedder>,
+) -> Result<CellOutcome> {
+    let chrf_val = chrf(candidate, &case.expected, 6, 2.0);
+    let len = length_ratio(candidate, &case.expected);
+    let asserts = run_all(candidate, &profile.post_assertions);
     let passed = u32::try_from(asserts.iter().filter(|a| a.passed).count()).unwrap_or(0);
     let total = u32::try_from(asserts.len()).unwrap_or(0);
-
     let embedding_cosine = if let Some(e) = embedder {
-        let a = e.embed(&candidate)?;
+        let a = e.embed(candidate)?;
         let b = e.embed(&case.expected)?;
         Some(cosine(&a, &b))
     } else {
         None
     };
-
     Ok(CellOutcome {
         case: case.clone(),
-        candidate,
+        candidate: candidate.to_string(),
         score: ScoreCard {
             case_id: case.id.clone(),
-            backend_id: backend.id().to_string(),
+            backend_id: backend_id.to_string(),
             chrf: chrf_val,
             length_ratio: len,
             assertions_passed: passed,
@@ -180,8 +247,8 @@ async fn run_one_cell(
             judge_style: None,
             judge_rationale: None,
         },
-        latency: latency_cell,
-        peak_rss_kb: attributed_rss_kb,
+        latency,
+        peak_rss_kb,
     })
 }
 
@@ -197,61 +264,4 @@ fn host_string() -> String {
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
     format!("{os}-{arch}")
-}
-
-/// Remove `<think>…</think>` blocks (and trim leftover whitespace) from a
-/// model's raw output. Used to extract the canonical answer from Qwen3 /
-/// Qwen3.5 hybrid models that emit a chain-of-thought prelude. Non-thinking
-/// models don't produce these tags so the function is a no-op for them.
-fn strip_think(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut rest = text;
-    while let Some(start) = rest.find("<think>") {
-        out.push_str(&rest[..start]);
-        if let Some(end_rel) = rest[start..].find("</think>") {
-            let after = start + end_rel + "</think>".len();
-            rest = &rest[after..];
-        } else {
-            // Unterminated <think>: drop everything from the tag onward.
-            rest = "";
-            break;
-        }
-    }
-    out.push_str(rest);
-    out.trim().to_string()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::strip_think;
-
-    #[test]
-    fn strip_think_removes_balanced_block() {
-        let s = "<think>\nI reason here.\n</think>\n\nFinal answer.";
-        assert_eq!(strip_think(s), "Final answer.");
-    }
-
-    #[test]
-    fn strip_think_handles_empty_block() {
-        let s = "<think>\n\n</think>\n\nOK.";
-        assert_eq!(strip_think(s), "OK.");
-    }
-
-    #[test]
-    fn strip_think_noop_when_absent() {
-        let s = "Just an answer.";
-        assert_eq!(strip_think(s), "Just an answer.");
-    }
-
-    #[test]
-    fn strip_think_handles_multiple_blocks() {
-        let s = "<think>a</think>between<think>b</think>after";
-        assert_eq!(strip_think(s), "betweenafter");
-    }
-
-    #[test]
-    fn strip_think_drops_unterminated_block() {
-        let s = "Answer.\n<think>truncated...";
-        assert_eq!(strip_think(s), "Answer.");
-    }
 }

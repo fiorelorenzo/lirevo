@@ -1,3 +1,5 @@
+pub mod bake_cell;
+pub mod bless;
 pub mod gen_corpus;
 pub mod judge;
 pub mod run;
@@ -23,6 +25,13 @@ pub enum Command {
     GenCorpus(GenCorpusArgs),
     /// Re-score an existing report with an LLM-as-judge backend.
     Judge(JudgeArgs),
+    /// Promote scores from a report JSON into the committed model catalog.
+    Bless(BlessArgs),
+    /// Internal: subprocess worker spawned by `run` to isolate per-backend
+    /// RSS measurements. Hidden from `--help`; reads a JSON request from
+    /// stdin and writes a JSON response to stdout.
+    #[command(hide = true)]
+    BakeCell,
 }
 
 #[derive(clap::Args, Debug)]
@@ -71,6 +80,17 @@ pub struct GenCorpusArgs {
     pub target_per_cell: u32,
     #[arg(long)]
     pub out: std::path::PathBuf,
+}
+
+#[derive(clap::Args, Debug)]
+pub struct BlessArgs {
+    /// Path to the report JSON sidecar produced by `lda-eval run`.
+    #[arg(long)]
+    pub report: std::path::PathBuf,
+    /// Path to the model catalog JSON to update. Defaults to
+    /// `crates/inference-core/data/model_catalog.json` (workspace-root relative).
+    #[arg(long)]
+    pub catalog: Option<std::path::PathBuf>,
 }
 
 #[derive(clap::Args, Debug)]

@@ -1,10 +1,10 @@
 use tauri::{AppHandle, State};
 use crate::{AppError, AppState};
-use crate::models::{CATALOG, CatalogEntry, LocalModel, list_local};
+use crate::models::{catalog, CatalogEntry, LocalModel, list_local};
 
 #[tauri::command]
 pub fn models_catalog() -> Vec<CatalogEntry> {
-    CATALOG.to_vec()
+    catalog()
 }
 
 #[tauri::command]
