@@ -227,4 +227,18 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
         }
     };
     state.set_model_state(app, next);
+
+    // Register the macOS shutdown-safety atexit handler now that ggml-metal
+    // has been touched (whisper-rs and/or llama-cpp-2 backends initialize it
+    // lazily). This must happen AFTER the loads above so our atexit is
+    // registered later than ggml's __cxa_atexit and therefore runs earlier
+    // in the LIFO finalize order — see `register_quit_safety_atexit` for
+    // the full reasoning. Called on every load_models invocation (initial
+    // and settings-triggered reloads) so the ordering invariant holds even
+    // when the user switches model files mid-session.
+    //
+    // Skipped on the no-paths-configured early-return above (line ~117): if
+    // neither model is configured, no Metal context exists, no destructor
+    // is registered, and there is nothing to swallow on shutdown.
+    crate::register_quit_safety_atexit();
 }
