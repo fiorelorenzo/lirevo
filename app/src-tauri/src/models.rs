@@ -570,12 +570,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn catalog_has_3_stt_and_2_llm() {
+    fn catalog_has_3_stt_and_5_llm() {
         let c = catalog();
         let stt = c.iter().filter(|c| c.kind == ModelKind::Stt).count();
         let llm = c.iter().filter(|c| c.kind == ModelKind::Llm).count();
         assert_eq!(stt, 3);
-        assert_eq!(llm, 2);
+        assert_eq!(llm, 5);
     }
 
     #[test]
