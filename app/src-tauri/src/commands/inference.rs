@@ -241,4 +241,57 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
     // neither model is configured, no Metal context exists, no destructor
     // is registered, and there is nothing to swallow on shutdown.
     crate::register_quit_safety_atexit();
+
+    // Warm up the loaded backends so the first real dictation doesn't pay
+    // the Metal-kernel-compile + KV-cache-allocate cost. Gated by the
+    // `keep_models_warm` setting (default on). Runs on a blocking thread —
+    // it's a few hundred ms of inference and we don't want to stall the
+    // tokio runtime.
+    let (keep_warm, whisper_for_warmup, llama_for_warmup) = {
+        let inner = state.inner.lock().unwrap();
+        (
+            inner.settings.keep_models_warm,
+            if whisper_ready { inner.whisper.clone() } else { None },
+            if llama_ready { inner.llama.clone() } else { None },
+        )
+    };
+    if keep_warm && (whisper_for_warmup.is_some() || llama_for_warmup.is_some()) {
+        tokio::task::spawn_blocking(move || {
+            warm_up(whisper_for_warmup, llama_for_warmup);
+        });
+    }
+}
+
+/// One-shot dummy inference per loaded backend to force Metal kernel
+/// compilation + KV cache allocation. Errors are swallowed: a warm-up
+/// failure is not user-visible and the first real dictation will surface
+/// any genuine problem through its normal error path.
+fn warm_up(whisper: Option<Arc<WhisperBackend>>, llama: Option<Arc<LlamaBackend>>) {
+    if let Some(w) = whisper {
+        // 1 second of silence at 16 kHz mono — long enough for whisper to
+        // exercise its full encode/decode path without producing real text.
+        // Language pinned ("en") so it doesn't burn a language-detection pass.
+        let silence = vec![0.0_f32; 16_000];
+        match w.transcribe_samples(&silence, "en") {
+            Ok(_) => tracing::info!("whisper warm-up completed"),
+            Err(e) => tracing::warn!(?e, "whisper warm-up failed (non-fatal)"),
+        }
+    }
+    if let Some(l) = llama {
+        // Single-token generation is enough to force kernel compile + KV
+        // alloc. Empty system + a one-character user prompt; max_tokens=1
+        // keeps the work minimal.
+        let req = ChatRequest {
+            system: None,
+            history: vec![],
+            user: "a".into(),
+            temperature: 0.0,
+            max_tokens: 1,
+            stop: vec![],
+        };
+        match l.chat_sync(req) {
+            Ok(_) => tracing::info!("llama warm-up completed"),
+            Err(e) => tracing::warn!(?e, "llama warm-up failed (non-fatal)"),
+        }
+    }
 }

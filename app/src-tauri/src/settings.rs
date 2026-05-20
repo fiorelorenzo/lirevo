@@ -18,7 +18,7 @@ pub enum Hotkey {
 /// Bump when introducing a new one-shot migration in [`Settings::migrate`].
 /// Existing `settings.json` files written before the bump carry a lower
 /// `schema_version` (or none at all → 0) and the migration runs once.
-const SCHEMA_VERSION: u32 = 1;
+const SCHEMA_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -36,6 +36,25 @@ pub struct Settings {
     pub paste_delay_ms: u32,
 
     pub launch_at_login: bool,
+    /// Start the app without opening any window. Combined with
+    /// `launch_at_login`, this gives a true background-only experience —
+    /// the tray icon is the only UI affordance until the user clicks it.
+    /// Has no effect on subsequent re-launches once a window is already
+    /// open. Defaults to `false` (visible window at startup) so first-run
+    /// users always see the wizard / home.
+    #[serde(default)]
+    pub launch_minimized: bool,
+    /// Hide the main window on close instead of destroying it; keep the
+    /// app running in the tray so the hotkey stays live. The macOS
+    /// convention for menu-bar-first apps. Defaults to `true`.
+    #[serde(default = "default_true")]
+    pub stay_running_on_window_close: bool,
+    /// After load_models succeeds, run a single tiny warm-up inference on
+    /// each loaded backend so the first real dictation doesn't pay the
+    /// Metal-kernel-compile + KV-cache-allocate cost. Trades a few hundred
+    /// ms at startup for snappier first hotkey press. Defaults to `true`.
+    #[serde(default = "default_true")]
+    pub keep_models_warm: bool,
     pub ui_language: String,
     pub onboarding_complete: bool,
     pub app_version: String,
@@ -58,6 +77,9 @@ impl Default for Settings {
             force_pasteboard: false,
             paste_delay_ms: 120,
             launch_at_login: false,
+            launch_minimized: false,
+            stay_running_on_window_close: true,
+            keep_models_warm: true,
             ui_language: "en".into(),
             onboarding_complete: false,
             app_version: env!("CARGO_PKG_VERSION").to_string(),
@@ -65,6 +87,8 @@ impl Default for Settings {
         }
     }
 }
+
+fn default_true() -> bool { true }
 
 /// Default dictation language derived from the OS locale (e.g. `it-IT` →
 /// `it`). Whisper auto-detect on very short utterances often hallucinates
@@ -227,6 +251,38 @@ mod tests {
         assert_eq!(s.paste_delay_ms, 120);
         assert!(!s.onboarding_complete);
         assert!(!s.force_pasteboard);
+        // Background-mode defaults: warm + stay-on-close ON, launch-minimized OFF
+        // so first-run still sees the wizard.
+        assert!(s.keep_models_warm);
+        assert!(s.stay_running_on_window_close);
+        assert!(!s.launch_minimized);
+    }
+
+    #[test]
+    fn legacy_settings_without_new_fields_get_correct_defaults() {
+        // Simulates a v1 settings.json from before this change: missing the
+        // three new fields. Serde defaults must populate them so the user
+        // doesn't lose the keep-warm / stay-running behaviors on upgrade.
+        let legacy = json!({
+            "whisperModelPath": null,
+            "llmModelPath": null,
+            "llmCtxSize": 4096,
+            "whisperCoreMLDisable": false,
+            "hotkey": "right-option",
+            "language": "en",
+            "inputDeviceName": null,
+            "forcePasteboard": false,
+            "pasteDelayMs": 120,
+            "launchAtLogin": false,
+            "uiLanguage": "en",
+            "onboardingComplete": true,
+            "appVersion": "0.4.0",
+            "schemaVersion": 1,
+        });
+        let s: Settings = serde_json::from_value(legacy).unwrap();
+        assert!(s.keep_models_warm);
+        assert!(s.stay_running_on_window_close);
+        assert!(!s.launch_minimized);
     }
 
     #[test]
