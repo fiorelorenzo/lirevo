@@ -107,6 +107,7 @@
   },
   "home": {
     "title": "Hold to dictate",
+    "ready_hint": "Press and hold the key, then speak. Release to type into the focused app.",
     "ready_body": "Hold {{hotkey}} anywhere to dictate.",
     "loading": "Loading models...",
     "setup_incomplete_title": "Setup incomplete",
@@ -117,7 +118,10 @@
     "retry": "Open Settings",
     "models_not_loaded_title": "Models not loaded",
     "models_not_loaded_body": "Open Settings to pick or download Whisper + LLM models.",
-    "open_settings": "Open Settings"
+    "open_settings": "Open Settings",
+    "settings": "Settings",
+    "status_speech": "Speech",
+    "status_cleanup": "Cleanup"
   },
   "common": {
     "ok": "OK"

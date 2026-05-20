@@ -121,7 +121,7 @@
       </div>
     {:else if $modelState.kind === 'error' || ($modelState.kind === 'ready' && !($modelState as any).whisper)}
       <div class="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center">
-        <span class="text-destructive text-2xl">⚠</span>
+        <AlertTriangle class="h-7 w-7 text-destructive" />
       </div>
       <div class="text-center max-w-sm">
         <h1 class="text-xl font-semibold mb-2">{t('home.sidecar_down_title')}</h1>
@@ -145,28 +145,70 @@
         <Button onclick={() => navigate('settings')}>{t('home.open_settings')}</Button>
       </div>
     {:else if canDictate && $settings}
-      <h1 class="text-2xl font-semibold">{t('home.title')}</h1>
-      <KeyChip
-        label={HOTKEY_LABEL[$settings.hotkey] || ''}
-        glyph={HOTKEY_GLYPH[$settings.hotkey]}
-        size="lg"
-        selected
-      />
-      <div class="mt-8 px-4 py-2 rounded-full bg-muted/50 backdrop-blur-sm">
-        <p class="text-xs text-muted-foreground">
-          {#if $modelState.kind === 'ready'}
-            🟢 {($modelState as any).whisper ? '✓ STT' : '✗ STT'} · {($modelState as any).llama ? '✓ LLM' : '✗ LLM'}
-          {/if}
-        </p>
+      <div class="text-center space-y-2">
+        <h1 class="text-3xl font-semibold tracking-tight">{t('home.title')}</h1>
+        <p class="text-sm text-muted-foreground">{t('home.ready_hint')}</p>
+      </div>
+      <div class="relative">
+        <!-- Soft halo behind the key chip — subtle elevation cue without a hard shadow. -->
+        <div class="absolute -inset-8 rounded-[32px] bg-primary/[0.04] blur-2xl pointer-events-none"></div>
+        <KeyChip
+          label={HOTKEY_LABEL[$settings.hotkey] || ''}
+          glyph={HOTKEY_GLYPH[$settings.hotkey]}
+          size="lg"
+          selected
+        />
       </div>
     {/if}
   </div>
 
-  <button
-    onclick={() => navigate('settings')}
-    class="absolute bottom-4 right-4 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-  >
-    <Settings class="h-3.5 w-3.5" />
-    Settings
-  </button>
+  <!--
+    Status / settings bar. Hairline-divided footer modeled on Linear/Raycast.
+    Shows the model state with two small dots on the left + Settings link on
+    the right. Only rendered with content when the canDictate hero is up;
+    other branches (loading, error, idle, onboarding) hide the model status
+    and just keep the Settings link.
+  -->
+  <footer class="relative -mx-8 -mb-8 mt-4 px-6 py-3 border-t border-border/60 backdrop-blur-md flex items-center justify-between text-xs">
+    <div class="flex items-center gap-4">
+      {#if $modelState.kind === 'ready' && canDictate}
+        {@const whisperReady = ($modelState as any).whisper === true}
+        {@const llmReady = ($modelState as any).llama === true}
+        <span class="flex items-center gap-1.5">
+          <span class="relative inline-flex h-1.5 w-1.5">
+            {#if whisperReady}
+              <span class="absolute inset-0 rounded-full bg-success/60 animate-ping"></span>
+              <span class="relative inline-flex h-full w-full rounded-full bg-success"></span>
+            {:else}
+              <span class="inline-flex h-full w-full rounded-full bg-muted-foreground/30"></span>
+            {/if}
+          </span>
+          <span class={whisperReady ? 'text-foreground' : 'text-muted-foreground'}>
+            {t('home.status_speech')}
+          </span>
+        </span>
+        <span class="text-border" aria-hidden="true">·</span>
+        <span class="flex items-center gap-1.5">
+          <span class="relative inline-flex h-1.5 w-1.5">
+            {#if llmReady}
+              <span class="absolute inset-0 rounded-full bg-success/60 animate-ping"></span>
+              <span class="relative inline-flex h-full w-full rounded-full bg-success"></span>
+            {:else}
+              <span class="inline-flex h-full w-full rounded-full bg-muted-foreground/30"></span>
+            {/if}
+          </span>
+          <span class={llmReady ? 'text-foreground' : 'text-muted-foreground'}>
+            {t('home.status_cleanup')}
+          </span>
+        </span>
+      {/if}
+    </div>
+    <button
+      onclick={() => navigate('settings')}
+      class="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors px-2 py-1 -my-1 rounded-md hover:bg-muted/60"
+    >
+      <Settings class="h-3.5 w-3.5" />
+      {t('home.settings')}
+    </button>
+  </footer>
 </div>
