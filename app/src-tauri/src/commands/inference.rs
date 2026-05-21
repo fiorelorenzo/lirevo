@@ -266,15 +266,24 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
 /// compilation + KV cache allocation up front. Errors are swallowed: a
 /// warm-up failure is not user-visible and the first real dictation
 /// will surface any genuine problem through its normal error path.
+///
+/// Each call logs an `elapsed_ms` field so the log file is a quick
+/// sanity check that the warm-up is doing real work — a sub-50ms
+/// elapsed means whisper-rs / llama-cpp-2 are skipping the inference
+/// (e.g. silence was rejected too early), while a hundreds-of-ms
+/// elapsed confirms the GPU pipeline actually built kernels and
+/// allocated buffers.
 fn warm_up(whisper: Option<Arc<WhisperBackend>>, llama: Option<Arc<LlamaBackend>>) {
     if let Some(w) = whisper {
         // 1 second of silence at 16 kHz mono — long enough for whisper to
         // exercise its full encode/decode path without producing real text.
         // Language pinned ("en") so it doesn't burn a language-detection pass.
         let silence = vec![0.0_f32; 16_000];
+        let t0 = std::time::Instant::now();
+        let elapsed_ms = || u64::try_from(t0.elapsed().as_millis()).unwrap_or(u64::MAX);
         match w.transcribe_samples(&silence, "en") {
-            Ok(_) => tracing::info!("whisper warm-up completed"),
-            Err(e) => tracing::warn!(?e, "whisper warm-up failed (non-fatal)"),
+            Ok(_) => tracing::info!(elapsed_ms = elapsed_ms(), "whisper warm-up completed"),
+            Err(e) => tracing::warn!(?e, elapsed_ms = elapsed_ms(), "whisper warm-up failed (non-fatal)"),
         }
     }
     if let Some(l) = llama {
@@ -289,9 +298,11 @@ fn warm_up(whisper: Option<Arc<WhisperBackend>>, llama: Option<Arc<LlamaBackend>
             max_tokens: 1,
             stop: vec![],
         };
+        let t0 = std::time::Instant::now();
+        let elapsed_ms = || u64::try_from(t0.elapsed().as_millis()).unwrap_or(u64::MAX);
         match l.chat_sync(req) {
-            Ok(_) => tracing::info!("llama warm-up completed"),
-            Err(e) => tracing::warn!(?e, "llama warm-up failed (non-fatal)"),
+            Ok(_) => tracing::info!(elapsed_ms = elapsed_ms(), "llama warm-up completed"),
+            Err(e) => tracing::warn!(?e, elapsed_ms = elapsed_ms(), "llama warm-up failed (non-fatal)"),
         }
     }
 }
