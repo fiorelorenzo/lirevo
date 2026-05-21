@@ -64,6 +64,16 @@
   async function grantMicrophone() {
     await withErrorToast(t('home.error.grant_microphone'), () => lda.promptMicrophone());
   }
+  async function openAccessibilitySettings() {
+    await withErrorToast(t('home.error.open_accessibility_settings'), () =>
+      lda.openSystemSettingsAccessibility(),
+    );
+  }
+  async function openMicrophoneSettings() {
+    await withErrorToast(t('home.error.open_microphone_settings'), () =>
+      lda.openSystemSettingsMicrophone(),
+    );
+  }
 </script>
 
 <div class="h-full flex flex-col p-8 relative">
@@ -88,7 +98,7 @@
         </p>
         <div class="flex flex-wrap gap-2 mt-3">
           {#if missingAccessibility}
-            <Button size="sm" variant="outline" onclick={() => lda.openSystemSettingsAccessibility()}>
+            <Button size="sm" variant="outline" onclick={openAccessibilitySettings}>
               Open Accessibility settings
             </Button>
           {/if}
@@ -98,7 +108,7 @@
                 Grant microphone access
               </Button>
             {:else}
-              <Button size="sm" variant="outline" onclick={() => lda.openSystemSettingsMicrophone()}>
+              <Button size="sm" variant="outline" onclick={openMicrophoneSettings}>
                 Open Microphone settings
               </Button>
             {/if}

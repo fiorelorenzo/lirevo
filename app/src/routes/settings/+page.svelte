@@ -20,7 +20,7 @@
     type InputDeviceEntry,
     type LocalModel,
   } from '$lib/tauri';
-  import { showToast } from '$lib/stores/toasts';
+  import { toastInfo, toastError, withErrorToast } from '$lib/stores/toasts';
   import type { UnlistenFn } from '@tauri-apps/api/event';
   import { page } from '$app/state';
   import { onDestroy, onMount } from 'svelte';
@@ -62,7 +62,12 @@
   let unlistenDownload: UnlistenFn | null = null;
 
   async function refreshModels() {
-    [catalog, local] = await Promise.all([lda.modelsCatalog(), lda.modelsListLocal()]);
+    const result = await withErrorToast(t('settings.models.error.refresh'), () =>
+      Promise.all([lda.modelsCatalog(), lda.modelsListLocal()]),
+    );
+    if (result !== null) {
+      [catalog, local] = result;
+    }
     modelsLoaded = true;
   }
 
@@ -130,9 +135,9 @@
     checkingUpdates = true;
     try {
       const info = await lda.checkForUpdates();
-      showToast('info', info.available ? `Update available: ${info.version}` : 'You are on the latest version.');
+      toastInfo(info.available ? `Update available: ${info.version}` : 'You are on the latest version.');
     } catch (e) {
-      showToast('error', `Update check failed: ${e}`);
+      toastError(`Update check failed: ${e}`);
     } finally {
       checkingUpdates = false;
     }

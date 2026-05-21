@@ -6,14 +6,13 @@
   import { Mic, Square, Check } from '@lucide/svelte';
   import PermissionStatus from '$lib/components/PermissionStatus.svelte';
   import { lda, type PermissionStatus as Status, type InputDeviceEntry } from '$lib/tauri';
+  import { toastError, withErrorToast } from '$lib/stores/toasts';
 
   async function openMicrophoneSettings() {
     console.info('[Microphone] open System Settings clicked');
-    try {
-      await lda.openSystemSettingsMicrophone();
-    } catch (e) {
-      console.error('[Microphone] open settings failed', e);
-    }
+    await withErrorToast(t('wizard.microphone.error.open_settings'), () =>
+      lda.openSystemSettingsMicrophone(),
+    );
   }
   import { settings, updateSettings } from '$lib/stores/settings.svelte';
   import { audioLevel } from '$lib/stores/recording';
@@ -61,11 +60,12 @@
   }
 
   async function refreshDevices() {
-    try {
-      devices = await lda.listInputDevices();
+    const result = await withErrorToast(t('wizard.microphone.error.list_devices'), () =>
+      lda.listInputDevices(),
+    );
+    if (result !== null) {
+      devices = result;
       console.info(`[Microphone] devices = ${JSON.stringify(devices)}`);
-    } catch (e) {
-      console.warn('[Microphone] listInputDevices failed', e);
     }
   }
 
@@ -116,7 +116,12 @@
           `[Microphone] post-prompt status = ${status} (${(performance.now() - t0).toFixed(0)}ms)`,
         );
       } catch (e) {
-        console.error('[Microphone] promptMicrophone failed', e);
+        // Inline `result = { kind: 'error', ... }` set below covers the
+        // user-visible message; the toast adds the actual exception reason
+        // (the inline path hardcodes a generic "permission was not granted"
+        // string that drops the underlying detail).
+        const reason = e instanceof Error ? e.message : String(e);
+        toastError(`${t('wizard.microphone.error.prompt')}: ${reason}`);
       }
       if (status !== 'granted') {
         const elapsed = performance.now() - t0;
@@ -183,12 +188,9 @@
 
   async function stopTest() {
     console.info('[Microphone] stopTest clicked');
-    try {
-      await lda.cancelTestMic();
-      console.info('[Microphone] cancelTestMic dispatched');
-    } catch (e) {
-      console.error('[Microphone] cancelTestMic failed', e);
-    }
+    await withErrorToast(t('wizard.microphone.error.cancel_test'), () =>
+      lda.cancelTestMic(),
+    );
   }
 
   async function selectDevice(name: string | null) {
