@@ -76,6 +76,16 @@
       "llm_section": "Language model",
       "use_existing": "Or use existing file"
     },
+    "background": {
+      "title": "How should it run?",
+      "body": "lda is built to live in the menu bar — these settings decide how present it should be.",
+      "launch_at_login": "Launch at login",
+      "launch_at_login_helper": "Start lda automatically when you sign in to your Mac. The hotkey is live as soon as the app is up.",
+      "launch_minimized": "Start hidden",
+      "launch_minimized_helper": "Skip opening a window at startup; the menu bar icon is the only entry point until you click it.",
+      "stay_running_on_window_close": "Stay in the menu bar when window closes",
+      "stay_running_on_window_close_helper": "Closing the window hides it instead of quitting. The hotkey keeps working; reopen from the menu bar."
+    },
     "hotkey": {
       "title": "Choose your hotkey",
       "body": "Hold this key while speaking. Release to dictate into the focused app.",
@@ -108,7 +118,7 @@
       "stay_running_on_window_close": "Stay running on window close",
       "stay_running_on_window_close_helper": "Hide the window instead of quitting when you close it. The hotkey keeps working; reopen from the tray.",
       "keep_models_warm": "Keep models warm",
-      "keep_models_warm_helper": "Run a tiny warm-up inference after loading so the first dictation isn't delayed by Metal kernel compile + KV cache allocation."
+      "keep_models_warm_helper": "Run a tiny warm-up inference after loading so the first dictation isn't delayed by one-time GPU and cache initialization."
     },
     "models": {
       "whisper_model": "Whisper model",

@@ -8,6 +8,7 @@
   import Accessibility from '$lib/components/wizard/Accessibility.svelte';
   import Microphone from '$lib/components/wizard/Microphone.svelte';
   import Models from '$lib/components/wizard/Models.svelte';
+  import BackgroundMode from '$lib/components/wizard/BackgroundMode.svelte';
   import Hotkey from '$lib/components/wizard/Hotkey.svelte';
   import { lda } from '$lib/tauri';
   import { withErrorToast } from '$lib/stores/toasts';
@@ -17,7 +18,7 @@
   let direction = $state<'forward' | 'backward'>('forward');
   let skipPromptOpen = $state(false);
 
-  const STEPS = 5;
+  const STEPS = 6;
 
   function next() { direction = 'forward'; step = Math.min(step + 1, STEPS - 1); }
   function back() { direction = 'backward'; step = Math.max(step - 1, 0); }
@@ -43,7 +44,8 @@
         {:else if step === 1}<Accessibility onnext={next} />
         {:else if step === 2}<Microphone onnext={next} />
         {:else if step === 3}<Models onnext={next} />
-        {:else if step === 4}<Hotkey onfinish={finish} />
+        {:else if step === 4}<BackgroundMode onnext={next} />
+        {:else if step === 5}<Hotkey onfinish={finish} />
         {/if}
       </div>
     {/key}

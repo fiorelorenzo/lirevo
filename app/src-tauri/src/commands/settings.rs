@@ -32,6 +32,27 @@ pub async fn update_settings(
             let state = app2.state::<AppState>();
             crate::commands::inference::load_models(&app2, state).await;
         });
+    } else if !before.keep_models_warm && after.keep_models_warm {
+        // User flipped keep-warm on with the models already loaded (no
+        // env-affecting change to trigger a reload). Without this path,
+        // the user has to either change a model path or restart the app
+        // before the warm-up actually runs against the live handles —
+        // which doesn't match the intent of "turn it on so my next
+        // dictation is fast".
+        //
+        // Skipped in the env_affecting branch above because that reload
+        // will warm up at the end of load_models anyway; firing here too
+        // would warm a cold (still-loading) handle and then fight the
+        // reload's own warm-up on the new handle.
+        let (whisper, llama) = {
+            let inner = state.inner.lock().unwrap();
+            (inner.whisper.clone(), inner.llama.clone())
+        };
+        if whisper.is_some() || llama.is_some() {
+            tokio::task::spawn_blocking(move || {
+                crate::commands::inference::warm_up(whisper, llama);
+            });
+        }
     }
     if before.hotkey != after.hotkey {
         crate::hotkey::reinstall(&app, after.hotkey)?;
