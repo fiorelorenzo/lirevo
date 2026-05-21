@@ -122,6 +122,8 @@
       "use_button": "Use",
       "delete_tooltip": "Uninstall this model",
       "delete_aria": "Uninstall {{name}}",
+      "delete_blocked_tooltip": "Can't uninstall the model currently in use — switch to another first.",
+      "delete_blocked_aria": "Uninstall {{name}} (disabled — currently in use)",
       "delete_confirm_title": "Uninstall {{name}}?",
       "delete_confirm_body": "Removes the file ({{size}}) from disk. You can re-download it any time. If this model is currently selected, the path will be cleared and dictation will fall back to whatever's left.",
       "delete_confirm_action": "Uninstall",

@@ -102,37 +102,6 @@
       </div>
       <p class="text-sm text-muted-foreground mt-1">{entry.description}</p>
 
-      {#if entry.scores}
-        {@const s = entry.scores}
-        <div
-          class="mt-3 grid grid-cols-4 gap-2 text-[11px] tabular-nums"
-          aria-label="Benchmark scores (0-100)"
-        >
-          {#each [
-            { label: 'Quality',  v: s.quality, hint: `chrF̄ ${s.rawChrfMean.toFixed(2)}` },
-            { label: 'Latency',  v: s.latency, hint: s.rawWarmP50Ms != null ? `${s.rawWarmP50Ms} ms` : '' },
-            { label: 'RAM',      v: s.ram,     hint: s.rawPeakRssKb != null ? `${Math.round(s.rawPeakRssKb / 1024)} MB` : '' },
-            { label: 'Score',    v: s.compositeWeighted, hint: 'weighted composite' },
-          ] as { label, v, hint } (label)}
-            <div
-              class="rounded-md border border-border/60 px-2 py-1.5"
-              title={hint}
-            >
-              <div class="flex items-baseline justify-between">
-                <span class="text-muted-foreground">{label}</span>
-                <span class={`font-medium ${scoreTone(v)}`}>{v}</span>
-              </div>
-              <div class="mt-1 h-1 rounded-full bg-border/50 overflow-hidden">
-                <div
-                  class="h-full bg-primary transition-[width] duration-300"
-                  style="width: {Math.max(0, Math.min(100, v))}%"
-                ></div>
-              </div>
-            </div>
-          {/each}
-        </div>
-      {/if}
-
       {#if $progress && $progress.state === 'downloading'}
         <div class="mt-3 space-y-1">
           <Progress value={($progress.bytesReceived / Math.max(1, $progress.bytesTotal)) * 100} class="h-1.5" />
@@ -187,17 +156,71 @@
   </div>
 
   <!--
+    Benchmark scores get a full-width row below the header instead of
+    nesting inside the flex-1 column. That made chip widths shrink
+    whenever the right-hand action area was wide (e.g. "[Installed] [Use]"
+    vs the more compact "[In use]"), so two adjacent cards in the list
+    would render their scores at different sizes. Pulling the grid out
+    makes width depend only on the card itself.
+    Right-padding the grid by `pr-10` keeps it clear of the trash icon
+    sitting in the bottom-right corner.
+  -->
+  {#if entry.scores}
+    {@const s = entry.scores}
+    <div
+      class="mt-3 pr-10 grid grid-cols-4 gap-2 text-[11px] tabular-nums"
+      aria-label="Benchmark scores (0-100)"
+    >
+      {#each [
+        { label: 'Quality',  v: s.quality, hint: `chrF̄ ${s.rawChrfMean.toFixed(2)}` },
+        { label: 'Latency',  v: s.latency, hint: s.rawWarmP50Ms != null ? `${s.rawWarmP50Ms} ms` : '' },
+        { label: 'RAM',      v: s.ram,     hint: s.rawPeakRssKb != null ? `${Math.round(s.rawPeakRssKb / 1024)} MB` : '' },
+        { label: 'Score',    v: s.compositeWeighted, hint: 'weighted composite' },
+      ] as { label, v, hint } (label)}
+        <div
+          class="rounded-md border border-border/60 px-2 py-1.5"
+          title={hint}
+        >
+          <div class="flex items-baseline justify-between">
+            <span class="text-muted-foreground">{label}</span>
+            <span class={`font-medium ${scoreTone(v)}`}>{v}</span>
+          </div>
+          <div class="mt-1 h-1 rounded-full bg-border/50 overflow-hidden">
+            <div
+              class="h-full bg-primary transition-[width] duration-300"
+              style="width: {Math.max(0, Math.min(100, v))}%"
+            ></div>
+          </div>
+        </div>
+      {/each}
+    </div>
+  {/if}
+
+  <!--
     Delete affordance is absolutely positioned in the bottom-right corner
-    of the card. Only rendered when the model is installed (no point
-    showing it for a model that's just a download placeholder).
+    of the card. Disabled (no click, dimmed) when this model is currently
+    in use — uninstalling the active model would tear down state that's
+    referenced by the live whisper / llama handles and produce a
+    confusing "model gone" error on the next dictation. Switch first,
+    then delete.
   -->
   {#if installed}
     <button
       type="button"
-      aria-label={t('settings.models.delete_aria', { name: entry.displayName })}
-      title={t('settings.models.delete_tooltip')}
+      disabled={selected}
+      aria-label={selected
+        ? t('settings.models.delete_blocked_aria', { name: entry.displayName })
+        : t('settings.models.delete_aria', { name: entry.displayName })}
+      title={selected
+        ? t('settings.models.delete_blocked_tooltip')
+        : t('settings.models.delete_tooltip')}
       onclick={() => (confirmOpen = true)}
-      class="absolute bottom-3 right-3 p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+      class={[
+        'absolute bottom-3 right-3 p-1.5 rounded-md transition-colors',
+        selected
+          ? 'text-muted-foreground/40 cursor-not-allowed'
+          : 'text-muted-foreground hover:text-destructive hover:bg-destructive/10',
+      ].join(' ')}
     >
       <Trash2 class="h-3.5 w-3.5" />
     </button>
