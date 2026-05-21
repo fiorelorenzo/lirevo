@@ -119,8 +119,12 @@ fn build_menu(app: &AppHandle, recording: bool, status_label: &str) -> Result<Me
     };
     let hotkey_item = MenuItem::with_id(app, "hotkey", &hotkey_label, false, None::<&str>).map_err(menu_err)?;
     let sep1 = PredefinedMenuItem::separator(app).map_err(menu_err)?;
+    // "Show window" exists primarily for the `launch_minimized` flow — the
+    // home window may never have been opened, and the user needs a single
+    // tray-clickable affordance to bring up the dashboard. Also useful in
+    // the close-to-tray flow when the home window is just hidden.
+    let show_item = MenuItem::with_id(app, "show-home", "Show local-dictation-app", true, None::<&str>).map_err(menu_err)?;
     let settings_item = MenuItem::with_id(app, "open-settings", "Settings...", true, Some("CmdOrCtrl+,")).map_err(menu_err)?;
-    let mm_item = MenuItem::with_id(app, "open-models", "Models...", true, None::<&str>).map_err(menu_err)?;
     let wiz_item = MenuItem::with_id(app, "open-wizard", "Re-run setup wizard", true, None::<&str>).map_err(menu_err)?;
     let sep2 = PredefinedMenuItem::separator(app).map_err(menu_err)?;
     let logs_item = MenuItem::with_id(app, "view-logs", "View logs", true, None::<&str>).map_err(menu_err)?;
@@ -130,7 +134,7 @@ fn build_menu(app: &AppHandle, recording: bool, status_label: &str) -> Result<Me
 
     Menu::with_items(app, &[
         &state_item, &hotkey_item, &sep1,
-        &settings_item, &mm_item, &wiz_item, &sep2,
+        &show_item, &settings_item, &wiz_item, &sep2,
         &logs_item, &updates_item, &sep3,
         &quit_item,
     ]).map_err(menu_err)
@@ -150,8 +154,8 @@ fn hotkey_display(h: crate::settings::Hotkey) -> &'static str {
 
 fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
     match event.id().as_ref() {
+        "show-home" => { let _ = crate::commands::windows::open_window_internal(app, "home"); }
         "open-settings" => { let _ = crate::commands::windows::open_window_internal(app, "settings"); }
-        "open-models" => { let _ = crate::commands::windows::open_settings_at_tab(app, "models"); }
         "open-wizard" => { let _ = crate::commands::windows::open_window_internal(app, "wizard"); }
         "view-logs" => {
             if let Ok(dir) = app.path().app_log_dir() {
