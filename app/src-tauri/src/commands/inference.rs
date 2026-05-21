@@ -273,7 +273,12 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
 /// (e.g. silence was rejected too early), while a hundreds-of-ms
 /// elapsed confirms the GPU pipeline actually built kernels and
 /// allocated buffers.
-fn warm_up(whisper: Option<Arc<WhisperBackend>>, llama: Option<Arc<LlamaBackend>>) {
+///
+/// Exposed at crate visibility so `commands::settings::update_settings`
+/// can also fire it when the user toggles `keep_models_warm` from off
+/// to on while models are already loaded — without this they'd have
+/// to either trigger a reload or restart the app to see the benefit.
+pub(crate) fn warm_up(whisper: Option<Arc<WhisperBackend>>, llama: Option<Arc<LlamaBackend>>) {
     if let Some(w) = whisper {
         // 1 second of silence at 16 kHz mono — long enough for whisper to
         // exercise its full encode/decode path without producing real text.
