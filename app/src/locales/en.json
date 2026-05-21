@@ -89,8 +89,8 @@
     "hotkey": {
       "title": "Choose your hotkey",
       "body": "Hold this key while speaking. Release to dictate into the focused app.",
-      "selected": "Selected:",
-      "finish": "✨ Finish setup"
+      "aria_group": "Push-to-talk key",
+      "finish": "Finish setup"
     }
   },
   "settings": {
