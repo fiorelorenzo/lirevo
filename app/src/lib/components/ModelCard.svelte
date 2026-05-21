@@ -70,16 +70,20 @@
   }
 </script>
 
-<div class="relative">
-<button
-  type="button"
-  onclick={() => installed && onselect?.()}
+<!--
+  Card is a passive container — selection is an explicit "Use" button next
+  to the Installed badge, not a whole-card click. The previous
+  click-anywhere-to-select pattern was prone to accidental selection when
+  the user was just trying to read scores or inspect the card.
+  Visual selected-state ring stays so the active model is unmistakable.
+-->
+<div
   class={[
-    'w-full p-4 bg-surface border-2 rounded-lg text-left transition-all duration-150',
-    'hover:-translate-y-px hover:shadow-md',
-    selected ? 'border-primary ring-2 ring-primary/30' : 'border-border hover:border-border-strong',
-    installed ? 'cursor-pointer' : 'cursor-default',
+    'relative w-full p-4 bg-surface border-2 rounded-lg text-left transition-colors duration-150',
+    selected ? 'border-primary ring-2 ring-primary/30' : 'border-border',
   ].join(' ')}
+  role="group"
+  aria-label={entry.displayName}
 >
   <div class="flex items-start gap-4">
     <div class="flex-1 min-w-0">
@@ -146,12 +150,26 @@
       {/if}
     </div>
 
-    <div class="shrink-0">
-      {#if installed}
-        <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-success/10 text-success text-xs font-medium">
+    <div class="shrink-0 flex items-center gap-2">
+      {#if installed && selected}
+        <!--
+          Selected = currently in use. Use the primary color (matches the
+          surrounding ring) so the active state reads as a single coherent
+          signal across border + badge. No "Use" button needed — it's
+          already the active one.
+        -->
+        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
           <Check class="h-3 w-3" />
-          Installed
-        </div>
+          {t('settings.models.in_use_badge')}
+        </span>
+      {:else if installed}
+        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-success/10 text-success text-xs font-medium">
+          <Check class="h-3 w-3" />
+          {t('settings.models.installed_badge')}
+        </span>
+        <Button variant="outline" size="sm" onclick={() => onselect?.()}>
+          {t('settings.models.use_button')}
+        </Button>
       {:else if $progress && ($progress.state === 'downloading' || $progress.state === 'queued')}
         <Button variant="ghost" size="sm" onclick={cancelDownload}>
           <X class="h-3 w-3 mr-1" />
@@ -167,13 +185,11 @@
       {/if}
     </div>
   </div>
-</button>
 
   <!--
-    Delete affordance lives OUTSIDE the card-button to avoid nested
-    interactive content (HTML forbids <button> inside <button>). Sits
-    absolutely positioned in the bottom-right; only rendered when the
-    model is installed.
+    Delete affordance is absolutely positioned in the bottom-right corner
+    of the card. Only rendered when the model is installed (no point
+    showing it for a model that's just a download placeholder).
   -->
   {#if installed}
     <button
