@@ -63,6 +63,20 @@ clean:
     cargo clean
     rm -rf app/node_modules app/src-tauri/target app/.svelte-kit app/build
 
+# Reset runtime state so the next `just dev-bundle` starts fresh: TCC
+# grants cleared, settings.json wiped, logs removed. Downloaded model
+# files are KEPT — they're multi-GB and rarely the thing you want to
+# re-pull. Use `just reset-all` to nuke those too. Refuses to run while
+# the app is alive.
+reset:
+    scripts/reset.sh
+
+# Same as `reset`, but also deletes the downloaded model files. Prompts
+# for confirmation before wiping so a fat-finger doesn't cost you a
+# multi-gigabyte re-download.
+reset-all:
+    scripts/reset.sh --models
+
 # Dev tool: run the refiner-stage model bake-off
 eval BACKENDS OUT="$(date +%Y-%m-%d)-bake-off":
     cargo run -p lda-eval --release -- run \
