@@ -13,22 +13,16 @@
   let status = $state<Status | null>(null);
   let pollTimer: ReturnType<typeof setInterval> | null = null;
 
-  // Only auto-advance if we observed a transition from non-granted to granted
-  // during this view. If the user navigates back to this step with permission
-  // already granted, we stay put — they must click Next themselves.
-  let observedNonGranted = $state(false);
-
+  // We poll the TCC status while this step is mounted (the user usually
+  // grants the permission in System Settings, not in the app, so we need
+  // to pick up the flip without focus events) but DO NOT auto-advance
+  // when it flips to `granted`. Every other wizard step requires an
+  // explicit Next click; auto-advancing here was a one-off "magic moment"
+  // that made the flow feel inconsistent — the user reported being
+  // surprised by the jump. Better to show the green "granted" status
+  // and let them click Next when they're ready.
   async function refresh() {
-    const newStatus = await lda.checkAccessibility();
-    status = newStatus;
-    if (newStatus !== 'granted') {
-      observedNonGranted = true;
-    } else if (observedNonGranted && pollTimer) {
-      // Transitioned denied/not_determined → granted during this view.
-      clearInterval(pollTimer);
-      pollTimer = null;
-      setTimeout(() => onnext(), 800);
-    }
+    status = await lda.checkAccessibility();
   }
 
   async function prompt() {
