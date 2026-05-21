@@ -12,7 +12,7 @@
     installed: boolean;
     selected: boolean;
     onselect?: () => void;
-    ondelete?: () => void;
+    ondelete?: () => void | Promise<void>;
   }
   let { entry, installed, selected, onselect, ondelete }: Props = $props();
 
@@ -52,11 +52,19 @@
 
   async function confirmDelete() {
     deleting = true;
+    console.info(`[ModelCard] uninstall ${entry.id}: start`);
     try {
       await lda.modelsDelete(entry.id);
-      ondelete?.();
+      console.info(`[ModelCard] uninstall ${entry.id}: backend ok, refreshing list`);
+      // Await the refresh so the UI is in sync BEFORE the dialog closes —
+      // otherwise the user can see the "Installed" badge still visible for a
+      // tick while the list re-fetches, which reads as "delete didn't work".
+      await ondelete?.();
+      console.info(`[ModelCard] uninstall ${entry.id}: refresh complete`);
     } catch (e) {
-      console.error('modelsDelete', e);
+      console.error('[ModelCard] uninstall failed', e);
+      // Backend also emits a toast for fatal errors; this catch keeps the
+      // dialog responsive (so it can be dismissed) when the JS side throws.
     } finally {
       deleting = false;
       confirmOpen = false;
