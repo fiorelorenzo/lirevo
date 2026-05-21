@@ -104,7 +104,11 @@
       "delete_confirm_title": "Uninstall {{name}}?",
       "delete_confirm_body": "Removes the file ({{size}}) from disk. You can re-download it any time. If this model is currently selected, the path will be cleared and dictation will fall back to whatever's left.",
       "delete_confirm_action": "Uninstall",
-      "delete_confirm_cancel": "Cancel"
+      "delete_confirm_in_progress": "Uninstalling...",
+      "delete_confirm_cancel": "Cancel",
+      "uninstall_failed": "Uninstall {{name}}",
+      "download_failed": "Download {{name}}",
+      "cancel_failed": "Cancel download for {{name}}"
     },
     "hotkey": {
       "label": "Push-to-talk key"
@@ -118,6 +122,10 @@
     }
   },
   "home": {
+    "error": {
+      "grant_microphone": "Grant microphone access",
+      "retry_hotkey": "Reinstall hotkey"
+    },
     "title": "Hold to dictate",
     "ready_hint": "Press and hold the key, then speak. Release to type into the focused app.",
     "ready_body": "Hold {{hotkey}} anywhere to dictate.",

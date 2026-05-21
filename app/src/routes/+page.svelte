@@ -9,6 +9,7 @@
   import Logo from '$lib/components/Logo.svelte';
   import { Button } from '$lib/components/ui/button';
   import { lda } from '$lib/tauri';
+  import { withErrorToast } from '$lib/stores/toasts';
 
   const HOTKEY_GLYPH: Record<string, string> = {
     'right-option': '⌥',
@@ -44,7 +45,7 @@
   $effect(() => {
     const current = $permissionsState.accessibility;
     if (lastAccessibility !== 'granted' && current === 'granted') {
-      void lda.retryHotkeyInstall().catch((e) => console.warn('retryHotkeyInstall', e));
+      void withErrorToast(t('home.error.retry_hotkey'), () => lda.retryHotkeyInstall());
     }
     lastAccessibility = current;
   });
@@ -61,11 +62,7 @@
   let hasPermissionIssue = $derived(missingAccessibility || missingMicrophone);
 
   async function grantMicrophone() {
-    try {
-      await lda.promptMicrophone();
-    } catch (e) {
-      console.warn('promptMicrophone', e);
-    }
+    await withErrorToast(t('home.error.grant_microphone'), () => lda.promptMicrophone());
   }
 </script>
 
