@@ -243,10 +243,10 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
     crate::register_quit_safety_atexit();
 
     // Warm up the loaded backends so the first real dictation doesn't pay
-    // the Metal-kernel-compile + KV-cache-allocate cost. Gated by the
-    // `keep_models_warm` setting (default on). Runs on a blocking thread —
-    // it's a few hundred ms of inference and we don't want to stall the
-    // tokio runtime.
+    // the one-time GPU-kernel-compile + KV-cache-allocate cost. Gated by
+    // the `keep_models_warm` setting (default on). Runs on a blocking
+    // thread — it's a few hundred ms of inference and we don't want to
+    // stall the tokio runtime.
     let (keep_warm, whisper_for_warmup, llama_for_warmup) = {
         let inner = state.inner.lock().unwrap();
         (
@@ -262,10 +262,10 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
     }
 }
 
-/// One-shot dummy inference per loaded backend to force Metal kernel
-/// compilation + KV cache allocation. Errors are swallowed: a warm-up
-/// failure is not user-visible and the first real dictation will surface
-/// any genuine problem through its normal error path.
+/// One-shot dummy inference per loaded backend to force GPU kernel
+/// compilation + KV cache allocation up front. Errors are swallowed: a
+/// warm-up failure is not user-visible and the first real dictation
+/// will surface any genuine problem through its normal error path.
 fn warm_up(whisper: Option<Arc<WhisperBackend>>, llama: Option<Arc<LlamaBackend>>) {
     if let Some(w) = whisper {
         // 1 second of silence at 16 kHz mono — long enough for whisper to

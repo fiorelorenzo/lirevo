@@ -51,8 +51,9 @@ pub struct Settings {
     pub stay_running_on_window_close: bool,
     /// After load_models succeeds, run a single tiny warm-up inference on
     /// each loaded backend so the first real dictation doesn't pay the
-    /// Metal-kernel-compile + KV-cache-allocate cost. Trades a few hundred
-    /// ms at startup for snappier first hotkey press. Defaults to `true`.
+    /// one-time GPU-kernel-compile + KV-cache-allocate cost. Trades a few
+    /// hundred ms at startup for snappier first hotkey press. Defaults to
+    /// `true`.
     #[serde(default = "default_true")]
     pub keep_models_warm: bool,
     pub ui_language: String,
