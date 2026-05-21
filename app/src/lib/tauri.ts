@@ -76,7 +76,7 @@ export interface DownloadProgress {
 }
 
 export interface Toast {
-  kind: 'info' | 'warn' | 'error';
+  kind: 'info' | 'warn' | 'error' | 'success';
   message: string;
 }
 

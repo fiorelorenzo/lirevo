@@ -4,6 +4,7 @@
   import { Keyboard, ArrowRight, MousePointerClick, Type } from '@lucide/svelte';
   import PermissionStatus from '$lib/components/PermissionStatus.svelte';
   import { lda, type PermissionStatus as Status } from '$lib/tauri';
+  import { withErrorToast } from '$lib/stores/toasts';
   import { t } from '$lib/i18n';
 
   interface Props { onnext: () => void; }
@@ -31,7 +32,9 @@
   }
 
   async function prompt() {
-    await lda.promptAccessibility();
+    await withErrorToast(t('wizard.accessibility.error.prompt'), () =>
+      lda.promptAccessibility(),
+    );
   }
 
   onMount(() => {

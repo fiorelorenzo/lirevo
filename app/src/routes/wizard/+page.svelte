@@ -10,6 +10,7 @@
   import Models from '$lib/components/wizard/Models.svelte';
   import Hotkey from '$lib/components/wizard/Hotkey.svelte';
   import { lda } from '$lib/tauri';
+  import { withErrorToast } from '$lib/stores/toasts';
   import { t } from '$lib/i18n';
 
   let step = $state(0);
@@ -22,7 +23,7 @@
   function back() { direction = 'backward'; step = Math.max(step - 1, 0); }
 
   async function finish() {
-    await lda.completeWizard();
+    await withErrorToast(t('wizard.error.complete'), () => lda.completeWizard());
   }
 </script>
 

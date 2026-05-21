@@ -9,6 +9,7 @@
   import Logo from '$lib/components/Logo.svelte';
   import { Button } from '$lib/components/ui/button';
   import { lda } from '$lib/tauri';
+  import { withErrorToast } from '$lib/stores/toasts';
 
   const HOTKEY_GLYPH: Record<string, string> = {
     'right-option': '⌥',
@@ -44,7 +45,7 @@
   $effect(() => {
     const current = $permissionsState.accessibility;
     if (lastAccessibility !== 'granted' && current === 'granted') {
-      void lda.retryHotkeyInstall().catch((e) => console.warn('retryHotkeyInstall', e));
+      void withErrorToast(t('home.error.retry_hotkey'), () => lda.retryHotkeyInstall());
     }
     lastAccessibility = current;
   });
@@ -61,11 +62,17 @@
   let hasPermissionIssue = $derived(missingAccessibility || missingMicrophone);
 
   async function grantMicrophone() {
-    try {
-      await lda.promptMicrophone();
-    } catch (e) {
-      console.warn('promptMicrophone', e);
-    }
+    await withErrorToast(t('home.error.grant_microphone'), () => lda.promptMicrophone());
+  }
+  async function openAccessibilitySettings() {
+    await withErrorToast(t('home.error.open_accessibility_settings'), () =>
+      lda.openSystemSettingsAccessibility(),
+    );
+  }
+  async function openMicrophoneSettings() {
+    await withErrorToast(t('home.error.open_microphone_settings'), () =>
+      lda.openSystemSettingsMicrophone(),
+    );
   }
 </script>
 
@@ -91,7 +98,7 @@
         </p>
         <div class="flex flex-wrap gap-2 mt-3">
           {#if missingAccessibility}
-            <Button size="sm" variant="outline" onclick={() => lda.openSystemSettingsAccessibility()}>
+            <Button size="sm" variant="outline" onclick={openAccessibilitySettings}>
               Open Accessibility settings
             </Button>
           {/if}
@@ -101,7 +108,7 @@
                 Grant microphone access
               </Button>
             {:else}
-              <Button size="sm" variant="outline" onclick={() => lda.openSystemSettingsMicrophone()}>
+              <Button size="sm" variant="outline" onclick={openMicrophoneSettings}>
                 Open Microphone settings
               </Button>
             {/if}

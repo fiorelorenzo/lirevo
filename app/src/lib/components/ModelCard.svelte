@@ -3,7 +3,9 @@
   import { Button } from '$lib/components/ui/button';
   import { Progress } from '$lib/components/ui/progress';
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
+  import Spinner from '$lib/components/Spinner.svelte';
   import { progressFor } from '$lib/stores/downloads';
+  import { withErrorToast } from '$lib/stores/toasts';
   import { lda, type CatalogEntry } from '$lib/tauri';
   import { t } from '$lib/i18n';
 
@@ -12,7 +14,7 @@
     installed: boolean;
     selected: boolean;
     onselect?: () => void;
-    ondelete?: () => void;
+    ondelete?: () => void | Promise<void>;
   }
   let { entry, installed, selected, onselect, ondelete }: Props = $props();
 
@@ -35,30 +37,34 @@
   }
 
   async function startDownload() {
-    try {
-      await lda.modelsDownload(entry.id);
-    } catch (e) {
-      console.error(e);
-    }
+    await withErrorToast(t('settings.models.download_failed', { name: entry.displayName }), () =>
+      lda.modelsDownload(entry.id),
+    );
   }
 
   async function cancelDownload() {
-    try {
-      await lda.modelsCancelDownload(entry.id);
-    } catch (e) {
-      console.error(e);
-    }
+    await withErrorToast(t('settings.models.cancel_failed', { name: entry.displayName }), () =>
+      lda.modelsCancelDownload(entry.id),
+    );
   }
 
   async function confirmDelete() {
     deleting = true;
-    try {
-      await lda.modelsDelete(entry.id);
-      ondelete?.();
-    } catch (e) {
-      console.error('modelsDelete', e);
-    } finally {
-      deleting = false;
+    const result = await withErrorToast(
+      t('settings.models.uninstall_failed', { name: entry.displayName }),
+      async () => {
+        await lda.modelsDelete(entry.id);
+        // Await the refresh so the UI is in sync BEFORE the dialog closes —
+        // otherwise the "Installed" badge lingers for a tick while the list
+        // re-fetches, which reads as "delete didn't work".
+        await ondelete?.();
+      },
+    );
+    deleting = false;
+    // Close the dialog on success; keep it open on failure so the user can
+    // see the destructive button state + the toast at once, and retry without
+    // clicking trash again.
+    if (result !== null) {
       confirmOpen = false;
     }
   }
@@ -194,7 +200,11 @@
     </AlertDialog.Header>
     <AlertDialog.Footer>
       <AlertDialog.Action variant="destructive" disabled={deleting} onclick={confirmDelete}>
-        {t('settings.models.delete_confirm_action')}
+        {#if deleting}
+          <Spinner size="sm" label={t('settings.models.delete_confirm_in_progress')} />
+        {:else}
+          {t('settings.models.delete_confirm_action')}
+        {/if}
       </AlertDialog.Action>
       <AlertDialog.Cancel variant="default" disabled={deleting}>
         {t('settings.models.delete_confirm_cancel')}

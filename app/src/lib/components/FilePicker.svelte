@@ -3,6 +3,8 @@
   import { Input } from '$lib/components/ui/input';
   import { FolderOpen } from '@lucide/svelte';
   import { lda, type FileFilter } from '$lib/tauri';
+  import { withErrorToast } from '$lib/stores/toasts';
+  import { t } from '$lib/i18n';
 
   interface Props {
     value: string | null;
@@ -13,7 +15,9 @@
   let { value = $bindable(null), filters, onpick, placeholder = 'No file selected' }: Props = $props();
 
   async function pick() {
-    const picked = await lda.pickFile(filters ?? []);
+    const picked = await withErrorToast(t('common.error.file_picker'), () =>
+      lda.pickFile(filters ?? []),
+    );
     if (picked) {
       value = picked;
       onpick?.(picked);

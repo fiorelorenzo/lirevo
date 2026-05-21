@@ -32,6 +32,7 @@ pub async fn models_delete(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<(), AppError> {
+    tracing::info!(id = %id, "models_delete: invoked");
     // Clear the path setting if the deleted model is the one currently
     // selected; otherwise the picker would still point at a now-missing
     // file and the next load_models would error. Done BEFORE the unlink
@@ -62,7 +63,8 @@ pub async fn models_delete(
         }
     }
     if !patch.is_empty() {
-        let _ = crate::commands::settings::update_settings(
+        tracing::info!(id = %id, ?patch, "models_delete: clearing active path setting");
+        crate::commands::settings::update_settings(
             app.clone(),
             state,
             serde_json::Value::Object(patch),
@@ -70,7 +72,18 @@ pub async fn models_delete(
         .await?;
     }
 
-    crate::models::delete_by_id(&app, &id)
-        .map_err(|e| AppError::Fs(e.to_string()))?;
-    Ok(())
+    let result = crate::models::delete_by_id(&app, &id)
+        .map_err(|e| AppError::Fs(e.to_string()));
+    match &result {
+        Ok(()) => tracing::info!(id = %id, "models_delete: success"),
+        Err(e) => {
+            tracing::warn!(id = %id, ?e, "models_delete: failed");
+            use tauri::Emitter;
+            let _ = app.emit(
+                "toast",
+                crate::commands::toast("error", format!("Uninstall failed: {e}")),
+            );
+        }
+    }
+    result
 }

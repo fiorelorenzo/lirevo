@@ -155,6 +155,7 @@ pub fn models_dir(app: &tauri::AppHandle) -> std::io::Result<PathBuf> {
 /// That blocks any (hypothetical) future bug where a catalog filename
 /// contains `..` traversal segments.
 pub fn delete_by_id(app: &tauri::AppHandle, id: &str) -> std::io::Result<()> {
+    tracing::info!(id, "delete_by_id: start");
     let entry = find_by_id(id).ok_or_else(|| {
         std::io::Error::new(std::io::ErrorKind::NotFound, format!("unknown model id: {id}"))
     })?;
@@ -162,21 +163,42 @@ pub fn delete_by_id(app: &tauri::AppHandle, id: &str) -> std::io::Result<()> {
     let dir_canon = std::fs::canonicalize(&dir)?;
 
     let main_path = dir.join(&entry.filename);
-    if let Ok(canon) = std::fs::canonicalize(&main_path) {
-        if !canon.starts_with(&dir_canon) {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::PermissionDenied,
-                "delete target escaped models directory",
-            ));
-        }
-        std::fs::remove_file(&canon)?;
-        tracing::info!(path = %canon.display(), "model file deleted");
+    tracing::info!(id, path = %main_path.display(), "delete_by_id: resolved main path");
+    // We do NOT silently skip when canonicalize fails: the UI only shows the
+    // trash icon for `installed` models, so a missing file here is a desync
+    // between `list_local` and `delete_by_id`. Surface it as a real error so
+    // we don't tell the user "deleted!" while leaving the state untouched.
+    let canon = std::fs::canonicalize(&main_path).map_err(|e| {
+        std::io::Error::new(
+            e.kind(),
+            format!(
+                "model file not at expected path {} ({})",
+                main_path.display(),
+                e
+            ),
+        )
+    })?;
+    if !canon.starts_with(&dir_canon) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!(
+                "delete target {} escaped models directory {}",
+                canon.display(),
+                dir_canon.display()
+            ),
+        ));
     }
+    std::fs::remove_file(&canon)?;
+    tracing::info!(id, path = %canon.display(), "delete_by_id: main file removed");
 
     // CoreML encoder companion (Whisper only). Stored as an unpacked
     // .mlmodelc DIRECTORY, not the zip — the zip is removed at the end of
     // download_and_extract_coreml. The directory name strips the `.zip`
     // suffix from the catalog filename: foo.mlmodelc.zip → foo.mlmodelc.
+    //
+    // Missing CoreML directory is OK: many Whisper variants ship without
+    // one, and the user can manually clear it without the file. Only the
+    // existence-checked path is removed.
     if let Some(zip_name) = entry.coreml_encoder_filename.as_deref() {
         let mlmodelc_name = zip_name.trim_end_matches(".zip");
         let coreml_path = dir.join(mlmodelc_name);
@@ -189,7 +211,7 @@ pub fn delete_by_id(app: &tauri::AppHandle, id: &str) -> std::io::Result<()> {
             }
             if canon.is_dir() {
                 std::fs::remove_dir_all(&canon)?;
-                tracing::info!(path = %canon.display(), "coreml encoder deleted");
+                tracing::info!(id, path = %canon.display(), "delete_by_id: coreml encoder removed");
             }
         }
     }
