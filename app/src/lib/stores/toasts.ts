@@ -18,20 +18,63 @@ import { lda } from '../tauri';
 
 export type ToastKind = 'info' | 'warn' | 'error' | 'success';
 
-export function showToast(kind: ToastKind, message: string): void {
-  if (kind === 'info') toast.info(message);
-  else if (kind === 'warn') toast.warning(message);
-  else if (kind === 'success') toast.success(message);
-  else toast.error(message);
+export interface ToastOptions {
+  /**
+   * Auto-dismiss time in milliseconds. `Infinity` keeps the toast on
+   * screen until the user dismisses it manually (only useful with
+   * `closeButton: true`). Omit to use the per-kind default.
+   */
+  duration?: number;
+  /**
+   * Show the X close button. Pairs naturally with `duration: Infinity`
+   * — a toast that doesn't dismiss itself needs a way for the user to
+   * dismiss it.
+   */
+  closeButton?: boolean;
+}
+
+// Per-kind defaults. The intent:
+//   - info + success are acknowledgements that auto-dismiss without an
+//     X — they're not blocking news and an X would invite unnecessary
+//     interaction for a transient message.
+//   - warn keeps the X (warnings often have actionable follow-ups the
+//     user may want to read longer) but still auto-dismisses on a
+//     longer fuse.
+//   - error never auto-dismisses; it requires the X. A failure that
+//     vanishes before it's read can't be acted on, and "what did that
+//     red toast say?" is exactly the diagnostic chain we've been
+//     trying to break in this codebase.
+const KIND_DEFAULTS: Record<ToastKind, Required<ToastOptions>> = {
+  info: { duration: 4000, closeButton: false },
+  success: { duration: 4000, closeButton: false },
+  warn: { duration: 6000, closeButton: true },
+  error: { duration: Number.POSITIVE_INFINITY, closeButton: true },
+};
+
+function resolveOpts(kind: ToastKind, override?: ToastOptions): Required<ToastOptions> {
+  return { ...KIND_DEFAULTS[kind], ...override };
+}
+
+export function showToast(kind: ToastKind, message: string, opts?: ToastOptions): void {
+  const { duration, closeButton } = resolveOpts(kind, opts);
+  const sonnerOpts = { duration, closeButton };
+  if (kind === 'info') toast.info(message, sonnerOpts);
+  else if (kind === 'warn') toast.warning(message, sonnerOpts);
+  else if (kind === 'success') toast.success(message, sonnerOpts);
+  else toast.error(message, sonnerOpts);
 }
 
 // Named convenience wrappers. Use these at call sites for less visual
 // noise than `showToast('error', ...)` and to make grepping for a
-// specific kind easy.
-export const toastInfo = (message: string): void => showToast('info', message);
-export const toastWarn = (message: string): void => showToast('warn', message);
-export const toastError = (message: string): void => showToast('error', message);
-export const toastSuccess = (message: string): void => showToast('success', message);
+// specific kind easy. Each accepts the same optional override bag.
+export const toastInfo = (message: string, opts?: ToastOptions): void =>
+  showToast('info', message, opts);
+export const toastWarn = (message: string, opts?: ToastOptions): void =>
+  showToast('warn', message, opts);
+export const toastError = (message: string, opts?: ToastOptions): void =>
+  showToast('error', message, opts);
+export const toastSuccess = (message: string, opts?: ToastOptions): void =>
+  showToast('success', message, opts);
 
 /**
  * Run an async operation; on failure, surface the error as a toast with the

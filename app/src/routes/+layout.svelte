@@ -39,7 +39,15 @@
 </script>
 
 <ModeWatcher defaultMode="system" />
-<Toaster richColors position="bottom-right" closeButton />
+<!--
+  Per-toast `closeButton` / `duration` are decided by `stores/toasts.ts`
+  based on `ToastKind`: info + success auto-dismiss with no X (they're
+  acknowledgements that don't deserve interruption), error stays until
+  the user dismisses with the X (so a failure can't disappear before
+  it's read). Don't add the global `closeButton` prop here — it would
+  force every toast to show an X regardless of intent.
+-->
+<Toaster richColors position="bottom-right" />
 
 {#if isOverlay}
   <main class="h-screen overflow-hidden bg-transparent">
