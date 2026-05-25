@@ -117,52 +117,52 @@ Detailed plans and specs are tracked in the local `docs/` working directory (git
 ## [0.2.0] - <set release date at merge> - M1b LLM cleanup
 
 ### Added
-- `inference-core` espone `POST /v1/chat` (shape custom lean, JSON+MsgPack): `{system?, user, history?, temperature?, max_tokens?, stop?}` → `{text, model, stopped_by, tokens}`.
-- `LlamaBackend` su `llama-cpp-2` con feature `metal`. Chat template letto dal metadata GGUF (fallback ChatML). Provisioning via env `SIDECAR_LLM_MODEL_PATH`.
-- `StubLlmBackend` selezionabile via `SIDECAR_LLM_BACKEND=stub` per CI/testing senza modello reale (env aggiuntivi `SIDECAR_LLM_STUB_SLEEP_MS` e `SIDECAR_LLM_STUB_CTX_SIZE` per i test di concorrenza e overflow).
-- `SIDECAR_LLM_CTX_SIZE` env var (default 4096) controlla context size del modello, esposta via `/v1/models`.
-- Serializzazione delle richieste LLM concorrenti via `std::sync::Mutex::try_lock()` → 503 `busy` immediato (la libreria `llama-cpp-2` non rende `LlamaContext` `Send`, quindi `tokio::sync::Mutex` non è utilizzabile; il fail-fast è una scelta equivalente in pratica per il use case single-user e deviazione documentata dal piano originale che parlava di 30s wait).
-- Trait `LlmBackend` parallelo a `SttBackend`; `AppState` ora ha due slot indipendenti per STT e LLM.
-- `lirevo-cli chat` (subcommand raw, params via flags `--user --system --temperature --max-tokens --stop --json`) e `lirevo-cli clean` (preset cleanup con system prompt versionato in `crates/lirevo-cli/src/clean_prompt.rs` + stdin support).
-- Pipeline end-to-end `lirevo-cli stt audio.wav | lirevo-cli clean` funzionante con stub backends in CI.
-- README: sezioni "Provisioning del modello LLM" e "Usare `lirevo-cli chat` e `clean`".
+- `inference-core` exposes `POST /v1/chat` (lean custom shape, JSON+MsgPack): `{system?, user, history?, temperature?, max_tokens?, stop?}` → `{text, model, stopped_by, tokens}`.
+- `LlamaBackend` on top of `llama-cpp-2` with the `metal` feature. Chat template read from the GGUF metadata (ChatML fallback). Provisioned via the `SIDECAR_LLM_MODEL_PATH` env var.
+- `StubLlmBackend` selectable via `SIDECAR_LLM_BACKEND=stub` for CI/testing without a real model (extra envs `SIDECAR_LLM_STUB_SLEEP_MS` and `SIDECAR_LLM_STUB_CTX_SIZE` for concurrency and overflow tests).
+- `SIDECAR_LLM_CTX_SIZE` env var (default 4096) controls model context size, exposed via `/v1/models`.
+- Concurrent LLM requests serialized via `std::sync::Mutex::try_lock()` → immediate 503 `busy` (the `llama-cpp-2` library does not make `LlamaContext` `Send`, so `tokio::sync::Mutex` is unusable; fail-fast is the practical equivalent for the single-user use case and a documented deviation from the original plan, which called for a 30s wait).
+- `LlmBackend` trait parallel to `SttBackend`; `AppState` now has two independent slots for STT and LLM.
+- `lirevo-cli chat` (raw subcommand, params via flags `--user --system --temperature --max-tokens --stop --json`) and `lirevo-cli clean` (cleanup preset with a versioned system prompt in `crates/lirevo-cli/src/clean_prompt.rs` + stdin support).
+- End-to-end pipeline `lirevo-cli stt audio.wav | lirevo-cli clean` working with stub backends in CI.
+- README: sections "LLM model provisioning" and `lirevo-cli chat` / `clean` usage.
 
 ### Changed
-- `/healthz` aggiunge `llm_ready: bool`. **Breaking** (consumer del campo devono accettare il nuovo flag, ma il check esistente su `stt_ready` non cambia).
-- `/version` `backend` field passa da `"whisper-rs"` a `"inference-core"`. **Breaking** documentato: il binary ora ospita due backend, l'identità di processo è più onesta.
-- `/v1/models` può listare 0, 1 o 2 entries (entry LLM ha `ctx_size` aggiuntivo, entry STT invariata).
-- Sidecar binary release passa da ~15 MB a ~25 MB stimati (whisper.cpp + llama.cpp statici).
+- `/healthz` adds `llm_ready: bool`. **Breaking** (field consumers must accept the new flag, but the existing `stt_ready` check is unchanged).
+- `/version` `backend` field changes from `"whisper-rs"` to `"inference-core"`. **Breaking** by design: the binary now hosts two backends, the process identity is more honest.
+- `/v1/models` can list 0, 1, or 2 entries (LLM entry has an extra `ctx_size`; STT entry unchanged).
+- Sidecar release binary grows from ~15 MB to an estimated ~25 MB (static whisper.cpp + llama.cpp).
 
 ### Notes
-- Niente streaming SSE: rimandato a M4.
-- Niente hot-reload di `ctx_size` via API: M3 (settings UI) gestirà via respawn del sidecar.
-- Niente tool/function calling: fuori scope per il dictation use case.
-- Niente multipli modelli LLM caricati simultaneamente: M3 model-manager farà swap singolo.
-- Top-k/top-p/repetition penalty hardcoded a default sensati: aggiunta additive in futuro se servirà.
-- `llama-cpp-2` pinned to `0.1.x` at M1b time; API deviazioni minor (notabile: `LlamaContext` !Send richiede `unsafe impl Send + Sync` su `LlamaBackend` con Mutex-serialization come invariante).
+- No SSE streaming: deferred to M4.
+- No `ctx_size` hot-reload via API: M3 (settings UI) handles this via sidecar respawn.
+- No tool/function calling: out of scope for the dictation use case.
+- No simultaneously-loaded multiple LLM models: M3 model-manager performs single-swap.
+- Top-k / top-p / repetition penalty hardcoded to sensible defaults: additive surface to be added later if needed.
+- `llama-cpp-2` pinned to `0.1.x` at M1b time; minor API deviations (notably: `LlamaContext` is `!Send`, requiring `unsafe impl Send + Sync` on `LlamaBackend` with Mutex serialization as the invariant).
 
 ## [0.1.0] - <set release date at merge> - M1a STT
 
 ### Added
-- `inference-core` ora espone `POST /v1/stt` (WAV in body → testo trascritto) e `GET /v1/models`.
-- `WhisperBackend` su `whisper-rs` con features `metal + coreml`. Auto-detect dell'encoder CoreML accanto al `.bin`. Provisioning via env `SIDECAR_WHISPER_MODEL_PATH`.
-- `StubBackend` selezionabile via `SIDECAR_STT_BACKEND=stub` per CI/testing senza modello reale.
-- Pipeline audio interna: hound + rubato per resamplare ogni WAV (8-96 kHz, 1-2 canali) a 16 kHz mono f32.
-- Content negotiation JSON ↔ MsgPack su tutti gli endpoint via header `Accept`.
-- Serializzazione delle richieste concorrenti via `tokio::sync::Mutex` con timeout 30s → 503 `busy`.
-- Crate nuovo `crates/lirevo-cli`: subcommands `health`, `version`, `models`, `stt`.
-- `just test-real` per i test integration con modello reale (marker `#[ignore]`).
-- README: sezioni "Provisioning del modello Whisper" e "Usare lirevo-cli".
+- `inference-core` now exposes `POST /v1/stt` (WAV in body → transcribed text) and `GET /v1/models`.
+- `WhisperBackend` on `whisper-rs` with the `metal + coreml` features. Auto-detects the CoreML encoder next to the `.bin`. Provisioned via the `SIDECAR_WHISPER_MODEL_PATH` env var.
+- `StubBackend` selectable via `SIDECAR_STT_BACKEND=stub` for CI/testing without a real model.
+- Internal audio pipeline: hound + rubato to resample any WAV (8–96 kHz, 1–2 channels) to 16 kHz mono f32.
+- Content negotiation JSON ↔ MsgPack on all endpoints via the `Accept` header.
+- Concurrent requests serialized via `tokio::sync::Mutex` with a 30s timeout → 503 `busy`.
+- New crate `crates/lirevo-cli`: subcommands `health`, `version`, `models`, `stt`.
+- `just test-real` for integration tests against a real model (marker `#[ignore]`).
+- README: sections "Whisper model provisioning" and `lirevo-cli` usage.
 
 ### Changed
-- `/healthz` include `stt_ready: bool`. `/version` riporta `backend: "whisper-rs"` (era `"hello-world"`).
-- Sidecar binary release passa da ~3 MB a ~15 MB (whisper.cpp statico + bridge CoreML).
-- Rust toolchain bumped 1.85 → 1.88 (richiesto da `whisper-rs-sys 0.15`).
+- `/healthz` includes `stt_ready: bool`. `/version` reports `backend: "whisper-rs"` (previously `"hello-world"`).
+- Sidecar release binary grows from ~3 MB to ~15 MB (static whisper.cpp + CoreML bridge).
+- Rust toolchain bumped 1.85 → 1.88 (required by `whisper-rs-sys 0.15`).
 
 ### Notes
-- Niente streaming, niente download manager modelli, niente LLM cleanup: rispettivamente M4, M3, M1b.
-- Modelli e `.mlmodelc` non sono bundlati nel DMG: l'utente li scarica e li punta via env.
-- La feature `accelerate` di whisper-rs è stata rimossa upstream nella 0.16 (l'accelerazione macOS arm64 è ora gestita internamente da whisper.cpp).
+- No streaming, no model download manager, no LLM cleanup: M4, M3, M1b respectively.
+- Models and `.mlmodelc` are not bundled in the DMG: the user downloads them and points to them via env.
+- The `accelerate` feature of `whisper-rs` was removed upstream in 0.16 (macOS arm64 acceleration is now handled internally by whisper.cpp).
 
 ## [0.0.1] - 2026-05-15 - M0 Foundation
 

@@ -173,8 +173,8 @@ The repo is **public and open source** under Apache-2.0. Treat anything you
 add to git as world-readable forever.
 
 - **Model weights** (`*.bin`, `*.gguf`, `*.mlmodelc/`, `models/`). Multi-GB
-  binaries; users provide their own — see README sections "Provisioning del
-  modello Whisper / LLM".
+  binaries; users provide their own — see README sections
+  "Whisper model provisioning" / "LLM model provisioning".
 - **Build artifacts** (`target/`, `dist/`, `build/`, `out/`, `*.dmg`, `node_modules/`).
 - **Test audio fixtures** (`crates/inference-core/tests/fixtures/*.wav`).
 - **Local working docs** (`docs/plans/`, `docs/specs/`). The `docs/` directory

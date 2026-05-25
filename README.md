@@ -8,273 +8,210 @@ Inspired by FreeFlow, Wispr Flow, Superwhisper — but learns your writing style
 
 **Pronunciation:** Lirevo — *lee-REH-voh*.
 
-**Status:** M0 Foundation complete - app builds and runs, but no inference yet. M1 adds Whisper + LLM cleanup.
+**Status:** **M3 shipped** — Tauri app with full setup wizard, model manager, push-to-talk dictation, and STT + LLM cleanup. The next milestones (M4–M10) migrate the inference stack onto `audiopipe` + `mistral.rs`, build the agent core, then ship v0.5 (free dictation) and v1.0 (paid agent). See [CHANGELOG](CHANGELOG.md) for the full roadmap.
 
-## Getting started (development)
+## Installing
 
-Requirements:
+Releases ship as an arm64 `.dmg`. Until M10 the app is **unsigned** (Apple Developer enrollment is part of M10), so on the first launch:
+
+1. Drag `Lirevo.app` to `/Applications`.
+2. Right-click the app and choose **Open** (only the first time).
+3. Or remove the quarantine attribute manually:
+   ```bash
+   xattr -d com.apple.quarantine /Applications/Lirevo.app
+   ```
+
+## Using the app
+
+After launching the app for the first time, the **setup wizard** guides you through five steps:
+
+1. **Welcome.**
+2. **Accessibility** — grant via the System Settings deep link (needed for the global hotkey and text injection).
+3. **Microphone** — confirm the mic test envelope is non-zero.
+4. **Models** — download Whisper (`large-v3-turbo` ~1.5 GB) + the LLM (`Qwen3-4B-Instruct` ~2.5 GB), or pick existing local files.
+5. **Hotkey** — pick a key (default: Right Option).
+
+Once the wizard is done, hold the hotkey anywhere on the system and speak. Release to transcribe → clean → inject into the focused app.
+
+The menu bar icon shows model state (loading / ready / recording / error). **Settings**, **Model Manager**, and **Re-run Wizard** are all accessible from the tray menu.
+
+### Text injection: known limitations
+
+- **AXUIElement path** works in Safari, Notes, TextEdit, VS Code, and most native Cocoa apps.
+- **Pasteboard fallback** is used automatically when AX fails. It currently kicks in for Apple Terminal and some Electron apps with non-standard text input.
+- During pasteboard fallback the clipboard is temporarily overwritten and then restored. **Non-string clipboard content (images, files) is lost during restore** — known limitation; a settings toggle to disable pasteboard fallback is planned for M8.
+- If the paste delay is too low for a slow target app, the restore may land before the paste (symptom: nothing types). Bump `--paste-delay-ms` to 200–300 if you see this in dev.
+
+## Architecture (one paragraph)
+
+Single Tauri 2 process. The frontend is Svelte 5 + Tailwind v4 + shadcn-svelte running in WKWebView. The backend is Rust, calling `whisper-rs` and `llama-cpp-2` directly (M4–M5 will swap these for `audiopipe` and `mistral.rs`). Hotkey events flow from a CGEventTap thread (in `os-integration`) through an mpsc channel into a tokio task that owns the dictation state machine. Settings persist via `tauri-plugin-store`. Auto-update plumbing is wired but inactive until code signing lands in M10.
+
+Cross-platform discipline (see [AGENTS.md](AGENTS.md)): macOS-only today, but platform-specific code is gated behind abstractions in `os-integration` / `audio-capture` so the v2 Linux + Windows ports are a matter of adding sibling implementations, not rewriting consumers.
+
+## Development
+
+### Requirements
+
 - macOS on Apple Silicon
 - Rust 1.85 (managed automatically via `rust-toolchain.toml`)
 - Node 22 (`.nvmrc`)
 - `just` (`brew install just`)
 - `cargo-nextest` and `cargo-watch` (`brew install cargo-nextest cargo-watch`)
 
-First-time setup:
+### First-time setup
 
 ```bash
 just setup
 ```
 
-Run in dev mode (hot reload on both Rust sidecar and Electron renderer):
+Or manually:
 
 ```bash
-just dev
+cd app && npm install
 ```
 
-Build a local DMG:
+### Common commands
+
+| Goal                                        | Command                          |
+| ------------------------------------------- | -------------------------------- |
+| Dev (HMR, no real TCC prompts)              | `just dev`                       |
+| Dev with mocked permissions                 | `LIREVO_DEV_SKIP_PERMS=1 just dev` |
+| Dev with real TCC prompts (debug `.app`)    | `just dev-bundle`                |
+| Release `.app` + `.dmg`                     | `just dmg`                       |
+| All tests (Rust nextest + Vitest)           | `just test`                      |
+| Type check (Rust + Svelte)                  | `just check`                     |
+| Format                                      | `just fmt`                       |
+| Lint (clippy `-D warnings` + eslint)        | `just lint`                      |
+| Wipe build caches                           | `just clean`                     |
+
+Run `just` with no args for the full list.
+
+### macOS permission workflows (mic / Accessibility)
+
+macOS TCC binds permissions to a binary's code-signing identity hash, not its bundle ID. Three consequences:
+
+- The bare `just dev` binary **cannot** trigger TCC prompts — macOS auto-denies the request silently. Use one of the workarounds below.
+- A permission granted to the release `.app` (`just dmg`) does **not** transfer to `just dev` / `just dev-bundle` outputs, even though they share `ai.lirevo.app` as bundle ID.
+- Every fresh debug bundle is a fresh TCC entity. If macOS misbehaves after rebuilds, reset:
+  ```bash
+  tccutil reset Microphone     ai.lirevo.app
+  tccutil reset Accessibility  ai.lirevo.app
+  ```
+  This clears the cached grant/deny + the entry in System Settings → Privacy. The next launch starts from scratch and macOS shows the prompt again.
+
+Pick the right workflow:
+
+| Goal                                                  | Command                                       |
+| ----------------------------------------------------- | --------------------------------------------- |
+| Iterate on wizard UI without real audio / TCC         | `LIREVO_DEV_SKIP_PERMS=1 just dev` — short-circuits `check_*` / `prompt_*` to Granted; `test_mic` returns a synthetic envelope. Debug builds only. |
+| Test real TCC prompt + real audio capture             | `just dev-bundle` — builds a debug `.app` and opens it. |
+| Final smoke test before release                       | `just dmg` — release `.app` + `.dmg`.         |
+
+### Dev-only crates
+
+These crates are **never** bundled in the shipped `.app`:
+
+- **`lirevo-prototype`** (`crates/lirevo-prototype`) — headless end-to-end dictation pipeline. Useful for testing the STT → cleanup → inject chain without launching the Tauri UI. Run with `cargo run -p lirevo-prototype`. Needs an `inference-core` HTTP sidecar running.
+- **`lirevo-cli`** (`crates/lirevo-cli`) — thin client over the `inference-core` HTTP sidecar (`/v1/stt`, `/v1/chat`, `/healthz`). See [Dev tools: lirevo-cli](#dev-tools-lirevo-cli) below.
+- **`lirevo-eval`** (`crates/lirevo-eval`) — refiner-model bake-off harness. Benchmarks LLM candidates against a multilingual corpus on chrF, semantic cosine, deterministic assertions, latency, and (optionally) LLM-as-judge fidelity scores. See `crates/lirevo-eval/README.md`.
+
+### Dev tools: `lirevo-cli`
+
+`lirevo-cli` lives in `crates/lirevo-cli` and talks to the `inference-core` HTTP sidecar over a UNIX socket. Socket resolution order: `--socket` flag > `SIDECAR_SOCKET_PATH` env > default `$HOME/Library/Application Support/ai.lirevo.app/sidecar.sock`.
+
+Examples:
 
 ```bash
-just dmg
-# DMG appears under app/out/make/
+# Sidecar health
+lirevo-cli health
+# status=ok  version=0.0.1  uptime_ms=12345  stt_ready=true  llm_ready=true
+
+# Loaded models
+lirevo-cli models
+
+# Transcribe a WAV
+lirevo-cli stt sample.wav
+# stderr: [whisper-rs] ggml-large-v3-turbo (en) 30000ms audio, 4120ms processing (rtf 0.14x)
+# stdout: hello world, this is a test.
+
+# Full JSON response on stdout
+lirevo-cli stt sample.wav --json
+
+# Force a language + return per-segment timings
+lirevo-cli stt sample.wav --language en --segments --json
+
+# MsgPack response (debug)
+lirevo-cli --msgpack stt sample.wav
+
+# Raw chat call
+lirevo-cli chat --user "Capital of Italy?"
+# Rome.
+
+# Chat with a system prompt
+lirevo-cli chat --user "..." --system "Be concise." --temperature 0.2 --max-tokens 50
+
+# Dictation cleanup preset (versioned system prompt — only punctuation /
+# capitalization / paragraphing, never alters meaning)
+lirevo-cli clean "and so my fellow americans ask not what your country can do"
+
+# Pipe-friendly: stdin → clean
+lirevo-cli stt audio.wav | lirevo-cli clean
+
+# Language hint
+lirevo-cli stt audio.wav | lirevo-cli clean --language en
+
+# End-to-end one-liner
+lirevo-cli stt ~/sample.wav | lirevo-cli clean
 ```
 
-Other commands: `just test`, `just lint`, `just format`, `just clean`. Run `just` with no args for the full list.
+Exit codes: `0` success, `2` server unreachable, `3` HTTP 4xx, `4` HTTP 5xx, `5` bad input file.
+
+### Whisper model provisioning (headless / sidecar use)
+
+The shipped app's wizard handles model downloads. For headless / sidecar workflows (e.g. `lirevo-prototype`, `lirevo-cli` against a standalone `inference-core`), point the sidecar at a model file via env:
+
+1. Download a ggml Whisper model from the [whisper.cpp HuggingFace repo](https://huggingface.co/ggerganov/whisper.cpp/tree/main). Recommended: `ggml-large-v3-turbo.bin` (~1.5 GB, good quality/speed tradeoff on M-series).
+2. *(Optional, recommended on M-series)* Download the matching CoreML encoder (e.g. `ggml-large-v3-turbo-encoder.mlmodelc.zip`) and unzip it **next to** the `.bin`. The sidecar auto-detects `<basename>-encoder.mlmodelc/` adjacent to the `.bin`.
+3. Export:
+   ```bash
+   export SIDECAR_WHISPER_MODEL_PATH=/absolute/path/to/ggml-large-v3-turbo.bin
+   # Optional: disable CoreML encoder on M1 units with known ANE bugs
+   export SIDECAR_WHISPER_COREML_DISABLE=1
+   ```
+4. Start the sidecar:
+   ```bash
+   SIDECAR_SOCKET_PATH=/tmp/s.sock cargo run -p inference-core
+   ```
+
+If the model is missing, the sidecar still starts but `/v1/stt` returns `503 stt_unavailable` and `/healthz` reports `stt_ready: false`.
+
+### LLM model provisioning (headless / sidecar use)
+
+Same pattern for the LLM. Recommended GGUF instruct models on 16 GB+ M-series:
+
+- `Llama-3.2-3B-Instruct-Q4_K_M.gguf` (~2 GB, current recommended default)
+- `Qwen2.5-3B-Instruct-Q4_K_M.gguf` (~2 GB, strong on Italian)
+- `Phi-3.5-mini-instruct-Q4_K_M.gguf` (~2.2 GB)
+
+```bash
+export SIDECAR_LLM_MODEL_PATH=/absolute/path/to/Llama-3.2-3B-Instruct-Q4_K_M.gguf
+# Optional: tweak context size (default 4096)
+export SIDECAR_LLM_CTX_SIZE=4096
+```
+
+Start the sidecar with `cargo run -p inference-core` or `just dev`. If the model is missing, `/v1/chat` returns `503 llm_unavailable` and `/healthz` reports `llm_ready: false`.
+
+Both env-var-based provisioning paths will be **superseded by M5** when `mistral.rs` takes over and the model catalog moves into the app catalog with `benchmark_score` from `lirevo-eval`.
 
 ## Documentation
 
 Design documents (architecture spec, milestone specs, implementation plans) are kept as local-only working docs under `docs/`. The public repository tracks only code, configuration, README, CHANGELOG, LICENSE, NOTICE.
 
-## Installing the unsigned M0 DMG
-
-M0 ships unsigned (Apple Developer enrollment is M0.5). To open the app for the first time:
-
-1. Drag `Lirevo.app` to `/Applications`.
-2. Right-click the app and choose "Open" (only the first time).
-3. Or remove the quarantine attribute: `xattr -d com.apple.quarantine /Applications/Lirevo.app`.
-
-## Using the app (M3, Tauri edition)
-
-After installing the DMG (`just dmg`):
-
-1. Drag `Lirevo.app` to `/Applications`.
-2. Right-click → Open (first launch only; macOS Gatekeeper unsigned-app prompt — until we ship code signing in M0.5).
-3. The setup wizard opens automatically:
-   - **Accessibility** — grant via the System Settings deep link.
-   - **Microphone** — confirm tested.
-   - **Models** — download Whisper large-v3-turbo (~1.5 GB) + Qwen3-4B-Instruct (~2.5 GB), or pick existing local files.
-   - **Hotkey** — pick a key (default: Right Option).
-4. Hold the hotkey anywhere on the system and speak. Release to transcribe → clean → inject into the focused app.
-
-The menu bar icon shows model status (loading / ready / recording / error). Settings, Model Manager, and Re-run Wizard are accessible from the tray menu.
-
-### Developer notes
-
-- **`lirevo-prototype`** is now dev-only. It remains useful for headless testing of the dictation pipeline (`cargo run -p lirevo-prototype`). It is not bundled in the DMG.
-- **`inference-core`** is folded into the Tauri process as a Rust library — there is no longer a separate sidecar process or UNIX socket. The HTTP/axum layer in inference-core is retained but only consumed by `lirevo-prototype` and `lirevo-cli` for dev testing.
-- **`os-bindings-napi`** has been removed. Tauri calls `audio-capture` and `os-integration` directly.
-- The old Electron M3 spec at `docs/specs/2026-05-17-m3-app-shell-design.md` is **superseded** by `docs/specs/2026-05-17-m3-tauri-app-shell-design.md`.
-
-#### Dev workflows for macOS permissions (mic / Accessibility)
-
-macOS TCC binds permissions to a binary's code-signing identity hash, not its bundle ID. Three consequences:
-
-- The bare `just dev` binary cannot trigger TCC prompts — macOS auto-denies the request silently. Use one of the two workarounds below.
-- A permission granted to the release `.app` (`just dmg`) does **not** transfer to `just dev` / `just dev-bundle` outputs, even though they share `ai.lirevo.app` as bundle ID.
-- Every fresh debug bundle is a fresh TCC entity. If macOS misbehaves after rebuilds, reset:
-
-  ```bash
-  tccutil reset Microphone     ai.lirevo.app
-  tccutil reset Accessibility  ai.lirevo.app
-  ```
-
-  This clears the cached grant/deny + the entry in System Settings → Privacy. The next launch starts from scratch and macOS shows the prompt again.
-
-Pick the right workflow:
-
-| Goal | Command |
-| --- | --- |
-| Iterate on wizard UI without real audio / TCC | `LIREVO_DEV_SKIP_PERMS=1 just dev` — short-circuits `check_*` / `prompt_*` to Granted; `test_mic` returns a synthetic envelope. Debug builds only. |
-| Test real TCC prompt + real audio capture | `just dev-bundle` — builds a debug `.app` and opens it. |
-| Final smoke test before release | `just dmg` — release `.app` + `.dmg`. |
-
-### Architecture in one paragraph
-
-Single Tauri process. Frontend is Svelte 5 + Tailwind v4 + shadcn-svelte running in WKWebView. Backend is Rust, calling whisper-rs and llama-cpp-2 directly. Hotkey events flow from a CGEventTap thread (in `os-integration`) through an mpsc channel into a tokio task that owns the dictation state machine. Settings persist via `tauri-plugin-store`. Auto-update plumbing is in place but inactive until code signing (M0.5/pre-v1).
-
-## Provisioning del modello Whisper (M1a)
-
-M1a esegue speech-to-text via [whisper.cpp](https://github.com/ggerganov/whisper.cpp) (bridge `whisper-rs`, build con features `metal + coreml`). Il modello non è bundlato nel DMG: lo fornisci tu.
-
-1. Scarica un modello ggml dalla [repo HF di whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp/tree/main). Esempio consigliato: `ggml-large-v3-turbo.bin` (~1.5 GB, ottimo trade-off qualità/velocità su M-series).
-2. (Opzionale, raccomandato su M-series) Scarica l'encoder CoreML corrispondente, es. `ggml-large-v3-turbo-encoder.mlmodelc.zip`, ed estrailo **nella stessa cartella** del `.bin`. Il sidecar lo rileva automaticamente cercando `<basename>-encoder.mlmodelc/` accanto al `.bin`.
-3. Esporta la variabile d'ambiente:
-   ```bash
-   export SIDECAR_WHISPER_MODEL_PATH=/percorso/assoluto/ggml-large-v3-turbo.bin
-   ```
-4. Avvia in dev: `just dev`, oppure lancia il sidecar standalone:
-   ```bash
-   SIDECAR_SOCKET_PATH=/tmp/s.sock cargo run -p inference-core
-   ```
-
-Se il modello manca o il path non esiste, il sidecar gira comunque ma `/v1/stt` ritorna `503 stt_unavailable` e `/healthz` riporta `stt_ready: false`.
-
-Per disabilitare l'encoder CoreML (utile su alcuni M1 con bug noti su ANE):
-```bash
-export SIDECAR_WHISPER_COREML_DISABLE=1
-```
-
-## Usare `lirevo-cli`
-
-Il CLI vive nel crate `crates/lirevo-cli` e parla col sidecar via UNIX socket. Risoluzione del socket: flag `--socket` > env `SIDECAR_SOCKET_PATH` > default macOS `$HOME/Library/Application Support/app/sidecar.sock` (stesso path della Electron app, così puoi parlare col sidecar mentre la app gira).
-
-Esempi:
-
-```bash
-# Salute del sidecar
-lirevo-cli health
-# status=ok  version=0.0.1  uptime_ms=12345  stt_ready=true
-
-# Modelli caricati
-lirevo-cli models
-
-# Trascrivi un file WAV
-lirevo-cli stt sample.wav
-# stderr: [whisper-rs] ggml-large-v3-turbo (it) 30000ms audio, 4120ms processing (rtf 0.14x)
-# stdout: ciao mondo, questo è un test.
-
-# Stesso comando, JSON intero in stdout
-lirevo-cli stt sample.wav --json
-
-# Con segments e una lingua forzata
-lirevo-cli stt sample.wav --language en --segments --json
-
-# Forza MsgPack sulla risposta (debug)
-lirevo-cli --msgpack stt sample.wav
-```
-
-Exit codes: `0` success, `2` server unreachable, `3` HTTP 4xx, `4` HTTP 5xx, `5` bad input file.
-
-## Provisioning del modello LLM (M1b)
-
-M1b esegue il cleanup del testo trascritto via [llama.cpp](https://github.com/ggerganov/llama.cpp) (bridge `llama-cpp-2`, build con feature `metal`). Il modello non è bundlato nel DMG: lo fornisci tu.
-
-1. Scarica un modello GGUF instruct dalla [community HuggingFace](https://huggingface.co/lmstudio-community). Esempi consigliati su M-series 16 GB+:
-   - `Llama-3.2-3B-Instruct-Q4_K_M.gguf` (~2 GB, default raccomandato)
-   - `Qwen2.5-3B-Instruct-Q4_K_M.gguf` (~2 GB, ottimo italiano)
-   - `Phi-3.5-mini-instruct-Q4_K_M.gguf` (~2.2 GB)
-2. Esporta env vars:
-   ```bash
-   export SIDECAR_LLM_MODEL_PATH=/percorso/assoluto/Llama-3.2-3B-Instruct-Q4_K_M.gguf
-   # Optional: tweak context size (default 4096)
-   export SIDECAR_LLM_CTX_SIZE=4096
-   ```
-3. Avvia il sidecar: `just dev` o `cargo run -p inference-core`.
-
-Se il modello manca o il path non esiste, il sidecar continua a girare ma `/v1/chat` ritorna `503 llm_unavailable` e `/healthz` riporta `llm_ready: false`.
-
-## Usare `lirevo-cli chat` e `clean`
-
-`lirevo-cli chat` espone direttamente l'API `/v1/chat`:
-
-```bash
-# Singola domanda
-lirevo-cli chat --user "Capitale d'Italia?"
-# Roma.
-
-# Con system prompt + temperature
-lirevo-cli chat --user "..." --system "Sei un assistente conciso." --temperature 0.2 --max-tokens 50
-
-# Output JSON completo (utile per scripting)
-lirevo-cli chat --user "..." --json
-
-# Stop sequences (ripetibile)
-lirevo-cli chat --user "..." --stop "END" --stop "</fine>"
-```
-
-`lirevo-cli clean` è il preset di post-processing per dictation. Legge input da arg o stdin e applica un system prompt versionato che richiede solo punctuation/capitalization/paragraphing senza alterare il contenuto:
-
-```bash
-# Da argomento
-lirevo-cli clean "and so my fellow americans ask not what your country can do"
-
-# Da stdin (pipe-friendly)
-lirevo-cli stt audio.wav | lirevo-cli clean
-
-# Con language hint
-lirevo-cli stt audio.wav | lirevo-cli clean --language it
-```
-
-La pipeline completa **STT → cleanup** è quindi un one-liner:
-
-```bash
-lirevo-cli stt ~/sample.wav | lirevo-cli clean
-```
-
-Exit codes invariati (vedi sezione `lirevo-cli stt`).
-
-## Setting up accessibility permission (M2)
-
-`lirevo-prototype` needs macOS Accessibility permission to:
-- Listen for the push-to-talk hotkey via CGEventTap.
-- Inject the cleaned text into the focused application via AXUIElement.
-
-First run will print a message and exit with code 2. To grant:
-
-1. Open **System Settings → Privacy & Security → Accessibility**.
-2. Click the `+` button.
-3. Add `target/release/lirevo-prototype` (or `target/debug/lirevo-prototype` during dev).
-4. Toggle the switch to ON.
-5. Re-run `lirevo-prototype`.
-
-Microphone permission is auto-prompted by cpal on the first recording — no manual setup needed.
-
-## Using `lirevo-prototype` (M2)
-
-Push-to-talk dictation that types into the focused app, end-to-end via the sidecar.
-
-Prerequisites:
-- Sidecar running with both models loaded (whisper + llama). See M1a/M1b README sections.
-- Accessibility granted (see previous section).
-
-Build and run:
-
-```bash
-just build-m2
-./target/release/lirevo-prototype
-```
-
-Flags:
-
-```
---hotkey <KEY>         right-option (default) | left-option | right-command | fn | f5
---socket <PATH>        override sidecar UNIX socket
---language <ISO>       cleanup language hint, default "auto"
---force-pasteboard     skip AX inject, always use pasteboard
---paste-delay-ms <N>   pasteboard paste→restore delay (default 120ms)
-```
-
-The hotkey is also configurable via env var `SIDECAR_HOTKEY` (same values).
-
-Typical use:
-
-1. Run `lirevo-prototype` in a terminal.
-2. Click into the field where you want text (Notes, Safari URL bar, VS Code editor, etc.).
-3. **Hold Right Option** while speaking.
-4. **Release** Right Option. Within ~2-3s, cleaned text is typed into the focused field.
-5. Repeat. `Ctrl+C` to quit.
-
-### Known limitations of text injection
-
-- **AXUIElement path** works in: Safari, Notes, TextEdit, VS Code, most native Cocoa apps.
-- **Pasteboard fallback** is used automatically when AX fails. Known apps where pasteboard is the path: Apple Terminal, some Electron apps with non-standard text input.
-- During pasteboard fallback the clipboard is temporarily overwritten and then restored. Non-string clipboard content (images, files) is lost during restore — known limitation, settings UI in M3 will offer to disable pasteboard fallback.
-- If `--paste-delay-ms` is too low (default 120), a slow target app may receive the restore before the paste — symptoms: dictation seems to not type anything. Bump to 200-300 if needed.
-
 ## About the name
 
 **Lirevo** is a coined name in the Vercel/Stripe/Anthropic tradition — pronounceable but with no pre-existing semantic baggage in any language, so it can carry the brand entirely on its own meaning. Pronounced *lee-REH-voh*.
 
-The folder name `local-dictation-app/` is a legacy placeholder from before the brand was chosen. It will be renamed when convenient; meanwhile internal references all use `lirevo`.
+The folder name `local-dictation-app/` is a legacy placeholder from before the brand was chosen. It will be renamed when convenient; meanwhile every internal reference uses `lirevo`.
 
 ## License
 
