@@ -3,8 +3,8 @@
   "lastRun": {
     "runId": "ts-1779306351",
     "host": "macos-aarch64",
-    "corpusPath": "crates/lda-eval/data/corpus/v1-seed.jsonl",
-    "profilesPath": "crates/lda-eval/data/profiles/v1.toml",
+    "corpusPath": "crates/lirevo-eval/data/corpus/v1-seed.jsonl",
+    "profilesPath": "crates/lirevo-eval/data/profiles/v1.toml",
     "tsUnix": 1779306388
   },
   "stt": [

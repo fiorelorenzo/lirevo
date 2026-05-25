@@ -284,7 +284,7 @@ async fn run_pipeline(app: AppHandle, samples: Vec<f32>) {
         let raw_for_clean = raw_text.clone();
         let r = tokio::task::spawn_blocking(move || {
             llama.chat_sync(inference_core::ChatRequest {
-                system: Some(lda_prompts::build_clean_system_prompt(&lang_for_clean)),
+                system: Some(lirevo_prompts::build_clean_system_prompt(&lang_for_clean)),
                 history: vec![],
                 user: raw_for_clean,
                 temperature: 0.2,

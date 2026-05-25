@@ -116,7 +116,7 @@ fi
 # and lives in macOS Login Items. Removing it programmatically is
 # brittle (Apple's API has changed twice in the last few macOS releases)
 # so we just point the user at the right pane if it's relevant.
-if [[ "${LDA_RESET_QUIET:-}" != "1" ]]; then
+if [[ "${LIREVO_RESET_QUIET:-}" != "1" ]]; then
   echo
   echo "Done. Next launch will run the setup wizard."
   if "$wipe_models"; then

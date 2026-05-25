@@ -16,7 +16,7 @@ The project is evolving into a **personal agent that learns how you write and he
 The inference stack is being rewritten end-to-end on Rust-native, multi-vendor foundations to support both v0.5 and v1.0. Two engine swaps land back-to-back (M4 for STT, M5 for LLM), then the agent stack is built out (M6-M7), then polish + license + launch (M8-M10).
 
 - **M4 — STT migration to audiopipe.** Replaces `whisper-rs` with `audiopipe::Model` (Rust, MIT, screenpipe team) consumed directly (no project-side wrapper). Audiopipe ships **Parakeet TDT 0.6B v3** (CC-BY-4.0, 25 European languages incl. Italian, lowest-latency transducer), **Qwen3-ASR 0.6B** (Apache-2.0, 30 languages + 22 Chinese dialects), and **Whisper** variants behind a unified `Model::from_pretrained()` API, with **multi-vendor GPU acceleration**: Apple Metal/MLX/CoreML, NVIDIA CUDA, AMD/Intel via DirectML on Windows and Vulkan-GGML on Linux. The setup wizard adds a 3-option model picker. We mirror audiopipe in our org and **implement a streaming API on the fork** for live partial transcripts. No pre-launch WER benchmark gate — wizard is the gate.
-- **M5 — LLM runtime migration to mistral.rs + Gemma 4 default.** Replaces `llama-cpp-2` with `mistralrs::*` consumed directly. New model catalog: **Gemma 4 E2B-it + assistant draft pair** (Apache-2.0, ~1.55GB Q4, multimodal image+audio+video, 140+ languages, 128K context, speculative decoding 3x speedup) as default, and **Qwen3-VL-2B-Instruct** (Apache-2.0, 256K context, 102M HF downloads) as stable alternative. Catalog entries include `benchmark_score` from `lda-eval`. Audit + perf bench Task 1 as kill switch; conditional Task 1.5 = upstream fix of Gemma 4 issues #2098/#2058/#2051 in mistral.rs via `~/Progetti/Personale/rust-ml-contrib/`. **At the end of M5: v0.5 free dictation public release.**
+- **M5 — LLM runtime migration to mistral.rs + Gemma 4 default.** Replaces `llama-cpp-2` with `mistralrs::*` consumed directly. New model catalog: **Gemma 4 E2B-it + assistant draft pair** (Apache-2.0, ~1.55GB Q4, multimodal image+audio+video, 140+ languages, 128K context, speculative decoding 3x speedup) as default, and **Qwen3-VL-2B-Instruct** (Apache-2.0, 256K context, 102M HF downloads) as stable alternative. Catalog entries include `benchmark_score` from `lirevo-eval`. Audit + perf bench Task 1 as kill switch; conditional Task 1.5 = upstream fix of Gemma 4 issues #2098/#2058/#2051 in mistral.rs via `~/Progetti/Personale/rust-ml-contrib/`. **At the end of M5: v0.5 free dictation public release.**
 - **M6 — Agent core.** SQLite + migration runner + screen capture infrastructure (custom modulo on cidre, AGENTS.md-compliant cross-platform abstraction) + style learning vision-based (Gemma 4 multimodal consolidator) + retrieval foundations (vector DB local choice TBD via M6 brainstorm) + hierarchical context (per-app + per-window-title + per-recipient where detectable). Capture cadence configurable, screenshots discarded after feature extraction (storage as structured data only).
 - **M7 — Agent UX.** Agent Console as full-screen overlay summoned by `Cmd+Shift+Space` (Spotlight/Raycast-style). Search/retrieve over learned activity. "What I've learned" inspector for transparency. Manual teach hotkey ("this is how I write"). Privacy UX polish.
 - **M8 — Polish & Reliability + Mac optimizations.** VAD silence-detection auto-stop, custom hotkey combos wired to M3 settings UI, per-app force-pasteboard overrides, real wizard "Test mic" with live audio level, model download resume on cancel/network failure, polished tray icons, memory pressure handler, thermal state monitor, QoS user-interactive, Low Power Mode awareness, diagnostic panel.
@@ -96,14 +96,14 @@ Detailed plans and specs are tracked in the local `docs/` working directory (git
 - New crate `audio-capture`: cpal-based microphone capture with stereo→mono mixdown + rubato resample to 16 kHz mono f32. Public `Recorder::start/stop` API + `samples_to_wav` helper.
 - New crate `os-integration` (macOS-only): `HotkeyListener` (CGEventTap push-to-talk, default Right Option), `Injector` (AXUIElement primary + NSPasteboard fallback), permission helpers (`check_accessibility`, `prompt_accessibility`, `check_microphone`).
 - New crate `os-bindings-napi`: napi-rs Node addon wrapping Recorder/HotkeyListener/Injector for M3 Electron consumption. Produces `libos_bindings_napi.dylib`; loading in Electron is M3's job.
-- New crate `lda-prompts`: shared system prompts extracted from lda-cli, now consumed by both `lda-cli clean` and `lda-prototype`.
-- New binary `lda-prototype`: end-to-end push-to-talk dictation. Preflight checks accessibility + sidecar reachability + healthz both ready. Hotkey loop spawns parallel pipeline: record → POST /v1/stt → POST /v1/chat (with cleanup prompt) → AX/Pasteboard inject. Graceful degrade: if LLM fails, raw STT is injected.
-- README sections: "Setting up accessibility permission", "Using lda-prototype", "Known limitations of text injection".
+- New crate `lirevo-prompts`: shared system prompts extracted from lirevo-cli, now consumed by both `lirevo-cli clean` and `lirevo-prototype`.
+- New binary `lirevo-prototype`: end-to-end push-to-talk dictation. Preflight checks accessibility + sidecar reachability + healthz both ready. Hotkey loop spawns parallel pipeline: record → POST /v1/stt → POST /v1/chat (with cleanup prompt) → AX/Pasteboard inject. Graceful degrade: if LLM fails, raw STT is injected.
+- README sections: "Setting up accessibility permission", "Using lirevo-prototype", "Known limitations of text injection".
 - Justfile recipes: `build-m2`, `prototype`.
 - CI builds all M2 crates in release, verifies napi dylib presence.
 
 ### Changed
-- `crates/lda-cli/src/clean_prompt.rs` removed; `lda-cli` now depends on `lda-prompts`. Behavior of `lda-cli clean` unchanged.
+- `crates/lirevo-cli/src/clean_prompt.rs` removed; `lirevo-cli` now depends on `lirevo-prompts`. Behavior of `lirevo-cli clean` unchanged.
 - CI build step renamed: "Build sidecar + CLI (release)" → "Build sidecar + CLI + M2 (release)".
 
 ### Notes
@@ -123,9 +123,9 @@ Detailed plans and specs are tracked in the local `docs/` working directory (git
 - `SIDECAR_LLM_CTX_SIZE` env var (default 4096) controlla context size del modello, esposta via `/v1/models`.
 - Serializzazione delle richieste LLM concorrenti via `std::sync::Mutex::try_lock()` → 503 `busy` immediato (la libreria `llama-cpp-2` non rende `LlamaContext` `Send`, quindi `tokio::sync::Mutex` non è utilizzabile; il fail-fast è una scelta equivalente in pratica per il use case single-user e deviazione documentata dal piano originale che parlava di 30s wait).
 - Trait `LlmBackend` parallelo a `SttBackend`; `AppState` ora ha due slot indipendenti per STT e LLM.
-- `lda-cli chat` (subcommand raw, params via flags `--user --system --temperature --max-tokens --stop --json`) e `lda-cli clean` (preset cleanup con system prompt versionato in `crates/lda-cli/src/clean_prompt.rs` + stdin support).
-- Pipeline end-to-end `lda-cli stt audio.wav | lda-cli clean` funzionante con stub backends in CI.
-- README: sezioni "Provisioning del modello LLM" e "Usare `lda-cli chat` e `clean`".
+- `lirevo-cli chat` (subcommand raw, params via flags `--user --system --temperature --max-tokens --stop --json`) e `lirevo-cli clean` (preset cleanup con system prompt versionato in `crates/lirevo-cli/src/clean_prompt.rs` + stdin support).
+- Pipeline end-to-end `lirevo-cli stt audio.wav | lirevo-cli clean` funzionante con stub backends in CI.
+- README: sezioni "Provisioning del modello LLM" e "Usare `lirevo-cli chat` e `clean`".
 
 ### Changed
 - `/healthz` aggiunge `llm_ready: bool`. **Breaking** (consumer del campo devono accettare il nuovo flag, ma il check esistente su `stt_ready` non cambia).
@@ -150,9 +150,9 @@ Detailed plans and specs are tracked in the local `docs/` working directory (git
 - Pipeline audio interna: hound + rubato per resamplare ogni WAV (8-96 kHz, 1-2 canali) a 16 kHz mono f32.
 - Content negotiation JSON ↔ MsgPack su tutti gli endpoint via header `Accept`.
 - Serializzazione delle richieste concorrenti via `tokio::sync::Mutex` con timeout 30s → 503 `busy`.
-- Crate nuovo `crates/lda-cli`: subcommands `health`, `version`, `models`, `stt`.
+- Crate nuovo `crates/lirevo-cli`: subcommands `health`, `version`, `models`, `stt`.
 - `just test-real` per i test integration con modello reale (marker `#[ignore]`).
-- README: sezioni "Provisioning del modello Whisper" e "Usare lda-cli".
+- README: sezioni "Provisioning del modello Whisper" e "Usare lirevo-cli".
 
 ### Changed
 - `/healthz` include `stt_ready: bool`. `/version` riporta `backend: "whisper-rs"` (era `"hello-world"`).

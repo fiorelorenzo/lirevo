@@ -1421,78 +1421,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 
 [[package]]
-name = "lda-cli"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "clap",
- "dirs",
- "hound",
- "http-body-util",
- "hyper",
- "hyper-util",
- "hyperlocal",
- "lda-prompts",
- "rmp-serde",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "lda-eval"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "async-trait",
- "clap",
- "inference-core",
- "mach2 0.4.3",
- "ndarray",
- "ort",
- "regex",
- "reqwest",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "thiserror 2.0.18",
- "tokenizers",
- "tokio",
- "toml",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "lda-prompts"
-version = "0.0.1"
-
-[[package]]
-name = "lda-prototype"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "audio-capture",
- "clap",
- "dirs",
- "http-body-util",
- "hyper",
- "hyper-util",
- "hyperlocal",
- "lda-prompts",
- "os-integration",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "leb128fmt"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1528,6 +1456,78 @@ name = "linux-raw-sys"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
+
+[[package]]
+name = "lirevo-cli"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "clap",
+ "dirs",
+ "hound",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "hyperlocal",
+ "lirevo-prompts",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "lirevo-eval"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "clap",
+ "inference-core",
+ "mach2 0.4.3",
+ "ndarray",
+ "ort",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokenizers",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "lirevo-prompts"
+version = "0.0.1"
+
+[[package]]
+name = "lirevo-prototype"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "audio-capture",
+ "clap",
+ "dirs",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "hyperlocal",
+ "lirevo-prompts",
+ "os-integration",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
 
 [[package]]
 name = "litemap"

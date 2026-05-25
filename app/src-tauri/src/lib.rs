@@ -23,10 +23,10 @@ static LOGGING_GUARD: std::sync::OnceLock<WorkerGuard> = std::sync::OnceLock::ne
 // runtime aborts (assertion failures, double-frees, panic=abort) still
 // surface in the crash reporter instead of being silently swallowed.
 #[cfg(target_os = "macos")]
-pub(crate) static LDA_EXIT_REQUESTED: std::sync::atomic::AtomicBool =
+pub(crate) static LIREVO_EXIT_REQUESTED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
-/// macOS-only: register a late `atexit` handler that flips `LDA_EXIT_REQUESTED`
+/// macOS-only: register a late `atexit` handler that flips `LIREVO_EXIT_REQUESTED`
 /// before `libc::exit`'s C++ destructor chain runs. Call this AFTER ggml-metal
 /// has been touched (i.e. after a whisper-rs / llama-cpp-2 load) so our
 /// handler is registered LATER than ggml's `__cxa_atexit` and therefore runs
@@ -36,7 +36,7 @@ pub(crate) static LDA_EXIT_REQUESTED: std::sync::atomic::AtomicBool =
 #[cfg(target_os = "macos")]
 pub(crate) fn register_quit_safety_atexit() {
     extern "C" fn flip_exit_flag() {
-        LDA_EXIT_REQUESTED.store(true, std::sync::atomic::Ordering::SeqCst);
+        LIREVO_EXIT_REQUESTED.store(true, std::sync::atomic::Ordering::SeqCst);
     }
     unsafe extern "C" {
         fn atexit(handler: extern "C" fn()) -> std::ffi::c_int;
@@ -174,7 +174,7 @@ pub fn run() {
             //               → ggml_abort → abort() → raise(SIGABRT)
             //
             // CRITICAL: the handler only short-circuits to `_exit(0)` when
-            // `LDA_EXIT_REQUESTED` is set. The flag flips in two places:
+            // `LIREVO_EXIT_REQUESTED` is set. The flag flips in two places:
             //   1. The `RunEvent::ExitRequested` branch below — covers Cmd+Q,
             //      tray Quit, and any other path Tauri surfaces as an exit
             //      event. We then call `_exit(0)` directly and never reach
@@ -201,7 +201,7 @@ pub fn run() {
             // kqueue/signalfd, not the C `signal()` table.
             #[cfg(target_os = "macos")]
             {
-                extern "C" fn lda_sigabrt_handler(sig: std::ffi::c_int) {
+                extern "C" fn lirevo_sigabrt_handler(sig: std::ffi::c_int) {
                     unsafe extern "C" {
                         fn _exit(status: std::ffi::c_int) -> !;
                         fn signal(
@@ -211,7 +211,7 @@ pub fn run() {
                         fn raise(sig: std::ffi::c_int) -> std::ffi::c_int;
                     }
                     use std::sync::atomic::Ordering;
-                    if LDA_EXIT_REQUESTED.load(Ordering::SeqCst) {
+                    if LIREVO_EXIT_REQUESTED.load(Ordering::SeqCst) {
                         unsafe { _exit(0) }
                     }
                     // Genuine runtime abort. Re-raise with default handler
@@ -222,7 +222,7 @@ pub fn run() {
                         raise(sig);
                     }
                 }
-                // Two `signal` declarations exist in the lda_sigabrt_handler
+                // Two `signal` declarations exist in the lirevo_sigabrt_handler
                 // body above (handler typed as `usize` so we can pass SIG_DFL)
                 // and here (handler typed as the fn pointer we install). Rust
                 // surfaces this as `clashing_extern_declarations`; both shapes
@@ -237,7 +237,7 @@ pub fn run() {
                     ) -> *const ();
                 }
                 const SIGABRT: std::ffi::c_int = 6;
-                unsafe { signal(SIGABRT, lda_sigabrt_handler); }
+                unsafe { signal(SIGABRT, lirevo_sigabrt_handler); }
             }
 
             Ok(())
@@ -306,7 +306,7 @@ pub fn run() {
             if let tauri::RunEvent::ExitRequested { .. } = event {
                 #[cfg(target_os = "macos")]
                 {
-                    LDA_EXIT_REQUESTED.store(true, std::sync::atomic::Ordering::SeqCst);
+                    LIREVO_EXIT_REQUESTED.store(true, std::sync::atomic::Ordering::SeqCst);
                     unsafe extern "C" {
                         fn _exit(status: std::ffi::c_int) -> !;
                     }

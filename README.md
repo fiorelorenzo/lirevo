@@ -69,8 +69,8 @@ The menu bar icon shows model status (loading / ready / recording / error). Sett
 
 ### Developer notes
 
-- **`lda-prototype`** is now dev-only. It remains useful for headless testing of the dictation pipeline (`cargo run -p lda-prototype`). It is not bundled in the DMG.
-- **`inference-core`** is folded into the Tauri process as a Rust library — there is no longer a separate sidecar process or UNIX socket. The HTTP/axum layer in inference-core is retained but only consumed by `lda-prototype` and `lda-cli` for dev testing.
+- **`lirevo-prototype`** is now dev-only. It remains useful for headless testing of the dictation pipeline (`cargo run -p lirevo-prototype`). It is not bundled in the DMG.
+- **`inference-core`** is folded into the Tauri process as a Rust library — there is no longer a separate sidecar process or UNIX socket. The HTTP/axum layer in inference-core is retained but only consumed by `lirevo-prototype` and `lirevo-cli` for dev testing.
 - **`os-bindings-napi`** has been removed. Tauri calls `audio-capture` and `os-integration` directly.
 - The old Electron M3 spec at `docs/specs/2026-05-17-m3-app-shell-design.md` is **superseded** by `docs/specs/2026-05-17-m3-tauri-app-shell-design.md`.
 
@@ -93,7 +93,7 @@ Pick the right workflow:
 
 | Goal | Command |
 | --- | --- |
-| Iterate on wizard UI without real audio / TCC | `LDA_DEV_SKIP_PERMS=1 just dev` — short-circuits `check_*` / `prompt_*` to Granted; `test_mic` returns a synthetic envelope. Debug builds only. |
+| Iterate on wizard UI without real audio / TCC | `LIREVO_DEV_SKIP_PERMS=1 just dev` — short-circuits `check_*` / `prompt_*` to Granted; `test_mic` returns a synthetic envelope. Debug builds only. |
 | Test real TCC prompt + real audio capture | `just dev-bundle` — builds a debug `.app` and opens it. |
 | Final smoke test before release | `just dmg` — release `.app` + `.dmg`. |
 
@@ -123,33 +123,33 @@ Per disabilitare l'encoder CoreML (utile su alcuni M1 con bug noti su ANE):
 export SIDECAR_WHISPER_COREML_DISABLE=1
 ```
 
-## Usare `lda-cli`
+## Usare `lirevo-cli`
 
-Il CLI vive nel crate `crates/lda-cli` e parla col sidecar via UNIX socket. Risoluzione del socket: flag `--socket` > env `SIDECAR_SOCKET_PATH` > default macOS `$HOME/Library/Application Support/app/sidecar.sock` (stesso path della Electron app, così puoi parlare col sidecar mentre la app gira).
+Il CLI vive nel crate `crates/lirevo-cli` e parla col sidecar via UNIX socket. Risoluzione del socket: flag `--socket` > env `SIDECAR_SOCKET_PATH` > default macOS `$HOME/Library/Application Support/app/sidecar.sock` (stesso path della Electron app, così puoi parlare col sidecar mentre la app gira).
 
 Esempi:
 
 ```bash
 # Salute del sidecar
-lda-cli health
+lirevo-cli health
 # status=ok  version=0.0.1  uptime_ms=12345  stt_ready=true
 
 # Modelli caricati
-lda-cli models
+lirevo-cli models
 
 # Trascrivi un file WAV
-lda-cli stt sample.wav
+lirevo-cli stt sample.wav
 # stderr: [whisper-rs] ggml-large-v3-turbo (it) 30000ms audio, 4120ms processing (rtf 0.14x)
 # stdout: ciao mondo, questo è un test.
 
 # Stesso comando, JSON intero in stdout
-lda-cli stt sample.wav --json
+lirevo-cli stt sample.wav --json
 
 # Con segments e una lingua forzata
-lda-cli stt sample.wav --language en --segments --json
+lirevo-cli stt sample.wav --language en --segments --json
 
 # Forza MsgPack sulla risposta (debug)
-lda-cli --msgpack stt sample.wav
+lirevo-cli --msgpack stt sample.wav
 ```
 
 Exit codes: `0` success, `2` server unreachable, `3` HTTP 4xx, `4` HTTP 5xx, `5` bad input file.
@@ -172,49 +172,49 @@ M1b esegue il cleanup del testo trascritto via [llama.cpp](https://github.com/gg
 
 Se il modello manca o il path non esiste, il sidecar continua a girare ma `/v1/chat` ritorna `503 llm_unavailable` e `/healthz` riporta `llm_ready: false`.
 
-## Usare `lda-cli chat` e `clean`
+## Usare `lirevo-cli chat` e `clean`
 
-`lda-cli chat` espone direttamente l'API `/v1/chat`:
+`lirevo-cli chat` espone direttamente l'API `/v1/chat`:
 
 ```bash
 # Singola domanda
-lda-cli chat --user "Capitale d'Italia?"
+lirevo-cli chat --user "Capitale d'Italia?"
 # Roma.
 
 # Con system prompt + temperature
-lda-cli chat --user "..." --system "Sei un assistente conciso." --temperature 0.2 --max-tokens 50
+lirevo-cli chat --user "..." --system "Sei un assistente conciso." --temperature 0.2 --max-tokens 50
 
 # Output JSON completo (utile per scripting)
-lda-cli chat --user "..." --json
+lirevo-cli chat --user "..." --json
 
 # Stop sequences (ripetibile)
-lda-cli chat --user "..." --stop "END" --stop "</fine>"
+lirevo-cli chat --user "..." --stop "END" --stop "</fine>"
 ```
 
-`lda-cli clean` è il preset di post-processing per dictation. Legge input da arg o stdin e applica un system prompt versionato che richiede solo punctuation/capitalization/paragraphing senza alterare il contenuto:
+`lirevo-cli clean` è il preset di post-processing per dictation. Legge input da arg o stdin e applica un system prompt versionato che richiede solo punctuation/capitalization/paragraphing senza alterare il contenuto:
 
 ```bash
 # Da argomento
-lda-cli clean "and so my fellow americans ask not what your country can do"
+lirevo-cli clean "and so my fellow americans ask not what your country can do"
 
 # Da stdin (pipe-friendly)
-lda-cli stt audio.wav | lda-cli clean
+lirevo-cli stt audio.wav | lirevo-cli clean
 
 # Con language hint
-lda-cli stt audio.wav | lda-cli clean --language it
+lirevo-cli stt audio.wav | lirevo-cli clean --language it
 ```
 
 La pipeline completa **STT → cleanup** è quindi un one-liner:
 
 ```bash
-lda-cli stt ~/sample.wav | lda-cli clean
+lirevo-cli stt ~/sample.wav | lirevo-cli clean
 ```
 
-Exit codes invariati (vedi sezione `lda-cli stt`).
+Exit codes invariati (vedi sezione `lirevo-cli stt`).
 
 ## Setting up accessibility permission (M2)
 
-`lda-prototype` needs macOS Accessibility permission to:
+`lirevo-prototype` needs macOS Accessibility permission to:
 - Listen for the push-to-talk hotkey via CGEventTap.
 - Inject the cleaned text into the focused application via AXUIElement.
 
@@ -222,13 +222,13 @@ First run will print a message and exit with code 2. To grant:
 
 1. Open **System Settings → Privacy & Security → Accessibility**.
 2. Click the `+` button.
-3. Add `target/release/lda-prototype` (or `target/debug/lda-prototype` during dev).
+3. Add `target/release/lirevo-prototype` (or `target/debug/lirevo-prototype` during dev).
 4. Toggle the switch to ON.
-5. Re-run `lda-prototype`.
+5. Re-run `lirevo-prototype`.
 
 Microphone permission is auto-prompted by cpal on the first recording — no manual setup needed.
 
-## Using `lda-prototype` (M2)
+## Using `lirevo-prototype` (M2)
 
 Push-to-talk dictation that types into the focused app, end-to-end via the sidecar.
 
@@ -240,7 +240,7 @@ Build and run:
 
 ```bash
 just build-m2
-./target/release/lda-prototype
+./target/release/lirevo-prototype
 ```
 
 Flags:
@@ -257,7 +257,7 @@ The hotkey is also configurable via env var `SIDECAR_HOTKEY` (same values).
 
 Typical use:
 
-1. Run `lda-prototype` in a terminal.
+1. Run `lirevo-prototype` in a terminal.
 2. Click into the field where you want text (Notes, Safari URL bar, VS Code editor, etc.).
 3. **Hold Right Option** while speaking.
 4. **Release** Right Option. Within ~2-3s, cleaned text is typed into the focused field.

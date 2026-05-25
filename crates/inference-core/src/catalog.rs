@@ -1,5 +1,5 @@
 //! Model catalog schema, shared by the main app (read), the dev CLIs, and the
-//! `lda-eval bless` subcommand (write). The canonical instance lives at
+//! `lirevo-eval bless` subcommand (write). The canonical instance lives at
 //! `crates/inference-core/data/model_catalog.json` and is loaded into the
 //! binary at compile time via `include_str!`.
 //!
@@ -20,7 +20,7 @@ pub const EMBEDDED_JSON: &str =
 pub struct Catalog {
     pub schema_version: u32,
     /// Metadata about the bake-off whose scores were last blessed into this
-    /// file. `None` until the first `lda-eval bless` has been run.
+    /// file. `None` until the first `lirevo-eval bless` has been run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_run: Option<LastRun>,
     #[serde(default)]
@@ -79,7 +79,7 @@ pub struct LlmEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scores: Option<ModelScores>,
     /// Set to `true` for the weighted-composite winner of the last bake-off.
-    /// Defaults to `false`; updated by `lda-eval bless`.
+    /// Defaults to `false`; updated by `lirevo-eval bless`.
     #[serde(default)]
     pub recommended: bool,
 }
@@ -113,7 +113,7 @@ pub fn load_embedded() -> Catalog {
         .expect("model_catalog.json is malformed — fix the committed file")
 }
 
-/// Parse arbitrary JSON. Used by `lda-eval bless` (read existing → mutate → write back).
+/// Parse arbitrary JSON. Used by `lirevo-eval bless` (read existing → mutate → write back).
 pub fn parse(s: &str) -> Result<Catalog, serde_json::Error> {
     serde_json::from_str(s)
 }

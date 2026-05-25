@@ -3,7 +3,7 @@ default:
 
 # Tauri dev (HMR + Rust auto-rebuild). Frontend on :1420.
 # Bare binary — macOS TCC prompts (mic, accessibility) cannot appear here.
-# Use LDA_DEV_SKIP_PERMS=1 to mock permission-granted state when iterating
+# Use LIREVO_DEV_SKIP_PERMS=1 to mock permission-granted state when iterating
 # UI, or `just dev-bundle` to test real TCC flows.
 dev:
     cd app && npm install --no-audit --no-fund
@@ -79,8 +79,8 @@ reset-all:
 
 # Dev tool: run the refiner-stage model bake-off
 eval BACKENDS OUT="$(date +%Y-%m-%d)-bake-off":
-    cargo run -p lda-eval --release -- run \
-      --corpus crates/lda-eval/data/corpus/v1-seed.jsonl \
-      --profiles crates/lda-eval/data/profiles/v1.toml \
+    cargo run -p lirevo-eval --release -- run \
+      --corpus crates/lirevo-eval/data/corpus/v1-seed.jsonl \
+      --profiles crates/lirevo-eval/data/profiles/v1.toml \
       --backends "{{BACKENDS}}" \
-      --out crates/lda-eval/data/reports/{{OUT}}.md
+      --out crates/lirevo-eval/data/reports/{{OUT}}.md

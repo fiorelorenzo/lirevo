@@ -55,7 +55,7 @@ export interface CatalogEntry {
   filename: string;
   /** Bake-off scores. Always undefined for STT entries. */
   scores?: ModelScores;
-  /** Marked by `lda-eval bless` on the weighted-composite winner. */
+  /** Marked by `lirevo-eval bless` on the weighted-composite winner. */
   recommended: boolean;
 }
 

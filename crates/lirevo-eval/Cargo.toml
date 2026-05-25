@@ -1,0 +1,37 @@
+[package]
+name = "lirevo-eval"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "lirevo-eval"
+path = "src/main.rs"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+inference-core = { path = "../inference-core" }
+anyhow = "1"
+thiserror = "2"
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "process", "time"] }
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+regex = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+ort = "2.0.0-rc.10"
+tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
+ndarray = "0.17"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking"] }
+sha2 = "0.10"
+tempfile = "3"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+mach2 = "0.4"

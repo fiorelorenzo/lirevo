@@ -41,4 +41,4 @@ sys-locale = "0.3"
 inference-core    = { path = "../../crates/inference-core" }
 audio-capture     = { path = "../../crates/audio-capture" }
 os-integration    = { path = "../../crates/os-integration" }
-lda-prompts       = { path = "../../crates/lda-prompts" }
+lirevo-prompts    = { path = "../../crates/lirevo-prompts" }

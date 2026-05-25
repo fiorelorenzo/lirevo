@@ -235,7 +235,7 @@ pub async fn test_mic(
     })
 }
 
-/// Simulated test_mic for `LDA_DEV_SKIP_PERMS=1` so the wizard's listening
+/// Simulated test_mic for `LIREVO_DEV_SKIP_PERMS=1` so the wizard's listening
 /// and result-state UI can be iterated under `tauri dev` (where real cpal
 /// capture returns silence because TCC auto-denies bare-binary launches).
 /// Streams a 1.5s synthetic sine-ish envelope on `recording:level`, then
@@ -244,7 +244,7 @@ async fn mock_test_mic(
     app: AppHandle,
     mut cancel_rx: oneshot::Receiver<()>,
 ) -> Result<TestMicResult, AppError> {
-    tracing::warn!("test_mic: LDA_DEV_SKIP_PERMS active — running synthetic capture");
+    tracing::warn!("test_mic: LIREVO_DEV_SKIP_PERMS active — running synthetic capture");
     let _ = app.emit("recording:state", true);
 
     let started = Instant::now();
@@ -286,7 +286,7 @@ async fn mock_test_mic(
     Ok(TestMicResult {
         peak,
         sample_count: samples,
-        device_label: "(dev mock — LDA_DEV_SKIP_PERMS)".into(),
+        device_label: "(dev mock — LIREVO_DEV_SKIP_PERMS)".into(),
         detected: !cancelled,
         cancelled,
         device_silent: false,

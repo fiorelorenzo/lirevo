@@ -30,7 +30,7 @@ pub struct CatalogEntry {
     /// have not been blessed yet.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scores: Option<ic_catalog::ModelScores>,
-    /// Marked by `lda-eval bless` on the weighted-composite winner.
+    /// Marked by `lirevo-eval bless` on the weighted-composite winner.
     pub recommended: bool,
 }
 

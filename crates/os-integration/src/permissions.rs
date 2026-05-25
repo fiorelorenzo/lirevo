@@ -17,7 +17,7 @@ pub enum PermissionStatus {
     NotDetermined,
 }
 
-/// Debug-build escape hatch: when `LDA_DEV_SKIP_PERMS` is set to a non-empty,
+/// Debug-build escape hatch: when `LIREVO_DEV_SKIP_PERMS` is set to a non-empty,
 /// non-"0" value, all permission checks/prompts return `Granted` without
 /// touching macOS TCC. Lets us iterate on wizard UI from `tauri dev` (where
 /// the bare-binary TCC prompt cannot appear) without needing a `.app` bundle.
@@ -27,7 +27,7 @@ pub enum PermissionStatus {
 pub fn dev_skip_perms() -> bool {
     #[cfg(debug_assertions)]
     {
-        std::env::var("LDA_DEV_SKIP_PERMS")
+        std::env::var("LIREVO_DEV_SKIP_PERMS")
             .ok()
             .is_some_and(|v| !v.is_empty() && v != "0")
     }
@@ -53,7 +53,7 @@ extern "C" {
 #[must_use]
 pub fn check_accessibility() -> PermissionStatus {
     if dev_skip_perms() {
-        tracing::warn!("check_accessibility: LDA_DEV_SKIP_PERMS active — returning Granted");
+        tracing::warn!("check_accessibility: LIREVO_DEV_SKIP_PERMS active — returning Granted");
         return PermissionStatus::Granted;
     }
     // `AXIsProcessTrusted()` caches its answer for the process lifetime;
@@ -76,7 +76,7 @@ pub fn check_accessibility() -> PermissionStatus {
 #[must_use]
 pub fn prompt_accessibility() -> PermissionStatus {
     if dev_skip_perms() {
-        tracing::warn!("prompt_accessibility: LDA_DEV_SKIP_PERMS active — returning Granted");
+        tracing::warn!("prompt_accessibility: LIREVO_DEV_SKIP_PERMS active — returning Granted");
         return PermissionStatus::Granted;
     }
     unsafe {
@@ -100,7 +100,7 @@ pub fn check_microphone() -> PermissionStatus {
     use objc2_av_foundation::{AVAuthorizationStatus, AVCaptureDevice, AVMediaTypeAudio};
 
     if dev_skip_perms() {
-        tracing::warn!("check_microphone: LDA_DEV_SKIP_PERMS active — returning Granted");
+        tracing::warn!("check_microphone: LIREVO_DEV_SKIP_PERMS active — returning Granted");
         return PermissionStatus::Granted;
     }
 
@@ -135,7 +135,7 @@ pub fn prompt_microphone() -> PermissionStatus {
     use std::sync::{Arc, Condvar, Mutex};
 
     if dev_skip_perms() {
-        tracing::warn!("prompt_microphone: LDA_DEV_SKIP_PERMS active — returning Granted");
+        tracing::warn!("prompt_microphone: LIREVO_DEV_SKIP_PERMS active — returning Granted");
         return PermissionStatus::Granted;
     }
 

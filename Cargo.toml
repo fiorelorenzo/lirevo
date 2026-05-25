@@ -1,12 +1,12 @@
 [workspace]
 members = [
     "crates/inference-core",
-    "crates/lda-cli",
-    "crates/lda-prompts",
+    "crates/lirevo-cli",
+    "crates/lirevo-prompts",
     "crates/audio-capture",
     "crates/os-integration",
-    "crates/lda-prototype",
-    "crates/lda-eval",
+    "crates/lirevo-prototype",
+    "crates/lirevo-eval",
 ]
 resolver = "2"
 

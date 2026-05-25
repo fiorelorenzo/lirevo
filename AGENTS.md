@@ -42,9 +42,9 @@ See `README.md` for end-user setup and `CHANGELOG.md` for milestone status.
 │   ├── audio-capture/        # cpal-based mic capture + resampling
 │   ├── inference-core/       # whisper-rs + llama-cpp-2 wrappers, HTTP/axum
 │   │                         #   layer used only by dev CLIs
-│   ├── lda-cli/              # Dev CLI (`lda-cli`) talking to inference-core
-│   ├── lda-prompts/          # Versioned LLM prompts (cleanup, etc.)
-│   ├── lda-prototype/        # Dev-only headless dictation pipeline
+│   ├── lirevo-cli/              # Dev CLI (`lirevo-cli`) talking to inference-core
+│   ├── lirevo-prompts/          # Versioned LLM prompts (cleanup, etc.)
+│   ├── lirevo-prototype/        # Dev-only headless dictation pipeline
 │   └── os-integration/       # macOS hotkey + injection bindings
 ├── scripts/                  # Build/utility scripts (icons, etc.)
 ├── Justfile                  # Canonical task entry points
@@ -52,7 +52,7 @@ See `README.md` for end-user setup and `CHANGELOG.md` for milestone status.
 └── README.md
 ```
 
-`lda-prototype`, `lda-cli`, and `inference-core`'s HTTP layer are **dev-only**:
+`lirevo-prototype`, `lirevo-cli`, and `inference-core`'s HTTP layer are **dev-only**:
 they are not bundled in the shipped DMG. Production code paths run inside the
 Tauri host (`app/src-tauri/`).
 
@@ -104,7 +104,7 @@ Use `just` recipes — they are the contract that CI runs.
 | --------------------------------------- | ----------------------------- |
 | First-time setup                        | `just setup` (if defined) or `cd app && npm install` |
 | Dev (HMR, no real TCC prompts)          | `just dev`                    |
-| Dev with mocked permissions             | `LDA_DEV_SKIP_PERMS=1 just dev` |
+| Dev with mocked permissions             | `LIREVO_DEV_SKIP_PERMS=1 just dev` |
 | Dev with real TCC prompts (debug `.app`)| `just dev-bundle`             |
 | Release `.app` + `.dmg`                 | `just dmg`                    |
 | All tests (Rust nextest + Vitest)       | `just test`                   |
@@ -157,7 +157,7 @@ hotkey, microphone, or injection code paths.
    tccutil reset Microphone     ai.lirevo.app
    tccutil reset Accessibility  ai.lirevo.app
    ```
-4. **`LDA_DEV_SKIP_PERMS=1`** short-circuits the `check_*` / `prompt_*`
+4. **`LIREVO_DEV_SKIP_PERMS=1`** short-circuits the `check_*` / `prompt_*`
    commands to "granted" and makes `test_mic` return a synthetic envelope.
    Debug builds only. Use it for UI iteration when you don't need real audio
    or real prompts.

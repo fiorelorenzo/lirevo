@@ -241,7 +241,7 @@ mod tests {
         // Manual smoke: open TextEdit, click in the document, then run:
         //   cargo test -p os-integration -- --ignored
         let inj = Injector::new();
-        let result = inj.inject("[lda-test-injection] ");
+        let result = inj.inject("[lirevo-test-injection] ");
         eprintln!("injection result: {result:?}");
         // No assertion on success — environment may not be ready;
         // the test exists to make manual smoke easy.

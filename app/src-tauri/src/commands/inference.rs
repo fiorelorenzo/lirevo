@@ -68,7 +68,7 @@ pub async fn clean(
             .clone()
     };
     let req = ChatRequest {
-        system: Some(lda_prompts::build_clean_system_prompt(&language)),
+        system: Some(lirevo_prompts::build_clean_system_prompt(&language)),
         history: vec![],
         user: text,
         temperature: 0.2,

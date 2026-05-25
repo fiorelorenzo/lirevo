@@ -4,8 +4,8 @@
 //! library — the library surface lets in-process consumers (e.g. the Tauri backend)
 //! call inference directly without going through the HTTP layer.
 //!
-//! The HTTP/axum sidecar remains the canonical path used by `lda-prototype` and
-//! `lda-cli`; both code paths delegate to the same underlying inference helpers.
+//! The HTTP/axum sidecar remains the canonical path used by `lirevo-prototype` and
+//! `lirevo-cli`; both code paths delegate to the same underlying inference helpers.
 
 #![warn(clippy::pedantic)]
 #![allow(clippy::missing_errors_doc, clippy::missing_panics_doc)]
