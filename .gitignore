@@ -42,6 +42,11 @@ app/resources/inference-core
 # Superpowers skills generated docs
 docs/plans/
 docs/specs/
+docs/decisions/
+docs/reports/
+
+# Visual Companion brainstorm files (mockups, state)
+.superpowers/
 
 # Test audio fixtures (provided locally, not committed)
 crates/inference-core/tests/fixtures/*.wav
