@@ -88,7 +88,7 @@ pub fn open_window_internal_with_query(
     };
     let url = WebviewUrl::App(path.into());
     let mut builder = WebviewWindowBuilder::new(app, route, url)
-        .title("local-dictation-app")
+        .title("Lirevo")
         .inner_size(w as f64, h as f64)
         .resizable(resizable);
     #[cfg(target_os = "macos")]

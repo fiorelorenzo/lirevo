@@ -426,7 +426,7 @@
     {:else if $settings && activeTab === 'about'}
       <div class="space-y-6 max-w-lg">
         <div class="rounded-xl border border-border bg-surface p-5 space-y-1">
-          <div class="font-semibold text-lg">local-dictation-app</div>
+          <div class="font-semibold text-lg">Lirevo</div>
           <div class="text-sm text-muted-foreground tabular-nums">
             {t('settings.about.version')}: {$settings.appVersion}
           </div>

@@ -16,8 +16,13 @@
 
 set -euo pipefail
 
-readonly BUNDLE_ID="app.localdictation"
-readonly PROC_NAME="local-dictation-app"
+readonly BUNDLE_ID="ai.lirevo.app"
+readonly PROC_NAME="Lirevo"
+# Legacy bundle ID from before the 2026-05-25 rename. Cleaned up alongside
+# the current one so a `just reset` doesn't leave orphaned model/log dirs
+# under the old name. Safe no-op if the legacy paths don't exist.
+readonly LEGACY_BUNDLE_ID="app.localdictation"
+readonly LEGACY_PROC_NAME="local-dictation-app"
 readonly APP_DATA="$HOME/Library/Application Support/$BUNDLE_ID"
 readonly APP_LOGS="$HOME/Library/Logs/$BUNDLE_ID"
 readonly MODELS_DIR="$APP_DATA/models"
@@ -91,6 +96,19 @@ fi
 if "$wipe_models" && [[ -d "$MODELS_DIR" ]]; then
   echo "→ removing $MODELS_DIR"
   rm -rf "$MODELS_DIR"
+fi
+
+# Legacy bundle cleanup: 2026-05-25 rename moved data to ai.lirevo.app.
+# Any leftovers under app.localdictation are orphaned and should be wiped
+# alongside a fresh-start reset. Use scripts/migrate-from-legacy.sh first
+# if you want to PRESERVE the old models (multi-GB) by moving them over.
+readonly LEGACY_APP_DATA="$HOME/Library/Application Support/$LEGACY_BUNDLE_ID"
+readonly LEGACY_APP_LOGS="$HOME/Library/Logs/$LEGACY_BUNDLE_ID"
+if [[ -d "$LEGACY_APP_DATA" ]] || [[ -d "$LEGACY_APP_LOGS" ]]; then
+  echo "→ wiping legacy $LEGACY_BUNDLE_ID dirs (run scripts/migrate-from-legacy.sh first if you want to keep models)"
+  rm -rf "$LEGACY_APP_DATA" "$LEGACY_APP_LOGS"
+  tccutil reset Accessibility "$LEGACY_BUNDLE_ID" 2>/dev/null || true
+  tccutil reset Microphone    "$LEGACY_BUNDLE_ID" 2>/dev/null || true
 fi
 
 # Heads-up on the one corner of state this script does NOT manage —

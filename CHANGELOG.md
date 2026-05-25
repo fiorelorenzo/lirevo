@@ -58,7 +58,7 @@ Detailed plans and specs are tracked in the local `docs/` working directory (git
 - 11 custom Svelte components: Titlebar, Logo, KeyChip, StepIndicator, PermissionStatus, SuccessCheck, SkeletonRow, EmptyState, ModelCard, FilePicker, RecordingIndicator.
 - shadcn-svelte primitives: Button, Input, Label, Select, RadioGroup, Switch, Slider, Dialog, AlertDialog, Progress, Sonner, Separator, Tooltip.
 - i18n via i18next with `en.json` baseline.
-- Logging via `tracing` + `tracing-appender` with daily rotation (`~/Library/Logs/local-dictation-app/`).
+- Logging via `tracing` + `tracing-appender` with daily rotation (`~/Library/Logs/ai.lirevo.app/`).
 - Auto-update plumbing (`tauri-plugin-updater`) installed and wired through Settings → About → "Check for updates". Endpoints empty until code signing in M0.5/pre-v1.
 - `inference-core` convenience methods: `WhisperBackend::transcribe(&[u8], &str)` and `LlamaBackend::chat_sync(ChatRequest)`.
 - `audio-capture` emits RMS audio levels via a `watch::Sender<f32>` during recording.

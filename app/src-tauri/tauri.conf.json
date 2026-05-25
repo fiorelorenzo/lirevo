@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "local-dictation-app",
+  "productName": "Lirevo",
   "version": "0.4.0",
-  "identifier": "app.localdictation",
+  "identifier": "ai.lirevo.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -27,8 +27,8 @@
     ],
     "resources": ["icons/tray/*.png"],
     "category": "Productivity",
-    "shortDescription": "Local, private dictation for macOS",
-    "longDescription": "Push-to-talk dictation that runs fully on-device.",
+    "shortDescription": "Lirevo — local AI scribe and agent",
+    "longDescription": "Local, private AI scribe that learns your writing style. Push-to-talk dictation + future personal agent. Runs fully on-device.",
     "macOS": {
       "minimumSystemVersion": "11.0",
       "entitlements": "entitlements.plist",

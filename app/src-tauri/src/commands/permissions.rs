@@ -100,7 +100,7 @@ pub async fn retry_hotkey_install(
 }
 
 /// Debug helper — pipe a string from any webview into the backend tracing
-/// stream so we can see it in `~/Library/Logs/app.localdictation/*.log`
+/// stream so we can see it in `~/Library/Logs/ai.lirevo.app/*.log`
 /// without needing devtools on the overlay window (which is click-through).
 /// Caps + sanitizes inputs so a compromised renderer can't fill the disk
 /// with multi-GB log lines or sneak ANSI escapes / newlines into log files

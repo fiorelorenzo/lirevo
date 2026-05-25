@@ -6,9 +6,14 @@ here.
 
 ## What this project is
 
-Fully local, open-source dictation app for macOS (Apple Silicon, with Linux and
-Windows planned for v2). Push-to-talk → Whisper STT → small LLM cleanup → text
-injection into the focused app. No cloud, no account, no telemetry.
+**Lirevo** — fully local, open-source AI scribe and personal agent for macOS
+(Apple Silicon, with Linux and Windows planned for v2). Push-to-talk dictation
+→ STT → LLM style-aware cleanup → text injection into the focused app, plus
+the foundation for a personal agent that learns your writing style and acts
+on your behalf. No cloud, no account, no telemetry.
+
+The folder name `local-dictation-app/` is a legacy placeholder from before the
+brand name was chosen. Internal references use `lirevo` / `ai.lirevo.app`.
 
 See `README.md` for end-user setup and `CHANGELOG.md` for milestone status.
 
@@ -149,8 +154,8 @@ hotkey, microphone, or injection code paths.
    or `just dmg` (release `.app`).
 3. **Reset stale grants before re-testing permissions:**
    ```bash
-   tccutil reset Microphone     app.localdictation
-   tccutil reset Accessibility  app.localdictation
+   tccutil reset Microphone     ai.lirevo.app
+   tccutil reset Accessibility  ai.lirevo.app
    ```
 4. **`LDA_DEV_SKIP_PERMS=1`** short-circuits the `check_*` / `prompt_*`
    commands to "granted" and makes `test_mic` return a synthetic envelope.

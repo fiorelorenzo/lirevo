@@ -47,6 +47,6 @@ jobs:
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
-          name: local-dictation-app-${{ github.sha }}
+          name: lirevo-${{ github.sha }}
           path: app/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
           retention-days: 30

@@ -123,7 +123,7 @@ fn build_menu(app: &AppHandle, recording: bool, status_label: &str) -> Result<Me
     // home window may never have been opened, and the user needs a single
     // tray-clickable affordance to bring up the dashboard. Also useful in
     // the close-to-tray flow when the home window is just hidden.
-    let show_item = MenuItem::with_id(app, "show-home", "Show local-dictation-app", true, None::<&str>).map_err(menu_err)?;
+    let show_item = MenuItem::with_id(app, "show-home", "Show Lirevo", true, None::<&str>).map_err(menu_err)?;
     let settings_item = MenuItem::with_id(app, "open-settings", "Settings...", true, Some("CmdOrCtrl+,")).map_err(menu_err)?;
     let wiz_item = MenuItem::with_id(app, "open-wizard", "Re-run setup wizard", true, None::<&str>).map_err(menu_err)?;
     let sep2 = PredefinedMenuItem::separator(app).map_err(menu_err)?;

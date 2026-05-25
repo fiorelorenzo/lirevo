@@ -42,7 +42,7 @@ cargo run -p lda-eval --release -- gen-corpus \
 ```
 
 `$MODELS` is wherever your local `.gguf` files live —
-typically `~/Library/Application Support/app.localdictation/models/`.
+typically `~/Library/Application Support/ai.lirevo.app/models/`.
 
 ## Backend specs
 

@@ -9,7 +9,7 @@ use hyperlocal::{UnixConnector, Uri};
 use serde::{Deserialize, Serialize};
 
 #[derive(Parser, Debug)]
-#[command(name = "lda-cli", version, about = "client for the local-dictation-app sidecar")]
+#[command(name = "lda-cli", version, about = "client for the Lirevo inference sidecar")]
 struct Cli {
     #[arg(long, global = true)]
     socket: Option<PathBuf>,

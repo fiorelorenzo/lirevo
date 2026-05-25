@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
   <key>NSMicrophoneUsageDescription</key>
-  <string>local-dictation-app needs microphone access to capture your dictation audio. Audio is processed locally and discarded after each transcription.</string>
+  <string>Lirevo needs microphone access to capture your dictation audio. Audio is processed locally and discarded after each transcription.</string>
   <key>LSUIElement</key>
   <true/>
 </dict>

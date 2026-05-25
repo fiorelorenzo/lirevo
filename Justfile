@@ -15,7 +15,7 @@ dev:
 # permission dialog. Slower than `just dev` (real cargo build + bundling)
 # but the only way to exercise the real permission UX.
 #
-# Output: app/src-tauri/target/aarch64-apple-darwin/debug/bundle/macos/local-dictation-app.app
+# Output: app/src-tauri/target/aarch64-apple-darwin/debug/bundle/macos/Lirevo.app
 #
 # We `tccutil reset` Accessibility + Microphone before relaunch because
 # the bundle is ad-hoc signed (Tauri's default) — the code-signing
@@ -27,9 +27,9 @@ dev:
 dev-bundle:
     cd app && npm install --no-audit --no-fund
     cd app && npx tauri build --debug --target aarch64-apple-darwin --bundles app
-    -tccutil reset Accessibility app.localdictation
-    -tccutil reset Microphone app.localdictation
-    open app/src-tauri/target/aarch64-apple-darwin/debug/bundle/macos/local-dictation-app.app
+    -tccutil reset Accessibility ai.lirevo.app
+    -tccutil reset Microphone ai.lirevo.app
+    open app/src-tauri/target/aarch64-apple-darwin/debug/bundle/macos/Lirevo.app
 
 # Release build → .app + .dmg under app/src-tauri/target/aarch64-apple-darwin/release/bundle/
 dmg:
@@ -76,6 +76,15 @@ reset:
 # multi-gigabyte re-download.
 reset-all:
     scripts/reset.sh --models
+
+# One-time migration helper for the 2026-05-25 rename from
+# `local-dictation-app` (bundle `app.localdictation`) to Lirevo (bundle
+# `ai.lirevo.app`). Moves models/settings from the legacy Application
+# Support directory to the new one, then resets TCC grants. Safe no-op
+# if there's no legacy data. Run BEFORE `just reset` if you want to
+# keep your downloaded models (multi-GB).
+migrate-from-legacy:
+    scripts/migrate-from-legacy.sh
 
 # Dev tool: run the refiner-stage model bake-off
 eval BACKENDS OUT="$(date +%Y-%m-%d)-bake-off":

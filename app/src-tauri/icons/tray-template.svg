@@ -1,0 +1,7 @@
+<svg viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg">
+  <!-- Tray template: single-color (#000), transparent background.
+       macOS renders this as a template image — automatically colors per
+       appearance (light/dark mode). Two dots representing user + agent. -->
+  <circle cx="14" cy="22" r="6" fill="#000000"/>
+  <circle cx="30" cy="22" r="6" fill="#000000" opacity="0.5"/>
+</svg>

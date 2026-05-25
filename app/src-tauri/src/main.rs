@@ -18,5 +18,5 @@ const INFO_PLIST_BYTES: &[u8] = include_bytes!("../Info.plist");
 static INFO_PLIST: [u8; INFO_PLIST_BYTES.len()] = *include_bytes!("../Info.plist");
 
 fn main() {
-    local_dictation_app_lib::run();
+    lirevo_lib::run();
 }

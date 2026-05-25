@@ -1,10 +1,12 @@
-# local-dictation-app
+# Lirevo
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![CI](https://github.com/fiorelorenzo/local-dictation-app/actions/workflows/build-mac.yml/badge.svg)](https://github.com/fiorelorenzo/local-dictation-app/actions/workflows/build-mac.yml)
+[![CI](https://github.com/fiorelorenzo/lirevo/actions/workflows/build-mac.yml/badge.svg)](https://github.com/fiorelorenzo/lirevo/actions/workflows/build-mac.yml)
 
-Fully local, open-source dictation app for macOS (Linux + Windows in v2).
-Inspired by FreeFlow, Wispr Flow, Superwhisper. Zero cloud, zero account, zero telemetry.
+Fully local, open-source AI scribe and agent for macOS (Linux + Windows in v2).
+Inspired by FreeFlow, Wispr Flow, Superwhisper — but learns your writing style and grows into a personal agent. Zero cloud, zero account, zero telemetry.
+
+**Pronunciation:** Lirevo — *lee-REH-voh*.
 
 **Status:** M0 Foundation complete - app builds and runs, but no inference yet. M1 adds Whisper + LLM cleanup.
 
@@ -46,15 +48,15 @@ Design documents (architecture spec, milestone specs, implementation plans) are 
 
 M0 ships unsigned (Apple Developer enrollment is M0.5). To open the app for the first time:
 
-1. Drag `local-dictation-app.app` to `/Applications`.
+1. Drag `Lirevo.app` to `/Applications`.
 2. Right-click the app and choose "Open" (only the first time).
-3. Or remove the quarantine attribute: `xattr -d com.apple.quarantine /Applications/local-dictation-app.app`.
+3. Or remove the quarantine attribute: `xattr -d com.apple.quarantine /Applications/Lirevo.app`.
 
 ## Using the app (M3, Tauri edition)
 
 After installing the DMG (`just dmg`):
 
-1. Drag `local-dictation-app.app` to `/Applications`.
+1. Drag `Lirevo.app` to `/Applications`.
 2. Right-click → Open (first launch only; macOS Gatekeeper unsigned-app prompt — until we ship code signing in M0.5).
 3. The setup wizard opens automatically:
    - **Accessibility** — grant via the System Settings deep link.
@@ -77,12 +79,12 @@ The menu bar icon shows model status (loading / ready / recording / error). Sett
 macOS TCC binds permissions to a binary's code-signing identity hash, not its bundle ID. Three consequences:
 
 - The bare `just dev` binary cannot trigger TCC prompts — macOS auto-denies the request silently. Use one of the two workarounds below.
-- A permission granted to the release `.app` (`just dmg`) does **not** transfer to `just dev` / `just dev-bundle` outputs, even though they share `app.localdictation` as bundle ID.
+- A permission granted to the release `.app` (`just dmg`) does **not** transfer to `just dev` / `just dev-bundle` outputs, even though they share `ai.lirevo.app` as bundle ID.
 - Every fresh debug bundle is a fresh TCC entity. If macOS misbehaves after rebuilds, reset:
 
   ```bash
-  tccutil reset Microphone     app.localdictation
-  tccutil reset Accessibility  app.localdictation
+  tccutil reset Microphone     ai.lirevo.app
+  tccutil reset Accessibility  ai.lirevo.app
   ```
 
   This clears the cached grant/deny + the entry in System Settings → Privacy. The next launch starts from scratch and macOS shows the prompt again.
@@ -268,9 +270,11 @@ Typical use:
 - During pasteboard fallback the clipboard is temporarily overwritten and then restored. Non-string clipboard content (images, files) is lost during restore — known limitation, settings UI in M3 will offer to disable pasteboard fallback.
 - If `--paste-delay-ms` is too low (default 120), a slow target app may receive the restore before the paste — symptoms: dictation seems to not type anything. Bump to 200-300 if needed.
 
-## Project name
+## About the name
 
-The folder name `local-dictation-app` is a placeholder. The product name is intentionally not chosen yet (see "Open decisions" in the architecture design).
+**Lirevo** is a coined name in the Vercel/Stripe/Anthropic tradition — pronounceable but with no pre-existing semantic baggage in any language, so it can carry the brand entirely on its own meaning. Pronounced *lee-REH-voh*.
+
+The folder name `local-dictation-app/` is a legacy placeholder from before the brand was chosen. It will be renamed when convenient; meanwhile internal references all use `lirevo`.
 
 ## License
 

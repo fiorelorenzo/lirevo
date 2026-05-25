@@ -2507,6 +2507,38 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
 
 [[package]]
+name = "lirevo"
+version = "0.4.0"
+dependencies = [
+ "anyhow",
+ "audio-capture",
+ "futures-util",
+ "inference-core",
+ "lda-prompts",
+ "once_cell",
+ "os-integration",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "sys-locale",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-autostart",
+ "tauri-plugin-dialog",
+ "tauri-plugin-opener",
+ "tauri-plugin-process",
+ "tauri-plugin-shell",
+ "tauri-plugin-store",
+ "tauri-plugin-updater",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "litemap"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2538,38 +2570,6 @@ dependencies = [
  "find_cuda_helper",
  "glob",
  "walkdir",
-]
-
-[[package]]
-name = "local-dictation-app"
-version = "0.4.0"
-dependencies = [
- "anyhow",
- "audio-capture",
- "futures-util",
- "inference-core",
- "lda-prompts",
- "once_cell",
- "os-integration",
- "reqwest",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "sys-locale",
- "tauri",
- "tauri-build",
- "tauri-plugin-autostart",
- "tauri-plugin-dialog",
- "tauri-plugin-opener",
- "tauri-plugin-process",
- "tauri-plugin-shell",
- "tauri-plugin-store",
- "tauri-plugin-updater",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
 ]
 
 [[package]]
