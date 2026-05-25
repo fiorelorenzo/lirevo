@@ -77,15 +77,6 @@ reset:
 reset-all:
     scripts/reset.sh --models
 
-# One-time migration helper for the 2026-05-25 rename from
-# `local-dictation-app` (bundle `app.localdictation`) to Lirevo (bundle
-# `ai.lirevo.app`). Moves models/settings from the legacy Application
-# Support directory to the new one, then resets TCC grants. Safe no-op
-# if there's no legacy data. Run BEFORE `just reset` if you want to
-# keep your downloaded models (multi-GB).
-migrate-from-legacy:
-    scripts/migrate-from-legacy.sh
-
 # Dev tool: run the refiner-stage model bake-off
 eval BACKENDS OUT="$(date +%Y-%m-%d)-bake-off":
     cargo run -p lda-eval --release -- run \
