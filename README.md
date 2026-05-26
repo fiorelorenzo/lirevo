@@ -30,8 +30,8 @@ After launching the app for the first time, the **setup wizard** guides you thro
 3. **Microphone** — confirm the mic test envelope is non-zero.
 4. **STT model** — pick one of three speech-to-text engines: Parakeet TDT v3 (default, 25 European languages, lowest latency), Qwen3-ASR (30 languages with broad Asian, Arabic, and European coverage), or Whisper large-v3-turbo (99-language fallback). Weights download from Hugging Face into `~/.cache/huggingface/hub/`.
 5. **Language** — pick "Auto-detect" (default) or force a specific language. The dropdown is filtered by the model chosen in the previous step.
-6. **Background mode** — decide how present the app should be (launch at login, start hidden, stay in the menu bar).
-7. **Cleanup model (optional)** — pick a small LLM to add punctuation and tidy sentence flow, or skip to inject raw STT output. Can be added or changed later from Settings.
+6. **Cleanup model (optional)** — pick a small LLM to add punctuation and tidy sentence flow, or skip to inject raw STT output. Can be added or changed later from Settings.
+7. **Background mode** — decide how present the app should be (launch at login, start hidden, stay in the menu bar).
 8. **Hotkey** — pick a key (default: Right Option).
 
 Once the wizard is done, hold the hotkey anywhere on the system and speak. Release to transcribe → clean → inject into the focused app.

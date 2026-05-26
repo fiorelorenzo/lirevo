@@ -47,8 +47,8 @@
         {:else if step === 2}<Microphone onnext={next} />
         {:else if step === 3}<Models onnext={next} />
         {:else if step === 4}<Language onnext={next} />
-        {:else if step === 5}<BackgroundMode onnext={next} />
-        {:else if step === 6}<Cleanup onnext={next} />
+        {:else if step === 5}<Cleanup onnext={next} />
+        {:else if step === 6}<BackgroundMode onnext={next} />
         {:else if step === 7}<Hotkey onfinish={finish} />
         {/if}
       </div>
