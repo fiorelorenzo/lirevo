@@ -20,14 +20,11 @@
   let status = $state<Status | null>(null);
   let pollTimer: ReturnType<typeof setInterval> | null = null;
 
-  // We poll the TCC status while this step is mounted (the user usually
-  // grants the permission in System Settings, not in the app, so we need
-  // to pick up the flip without focus events) but DO NOT auto-advance
-  // when it flips to `granted`. Every other wizard step requires an
-  // explicit Next click; auto-advancing here was a one-off "magic moment"
-  // that made the flow feel inconsistent — the user reported being
-  // surprised by the jump. Better to show the green "granted" status
-  // and let them click Next when they're ready.
+  // We poll the TCC status while this step is mounted because the user
+  // grants the permission in System Settings (out of process), so we need
+  // to pick up the flip without focus events. The footer Next is gated on
+  // `status === 'granted'` and the user always advances explicitly — no
+  // auto-advance (a prior version did this and the jump felt jarring).
   async function refresh() {
     status = await lda.checkAccessibility();
   }
@@ -48,7 +45,7 @@
 
   $effect(() => {
     nextState = {
-      canNext: true,
+      canNext: status === 'granted',
       onNextClick: onnext,
     };
   });

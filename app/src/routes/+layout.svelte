@@ -47,7 +47,7 @@
   it's read). Don't add the global `closeButton` prop here — it would
   force every toast to show an X regardless of intent.
 -->
-<Toaster richColors position="bottom-right" />
+<Toaster richColors position="top-center" />
 
 {#if isOverlay}
   <main class="h-screen overflow-hidden bg-transparent">

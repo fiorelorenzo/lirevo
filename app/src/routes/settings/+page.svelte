@@ -8,6 +8,7 @@
   import { Switch } from '$lib/components/ui/switch';
   import { Slider } from '$lib/components/ui/slider';
   import FilePicker from '$lib/components/FilePicker.svelte';
+  import MicTest from '$lib/components/MicTest.svelte';
   import ModelCard from '$lib/components/ModelCard.svelte';
   import SkeletonRow from '$lib/components/SkeletonRow.svelte';
   import { settings, updateSettings } from '$lib/stores/settings.svelte';
@@ -264,6 +265,16 @@
               </Select.Root>
             </div>
           </div>
+        </section>
+
+        <section>
+          <h2 class="text-xs font-semibold tracking-wide uppercase text-muted-foreground mb-1">
+            {t('settings.general.microphone.section')}
+          </h2>
+          <p class="text-xs text-muted-foreground mb-3">
+            {t('settings.general.microphone.section_helper')}
+          </p>
+          <MicTest />
         </section>
 
         <section>

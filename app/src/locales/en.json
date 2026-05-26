@@ -42,6 +42,8 @@
       "body": "lda needs microphone access to capture your dictation. Audio is processed on-device and discarded after each transcription.",
       "input_device": "Input device",
       "default": "system default",
+      "grant": "Grant microphone access",
+      "denied_hint": "Microphone access is currently blocked. Open System Settings, allow Lirevo, then come back.",
       "test_mic": "Test microphone",
       "stop": "Stop",
       "listening": "Listening — speak now",
@@ -140,7 +142,34 @@
       "stay_running_on_window_close": "Stay running on window close",
       "stay_running_on_window_close_helper": "Hide the window instead of quitting when you close it. The hotkey keeps working; reopen from the tray.",
       "keep_models_warm": "Keep models warm",
-      "keep_models_warm_helper": "Run a tiny warm-up inference after loading so the first dictation isn't delayed by one-time GPU and cache initialization."
+      "keep_models_warm_helper": "Run a tiny warm-up inference after loading so the first dictation isn't delayed by one-time GPU and cache initialization.",
+      "microphone": {
+        "section": "Microphone check",
+        "section_helper": "Test your selected input device — useful when switching headsets or after macOS audio changes.",
+        "test_mic": "Test microphone",
+        "stop": "Stop",
+        "listening": "Listening — speak now",
+        "idle_hint": "Click Test microphone, then say something.",
+        "hint_try_other": "Not getting any sound. If your device is wireless (e.g. AirPods), it may not have switched to mic mode yet — try selecting a different input above.",
+        "hint_speak_louder": "Picking up faint audio. Try speaking louder, or switch to a closer microphone.",
+        "tested_ok": "Audio detected",
+        "tested_no_audio": "No audio detected within 30 seconds",
+        "tested_no_audio_hint": "Try a different input device, or check your system volume.",
+        "tested_no_capture": "Microphone did not produce any audio",
+        "tested_no_capture_hint": "Open System Settings → Privacy & Security → Microphone and make sure Lirevo is allowed, then try again.",
+        "tested_device_silent": "Device opened, but is producing silence",
+        "tested_device_silent_hint": "'{{device}}' may be muted, paused, or (if Bluetooth) stuck in output-only mode. Try selecting a different input above.",
+        "tested_tcc_blocked": "macOS blocked microphone access",
+        "tested_tcc_blocked_hint": "Open System Settings, allow Lirevo, then click Test microphone again.",
+        "open_system_settings": "Open System Settings",
+        "tested_cancelled": "Test stopped.",
+        "tested_error": "Test failed",
+        "error": {
+          "open_settings": "Open microphone settings",
+          "prompt": "Request microphone permission",
+          "cancel_test": "Stop microphone test"
+        }
+      }
     },
     "models": {
       "whisper_model": "Whisper model",

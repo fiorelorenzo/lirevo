@@ -1,21 +1,10 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { Button } from '$lib/components/ui/button';
-  import * as Select from '$lib/components/ui/select';
-  import { Label } from '$lib/components/ui/label';
-  import { Mic, Square, Check } from '@lucide/svelte';
+  import { Mic } from '@lucide/svelte';
   import PermissionStatus from '$lib/components/PermissionStatus.svelte';
-  import { lda, type PermissionStatus as Status, type InputDeviceEntry } from '$lib/tauri';
+  import { lda, type PermissionStatus as Status } from '$lib/tauri';
   import { toastError, withErrorToast } from '$lib/stores/toasts';
-
-  async function openMicrophoneSettings() {
-    console.info('[Microphone] open System Settings clicked');
-    await withErrorToast(t('wizard.microphone.error.open_settings'), () =>
-      lda.openSystemSettingsMicrophone(),
-    );
-  }
-  import { settings, updateSettings } from '$lib/stores/settings.svelte';
-  import { audioLevel } from '$lib/stores/recording';
   import { t } from '$lib/i18n';
   import { defaultStepState, type WizardStepState } from './step-state';
 
@@ -29,191 +18,47 @@
   }: Props = $props();
 
   let status = $state<Status | null>(null);
-  let testing = $state(false);
-  let devices = $state<InputDeviceEntry[]>([]);
-  let selectedDevice = $state<string | null>(null);
-
-  let currentPeak = $state(0);
-  let testStartedAt = $state(0);
-  let hint = $state<'try_other' | 'speak_louder' | null>(null);
-  let hintTimer: ReturnType<typeof setInterval> | null = null;
-
-  const BARS = 24;
-  let bars = $state<number[]>(Array(BARS).fill(0));
-
-  // We mutate barsBuf imperatively (NOT $state) so we don't establish any
-  // self-referential write inside the audioLevel subscription. After mutating
-  // we copy into `bars` (the reactive view consumed by {#each}).
-  let barsBuf: number[] = Array(BARS).fill(0);
-
-  // Imperative store subscription — bypasses $effect tracking entirely so we
-  // can't trip Svelte 5's effect_update_depth_exceeded guard.
-  let unsubAudioLevel: (() => void) | null = null;
-
-  type Result =
-    | { kind: 'ok'; peak: number; device: string }
-    | { kind: 'no_capture' }
-    | { kind: 'device_silent'; device: string }
-    | { kind: 'cancelled' }
-    | { kind: 'no_audio'; peak: number; device: string }
-    | { kind: 'tcc_blocked' }
-    | { kind: 'error'; message: string };
-
-  let result = $state<Result | null>(null);
+  let prompting = $state(false);
+  let pollTimer: ReturnType<typeof setInterval> | null = null;
 
   async function refreshPermission() {
     status = await lda.checkMicrophone();
-    console.info(`[Microphone] permission status = ${status}`);
   }
 
-  async function refreshDevices() {
-    const result = await withErrorToast(t('wizard.microphone.error.list_devices'), () =>
-      lda.listInputDevices(),
+  async function requestPermission() {
+    if (prompting) return;
+    prompting = true;
+    try {
+      const next = await lda.promptMicrophone();
+      status = next;
+      // If macOS auto-denied (or the user clicked Deny), surface the
+      // recovery path: the "Open System Settings" CTA below the status
+      // becomes the user's way out. The toast only fires on a thrown
+      // error from the bridge itself.
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : String(e);
+      toastError(`${t('wizard.microphone.error.prompt')}: ${reason}`);
+    } finally {
+      prompting = false;
+    }
+  }
+
+  async function openMicrophoneSettings() {
+    await withErrorToast(t('wizard.microphone.error.open_settings'), () =>
+      lda.openSystemSettingsMicrophone(),
     );
-    if (result !== null) {
-      devices = result;
-      console.info(`[Microphone] devices = ${JSON.stringify(devices)}`);
-    }
   }
 
-  onMount(async () => {
-    console.info('[Microphone] mount');
-    // Devices are NOT enumerated yet: on macOS 14+, calling cpal's
-    // `default_host().input_devices()` opens the Core Audio HAL device
-    // list, which itself triggers the TCC microphone prompt — even
-    // without recording. We defer enumeration until the user has
-    // explicitly granted permission (via the Test button), otherwise
-    // the dialog would pop on this very mount, before the user knew
-    // what they were being asked.
-    await refreshPermission();
-    if (status === 'granted') {
-      await refreshDevices();
-    }
-    if ($settings) selectedDevice = $settings.inputDeviceName ?? null;
-
-    // Subscribe to audio levels imperatively.
-    unsubAudioLevel = audioLevel.subscribe((level) => {
-      if (!testing) return;
-      barsBuf = [...barsBuf.slice(1), level];
-      bars = barsBuf.slice(); // copy into reactive state
-      if (level > currentPeak) currentPeak = level;
-    });
+  onMount(() => {
+    void refreshPermission();
+    // Poll the TCC status while mounted: the user may grant permission
+    // from System Settings (out of process), so we pick up the flip
+    // without focus events. The footer Next is gated on `granted`.
+    pollTimer = setInterval(refreshPermission, 1000);
   });
 
   onDestroy(() => {
-    console.info('[Microphone] destroy');
-    unsubAudioLevel?.();
-    if (hintTimer) clearInterval(hintTimer);
-    if (testing) void lda.cancelTestMic();
-  });
-
-  async function startTest() {
-    console.info(`[Microphone] startTest device=${selectedDevice ?? '(default)'}`);
-
-    // If TCC was never asked, prompt explicitly first. cpal on macOS opens
-    // the device through Core Audio HAL which does NOT trigger the TCC
-    // prompt automatically when run from an unsigned dev build — the stream
-    // succeeds but produces silent zeros.
-    if (status === 'not_determined') {
-      console.info('[Microphone] permission not_determined — prompting');
-      const t0 = performance.now();
-      try {
-        status = await lda.promptMicrophone();
-        console.info(
-          `[Microphone] post-prompt status = ${status} (${(performance.now() - t0).toFixed(0)}ms)`,
-        );
-      } catch (e) {
-        // Inline `result = { kind: 'error', ... }` set below covers the
-        // user-visible message; the toast adds the actual exception reason
-        // (the inline path hardcodes a generic "permission was not granted"
-        // string that drops the underlying detail).
-        const reason = e instanceof Error ? e.message : String(e);
-        toastError(`${t('wizard.microphone.error.prompt')}: ${reason}`);
-      }
-      if (status !== 'granted') {
-        const elapsed = performance.now() - t0;
-        // < 250ms means macOS auto-denied without showing the dialog
-        // (typically because the responsible process — Terminal, parent
-        // shell — doesn't have mic permission, or TCC remembers a prior
-        // deny). Show a Settings-link path instead.
-        if (elapsed < 250) {
-          result = { kind: 'tcc_blocked' };
-        } else {
-          result = { kind: 'error', message: 'Microphone permission was not granted.' };
-        }
-        return;
-      }
-      // Now that the user has granted permission, populate the device
-      // dropdown (it was intentionally empty until this point to avoid
-      // triggering the TCC prompt on mount).
-      await refreshDevices();
-    }
-
-    testing = true;
-    result = null;
-    currentPeak = 0;
-    hint = null;
-    barsBuf = Array(BARS).fill(0);
-    bars = barsBuf.slice();
-    testStartedAt = performance.now();
-
-    hintTimer = setInterval(() => {
-      const elapsedMs = performance.now() - testStartedAt;
-      if (elapsedMs > 7000 && currentPeak > 0 && currentPeak < 0.02) {
-        hint = 'speak_louder';
-      } else if (elapsedMs > 3500 && currentPeak < 0.005) {
-        hint = 'try_other';
-      }
-    }, 1000);
-
-    try {
-      const res = await lda.testMic(selectedDevice);
-      console.info(`[Microphone] testMic resolved: ${JSON.stringify(res)}`);
-      if (res.cancelled) {
-        result = { kind: 'cancelled' };
-      } else if (res.sampleCount === 0) {
-        result = { kind: 'no_capture' };
-      } else if (res.detected) {
-        result = { kind: 'ok', peak: res.peak, device: res.deviceLabel };
-      } else if (res.deviceSilent) {
-        result = { kind: 'device_silent', device: res.deviceLabel };
-      } else {
-        result = { kind: 'no_audio', peak: res.peak, device: res.deviceLabel };
-      }
-    } catch (e) {
-      console.error('[Microphone] testMic threw', e);
-      result = { kind: 'error', message: String(e) };
-    } finally {
-      if (hintTimer) {
-        clearInterval(hintTimer);
-        hintTimer = null;
-      }
-      testing = false;
-      await refreshPermission();
-    }
-  }
-
-  async function stopTest() {
-    console.info('[Microphone] stopTest clicked');
-    await withErrorToast(t('wizard.microphone.error.cancel_test'), () =>
-      lda.cancelTestMic(),
-    );
-  }
-
-  async function selectDevice(name: string | null) {
-    console.info(`[Microphone] selectDevice ${name ?? '(default)'}`);
-    selectedDevice = name;
-    await updateSettings({ inputDeviceName: name });
-    result = null;
-    hint = null;
-  }
-
-  let triggerLabel = $derived.by(() => {
-    if (selectedDevice) return selectedDevice;
-    const def = devices.find((d) => d.isDefault);
-    return def
-      ? `${def.name} (${t('wizard.microphone.default')})`
-      : t('wizard.microphone.default');
+    if (pollTimer) clearInterval(pollTimer);
   });
 
   $effect(() => {
@@ -224,7 +69,7 @@
   });
 </script>
 
-<div class="flex flex-col items-center max-w-md mx-auto gap-5 text-center pb-2">
+<div class="flex flex-col items-center justify-center min-h-full text-center max-w-md mx-auto gap-6">
   <h1 class="text-2xl font-semibold tracking-tight animate-in fade-in slide-in-from-bottom-2 duration-500">
     {t('wizard.microphone.title')}
   </h1>
@@ -239,119 +84,21 @@
     not_determined_label={t('wizard.microphone.not_determined')}
   />
 
-  <div class="w-full bg-surface border border-border rounded-2xl p-5 space-y-4 animate-in fade-in duration-500 delay-200">
-    <div class="h-16 flex items-end justify-center gap-[3px]" aria-hidden="true">
-      {#each bars as level, i (i)}
-        <div
-          class="w-[4px] rounded-full transition-all duration-75
-            {testing ? (level >= 0.02 ? 'bg-success' : 'bg-primary/60') : 'bg-muted'}"
-          style="height: {Math.max(3, level * 56)}px"
-        ></div>
-      {/each}
+  {#if status === 'not_determined'}
+    <div class="animate-in fade-in duration-400 delay-300">
+      <Button onclick={requestPermission} disabled={prompting}>
+        <Mic class="h-4 w-4 mr-2" />
+        {t('wizard.microphone.grant')}
+      </Button>
     </div>
-
-    <div class="text-sm">
-      {#if testing}
-        <div class="flex items-center justify-center gap-2 text-muted-foreground">
-          <span class="relative flex h-2 w-2">
-            <span class="absolute inset-0 rounded-full bg-destructive animate-ping opacity-75"></span>
-            <span class="relative inline-flex h-2 w-2 rounded-full bg-destructive"></span>
-          </span>
-          {t('wizard.microphone.listening')}
-          <span class="text-xs text-muted-foreground tabular-nums">
-            · peak {(currentPeak * 100).toFixed(0)}%
-          </span>
-        </div>
-        {#if hint === 'try_other'}
-          <p class="text-xs text-warning mt-2">{t('wizard.microphone.hint_try_other')}</p>
-        {:else if hint === 'speak_louder'}
-          <p class="text-xs text-warning mt-2">{t('wizard.microphone.hint_speak_louder')}</p>
-        {/if}
-      {:else if result?.kind === 'ok'}
-        <div class="flex items-center justify-center gap-2 font-medium text-success">
-          <Check class="h-4 w-4" />
-          {t('wizard.microphone.tested_ok')}
-          <span class="text-xs text-muted-foreground tabular-nums">
-            · peak {(result.peak * 100).toFixed(0)}%
-          </span>
-        </div>
-      {:else if result?.kind === 'no_audio'}
-        <div class="space-y-1">
-          <p class="font-medium text-warning">{t('wizard.microphone.tested_no_audio')}</p>
-          <p class="text-xs text-muted-foreground">{t('wizard.microphone.tested_no_audio_hint')}</p>
-        </div>
-      {:else if result?.kind === 'no_capture'}
-        <div class="space-y-1">
-          <p class="font-medium text-destructive">{t('wizard.microphone.tested_no_capture')}</p>
-          <p class="text-xs text-muted-foreground">{t('wizard.microphone.tested_no_capture_hint')}</p>
-        </div>
-      {:else if result?.kind === 'device_silent'}
-        <div class="space-y-1">
-          <p class="font-medium text-warning">{t('wizard.microphone.tested_device_silent')}</p>
-          <p class="text-xs text-muted-foreground">
-            {t('wizard.microphone.tested_device_silent_hint', { device: result.device })}
-          </p>
-        </div>
-      {:else if result?.kind === 'cancelled'}
-        <p class="text-muted-foreground">{t('wizard.microphone.tested_cancelled')}</p>
-      {:else if result?.kind === 'tcc_blocked'}
-        <div class="space-y-2">
-          <p class="font-medium text-destructive">{t('wizard.microphone.tested_tcc_blocked')}</p>
-          <p class="text-xs text-muted-foreground">{t('wizard.microphone.tested_tcc_blocked_hint')}</p>
-          <Button variant="outline" size="sm" onclick={openMicrophoneSettings}>
-            {t('wizard.microphone.open_system_settings')}
-          </Button>
-        </div>
-      {:else if result?.kind === 'error'}
-        <div class="space-y-1">
-          <p class="font-medium text-destructive">{t('wizard.microphone.tested_error')}</p>
-          <p class="text-xs text-muted-foreground font-mono">{result.message}</p>
-        </div>
-      {:else}
-        <p class="text-muted-foreground">{t('wizard.microphone.idle_hint')}</p>
-      {/if}
+  {:else if status === 'denied'}
+    <div class="animate-in fade-in duration-400 delay-300 space-y-2">
+      <p class="text-xs text-muted-foreground max-w-xs">
+        {t('wizard.microphone.denied_hint')}
+      </p>
+      <Button variant="outline" onclick={openMicrophoneSettings}>
+        {t('wizard.microphone.open_system_settings')}
+      </Button>
     </div>
-
-    <div class="flex items-center justify-center">
-      {#if testing}
-        <Button variant="outline" onclick={stopTest}>
-          <Square class="h-4 w-4 mr-2" />
-          {t('wizard.microphone.stop')}
-        </Button>
-      {:else}
-        <Button onclick={startTest} disabled={status === 'denied'}>
-          <Mic class="h-4 w-4 mr-2" />
-          {t('wizard.microphone.test_mic')}
-        </Button>
-      {/if}
-    </div>
-  </div>
-
-  <div class="w-full max-w-xs space-y-2 text-left animate-in fade-in duration-400 delay-300">
-    <Label class="text-xs uppercase tracking-wide text-muted-foreground">
-      {t('wizard.microphone.input_device')}
-    </Label>
-    <Select.Root
-      type="single"
-      value={selectedDevice ?? '__default__'}
-      onValueChange={(v) => selectDevice(v === '__default__' ? null : (v ?? null))}
-      disabled={testing || devices.length === 0}
-    >
-      <Select.Trigger class="w-full">
-        <span class="flex-1 min-w-0 truncate text-left">{triggerLabel}</span>
-      </Select.Trigger>
-      <Select.Content>
-        <Select.Item value="__default__">
-          {devices.find((d) => d.isDefault)?.name
-            ? `${devices.find((d) => d.isDefault)?.name} (${t('wizard.microphone.default')})`
-            : t('wizard.microphone.default')}
-        </Select.Item>
-        {#each devices as d (d.name)}
-          <Select.Item value={d.name}>
-            {d.name}{d.isDefault ? ` (${t('wizard.microphone.default')})` : ''}
-          </Select.Item>
-        {/each}
-      </Select.Content>
-    </Select.Root>
-  </div>
+  {/if}
 </div>
