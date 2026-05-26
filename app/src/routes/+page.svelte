@@ -139,7 +139,10 @@
         {:else}
           <p class="text-sm text-muted-foreground mb-6">{t('home.sidecar_down_body')}</p>
         {/if}
-        <Button onclick={() => navigate('settings')}>{t('home.retry')}</Button>
+        <div class="flex items-center justify-center gap-2">
+          <Button onclick={() => navigate('settings')}>{t('home.retry')}</Button>
+          <Button variant="outline" onclick={() => navigate('wizard')}>{t('home.rerun_wizard')}</Button>
+        </div>
       </div>
     {:else if $modelState.kind === 'loading' || $modelState.kind === 'reloading'}
       <Logo size={64} />

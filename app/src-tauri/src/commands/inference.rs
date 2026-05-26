@@ -148,8 +148,20 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
         let id_for_load = stt_model_id.clone();
         Some(tokio::task::spawn_blocking(move || stt::load(&id_for_load)))
     };
-    let llama_handle = llm_path.map(|p| {
-        tokio::task::spawn_blocking(move || LlamaBackend::load(p, ctx_size))
+    // Runtime existence check: settings migration clears stale paths at
+    // startup, but the file can disappear mid-session (model manager remove,
+    // user deleted the .gguf manually). Treating a missing file as "not
+    // configured" lets the dictation pipeline keep running in STT-only mode
+    // instead of bubbling a confusing load error to the UI.
+    let llama_handle = llm_path.and_then(|p| {
+        if !p.exists() {
+            tracing::warn!(
+                path = %p.display(),
+                "configured LLM path is missing on disk; treating as not configured"
+            );
+            return None;
+        }
+        Some(tokio::task::spawn_blocking(move || LlamaBackend::load(p, ctx_size)))
     });
 
     let stt_result = match stt_handle {
