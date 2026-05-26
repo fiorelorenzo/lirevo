@@ -27,7 +27,7 @@
   };
 
   let canDictate = $derived(
-    $modelState.kind === 'ready' && ($modelState as any).whisper === true
+    $modelState.kind === 'ready' && ($modelState as any).stt === true
   );
 
   // When Accessibility is observed granted, try to (re)install the hotkey
@@ -126,7 +126,7 @@
         <p class="text-sm text-muted-foreground mb-6">{t('home.setup_incomplete_body')}</p>
         <Button onclick={() => navigate('wizard')}>{t('home.rerun_wizard')}</Button>
       </div>
-    {:else if $modelState.kind === 'error' || ($modelState.kind === 'ready' && !($modelState as any).whisper)}
+    {:else if $modelState.kind === 'error' || ($modelState.kind === 'ready' && !($modelState as any).stt)}
       <div class="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center">
         <AlertTriangle class="h-7 w-7 text-destructive" />
       </div>
@@ -179,18 +179,18 @@
   <footer class="relative -mx-8 -mb-8 mt-4 px-6 py-3 border-t border-border/60 backdrop-blur-md flex items-center justify-between text-xs">
     <div class="flex items-center gap-4">
       {#if $modelState.kind === 'ready' && canDictate}
-        {@const whisperReady = ($modelState as any).whisper === true}
+        {@const sttReady = ($modelState as any).stt === true}
         {@const llmReady = ($modelState as any).llama === true}
         <span class="flex items-center gap-1.5">
           <span class="relative inline-flex h-1.5 w-1.5">
-            {#if whisperReady}
+            {#if sttReady}
               <span class="absolute inset-0 rounded-full bg-success/60 animate-ping"></span>
               <span class="relative inline-flex h-full w-full rounded-full bg-success"></span>
             {:else}
               <span class="inline-flex h-full w-full rounded-full bg-muted-foreground/30"></span>
             {/if}
           </span>
-          <span class={whisperReady ? 'text-foreground' : 'text-muted-foreground'}>
+          <span class={sttReady ? 'text-foreground' : 'text-muted-foreground'}>
             {t('home.status_speech')}
           </span>
         </span>

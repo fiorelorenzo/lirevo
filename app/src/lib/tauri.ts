@@ -31,8 +31,8 @@ export interface Settings {
 
 export type ModelState =
   | { kind: 'idle' }
-  | { kind: 'loading'; whisper: boolean; llama: boolean }
-  | { kind: 'ready'; whisper: boolean; llama: boolean }
+  | { kind: 'loading'; stt: boolean; llama: boolean }
+  | { kind: 'ready'; stt: boolean; llama: boolean }
   | { kind: 'reloading'; reason: string }
   | { kind: 'error'; reason: string };
 
