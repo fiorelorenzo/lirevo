@@ -175,19 +175,66 @@ impl Recorder {
         let Active { stream, buf, source_rate, device_label } = active;
         drop(stream);
 
-        let mono = Arc::try_unwrap(buf)
-            .map_err(|_| AudioError::Internal("ring buffer still has live refs".into()))?
-            .into_inner()
-            .map_err(|e| AudioError::Internal(format!("buf mutex poisoned: {e}")))?;
+        // Clone-out rather than try_unwrap: peek_resampled_since may hold an
+        // Arc clone on a streaming worker; we no longer have the single-owner
+        // invariant that try_unwrap required.
+        let mono = buf
+            .lock()
+            .map_err(|e| AudioError::Internal(format!("buf mutex poisoned: {e}")))?
+            .clone();
 
-        let samples = if source_rate == 16_000 {
-            mono
-        } else {
-            crate::resample::to_16k(&mono, source_rate)?
-        };
+        let samples = resample_to_16k_mono(&mono, source_rate)?;
 
         let duration_ms = u32::try_from(samples.len() * 1000 / 16_000).unwrap_or(u32::MAX);
         Ok(Recording { samples, duration_ms, device_label })
+    }
+
+    /// Read the currently-captured buffer, resample it to 16 kHz mono, and
+    /// return the tail past `cursor` along with a new cursor for the next
+    /// call.
+    ///
+    /// `cursor` is an index into the 16 kHz output stream — callers pass
+    /// `0` on first call and the second tuple element on each subsequent
+    /// call. The returned cursor equals the full resampled length and is
+    /// monotonically non-decreasing across calls, so the concatenation of
+    /// every returned slice (in order) reconstructs the same buffer
+    /// `stop()` would yield up to the same moment.
+    ///
+    /// Resampling the full buffer each call (rather than a window) avoids
+    /// rubato's stateful filter drift on overlapping chunks; the encoder
+    /// cost dwarfs the resample cost, so this stays in budget.
+    ///
+    /// Returns `Err(NotRecording)` if the recorder hasn't been started.
+    /// Returns an empty tail (and an unchanged cursor) if no new samples
+    /// have accumulated since the last call.
+    pub fn peek_resampled_since(
+        &self,
+        cursor: usize,
+    ) -> Result<(Vec<f32>, usize), AudioError> {
+        let active = self.state.as_ref().ok_or(AudioError::NotRecording)?;
+        let snapshot = active
+            .buf
+            .lock()
+            .map_err(|e| AudioError::Internal(format!("buf mutex poisoned: {e}")))?
+            .clone();
+        let resampled = resample_to_16k_mono(&snapshot, active.source_rate)?;
+        let new_cursor = resampled.len();
+        if cursor >= new_cursor {
+            return Ok((Vec::new(), new_cursor));
+        }
+        let tail = resampled[cursor..].to_vec();
+        Ok((tail, new_cursor))
+    }
+}
+
+/// Resample arbitrary-rate mono samples to 16 kHz mono. Pass-through when
+/// the source is already at 16 kHz. Pulled out of `stop()` so the same
+/// contract is reused by `peek_resampled_since`.
+fn resample_to_16k_mono(samples: &[f32], source_rate: u32) -> Result<Vec<f32>, AudioError> {
+    if source_rate == 16_000 {
+        Ok(samples.to_vec())
+    } else {
+        crate::resample::to_16k(samples, source_rate)
     }
 }
 
@@ -225,5 +272,56 @@ mod tests {
     fn rms_clamped_to_one() {
         let r = rms(&[2.0, -2.0]);
         assert!((r - 1.0).abs() < 1e-6, "expected 1.0, got {r}");
+    }
+
+    /// Simulate the cpal callback writing into the shared buffer and
+    /// assert that the concatenation of all incremental peeks equals what
+    /// a final `stop`-equivalent drain would return. We test the pure
+    /// resample helper + the cursor math without spinning up cpal so the
+    /// test runs deterministically in CI.
+    #[test]
+    fn incremental_peeks_reconstruct_full_buffer() {
+        let buf = Arc::new(Mutex::new(Vec::<f32>::new()));
+
+        let push = |chunk: &[f32]| {
+            buf.lock().unwrap().extend_from_slice(chunk);
+        };
+
+        // Helper that mirrors peek_resampled_since's contract on the
+        // shared buffer; the recorder's method uses the same body
+        // (snapshot → resample → slice past cursor).
+        let peek = |cursor: usize| -> (Vec<f32>, usize) {
+            let snapshot = buf.lock().unwrap().clone();
+            let resampled = resample_to_16k_mono(&snapshot, 16_000).unwrap();
+            let new_cursor = resampled.len();
+            if cursor >= new_cursor {
+                return (Vec::new(), new_cursor);
+            }
+            (resampled[cursor..].to_vec(), new_cursor)
+        };
+
+        push(&[0.1; 800]);
+        let (a, c1) = peek(0);
+        assert_eq!(a.len(), 800);
+        assert_eq!(c1, 800);
+
+        push(&[0.2; 1200]);
+        let (b, c2) = peek(c1);
+        assert_eq!(b.len(), 1200);
+        assert_eq!(c2, 2000);
+
+        // Empty interval — no new samples since last peek.
+        let (empty, c3) = peek(c2);
+        assert!(empty.is_empty());
+        assert_eq!(c3, c2);
+
+        push(&[0.3; 400]);
+        let (tail, c4) = peek(c3);
+        assert_eq!(tail.len(), 400);
+        assert_eq!(c4, 2400);
+
+        let combined: Vec<f32> = [a, b, tail].concat();
+        let full = resample_to_16k_mono(&buf.lock().unwrap().clone(), 16_000).unwrap();
+        assert_eq!(combined, full);
     }
 }

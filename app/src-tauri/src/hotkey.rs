@@ -136,10 +136,31 @@ fn handle_down(app: &AppHandle, state: &tauri::State<AppState>) {
                 }
             });
 
-            // Re-acquire briefly to install the recorder.
+            // Snapshot what the streaming worker needs (STT slot + dictation
+            // language) before re-acquiring the inner lock to install the
+            // recorder + streaming handle.
+            let (stt_slot, language) = {
+                let inner = state.inner.lock().unwrap();
+                (inner.stt.clone(), inner.settings.language.clone())
+            };
+            let streaming = stt_slot.map(|slot| {
+                let lang_opt = if language == "auto" || language.is_empty() {
+                    None
+                } else {
+                    Some(language.clone())
+                };
+                crate::commands::inference::spawn_streaming_session(
+                    app.clone(),
+                    slot,
+                    lang_opt,
+                )
+            });
+
+            // Re-acquire briefly to install the recorder + streaming handle.
             {
                 let mut inner = state.inner.lock().unwrap();
                 inner.recorder = Some(recorder);
+                inner.streaming = streaming;
             }
             let _ = state.recording_state_tx.send(true);
             let _ = app.emit("recording:state", true);
@@ -157,7 +178,10 @@ fn handle_down(app: &AppHandle, state: &tauri::State<AppState>) {
 
 fn handle_up(app: &AppHandle, state: &tauri::State<AppState>) {
     tracing::info!("handle_up: hotkey released");
-    let recorder = state.inner.lock().unwrap().recorder.take();
+    let (recorder, streaming) = {
+        let mut inner = state.inner.lock().unwrap();
+        (inner.recorder.take(), inner.streaming.take())
+    };
     let Some(mut r) = recorder else {
         tracing::warn!("handle_up: no active recorder (Down was ignored?)");
         // Up without an active Down (e.g. permission popup ate the Down event).
@@ -188,7 +212,7 @@ fn handle_up(app: &AppHandle, state: &tauri::State<AppState>) {
 
     let app2 = app.clone();
     tauri::async_runtime::spawn(async move {
-        run_pipeline(app2, samples).await;
+        run_pipeline(app2, samples, streaming).await;
     });
 }
 
@@ -225,7 +249,11 @@ fn hide_overlay_with_delay(app: &AppHandle) {
 ///
 /// Each failure mode emits a `toast` event so the UI can surface it. Successful
 /// runs emit a single tracing line with per-stage and total wall-clock timings.
-async fn run_pipeline(app: AppHandle, samples: Vec<f32>) {
+async fn run_pipeline(
+    app: AppHandle,
+    samples: Vec<f32>,
+    streaming: Option<crate::commands::inference::StreamingHandle>,
+) {
     let t0 = std::time::Instant::now();
     let state = app.state::<AppState>();
 
@@ -249,17 +277,45 @@ async fn run_pipeline(app: AppHandle, samples: Vec<f32>) {
         return;
     };
 
-    // 1. Transcribe. Recorder produces 16 kHz mono f32, so audiopipe's
-    // `transcribe()` (which assumes that exact format) is the right entry —
-    // no resample needed.
     let lang_for_stt = if language == "auto" || language.is_empty() {
         None
     } else {
         Some(language.clone())
     };
-    let raw_text =
-        match crate::commands::inference::transcribe_samples_async(stt_slot, samples, lang_for_stt)
-            .await
+
+    // 1. Transcribe. Prefer the streaming worker's cumulative output; fall
+    // back to the one-shot path when streaming is unsupported (Whisper /
+    // Qwen3-ASR) or errored mid-stream.
+    let raw_text = match streaming {
+        Some(handle) => {
+            let _ = handle.stop_tx.send(samples.clone());
+            match handle.result_rx.await {
+                Ok(Some(text)) => text,
+                _ => {
+                    tracing::info!(
+                        "run_pipeline: streaming worker yielded no text — running one-shot"
+                    );
+                    match crate::commands::inference::transcribe_samples_async(
+                        stt_slot, samples, lang_for_stt,
+                    )
+                    .await
+                    {
+                        Ok(t) => t,
+                        Err(e) => {
+                            let _ = app.emit(
+                                "toast",
+                                crate::commands::toast("error", format!("Transcription failed: {e}")),
+                            );
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+        None => match crate::commands::inference::transcribe_samples_async(
+            stt_slot, samples, lang_for_stt,
+        )
+        .await
         {
             Ok(t) => t,
             Err(e) => {
@@ -269,7 +325,8 @@ async fn run_pipeline(app: AppHandle, samples: Vec<f32>) {
                 );
                 return;
             }
-        };
+        },
+    };
     let t1 = t0.elapsed();
 
     // 2. Clean (graceful degrade if LLM missing or fails).

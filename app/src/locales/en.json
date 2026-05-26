@@ -206,5 +206,8 @@
     "status_cleanup": "Cleanup",
     "status_cleanup_off": "Cleanup off",
     "status_cleanup_loading": "Cleanup loading…"
+  },
+  "overlay": {
+    "live_transcript_placeholder": "Listening…"
   }
 }

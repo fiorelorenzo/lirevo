@@ -8,6 +8,7 @@ use inference_core::LlamaBackend;
 use audio_capture::Recorder;
 use os_integration::Injector;
 
+use crate::commands::inference::StreamingHandle;
 use crate::settings::Settings;
 use crate::stt::SttModelHandle;
 
@@ -34,6 +35,9 @@ pub struct AppStateInner {
     pub recorder: Option<Recorder>,
     pub injector: Injector,
     pub current_load_token: u64,
+    /// Live streaming worker for the in-flight dictation, if any. Installed
+    /// by `handle_down` and consumed by `handle_up`.
+    pub streaming: Option<StreamingHandle>,
 }
 
 pub struct AppState {
@@ -62,6 +66,7 @@ impl AppState {
                 recorder: None,
                 injector,
                 current_load_token: 0,
+                streaming: None,
             }),
             model_state_tx,
             recording_state_tx,

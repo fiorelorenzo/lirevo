@@ -1,8 +1,11 @@
 use std::sync::Arc;
-use tauri::{AppHandle, State};
-use tokio::sync::Mutex as AsyncMutex;
+use std::time::Duration;
 
-use audiopipe::TranscribeOptions;
+use tauri::{AppHandle, Emitter, Manager, State};
+use tokio::sync::Mutex as AsyncMutex;
+use tokio::sync::{mpsc, oneshot};
+
+use audiopipe::{PartialTranscript, TranscribeOptions};
 use inference_core::{ChatRequest, LlamaBackend};
 
 use crate::state::{ModelState, SttSlot};
@@ -366,6 +369,231 @@ pub async fn transcribe_samples_async(
     })
     .await
     .map_err(|e| AppError::Internal(e.to_string()))?
+}
+
+/// Handle returned by [`spawn_streaming_session`]. The hotkey coordinator
+/// stores this for the duration of a dictation and uses it to (a) signal
+/// "stop" with the authoritative final 16 kHz samples, and (b) collect
+/// the cumulative streamed transcript back from the worker.
+///
+/// `result_rx` resolves to:
+///   * `Some(text)` — streaming produced a full transcript (skip the
+///     one-shot stage).
+///   * `None`      — engine returned `Error::NotSupported`, the session
+///     errored mid-stream, or the loader couldn't acquire the slot;
+///     caller should fall back to the one-shot transcribe path.
+pub struct StreamingHandle {
+    pub stop_tx: oneshot::Sender<Vec<f32>>,
+    pub result_rx: oneshot::Receiver<Option<String>>,
+}
+
+/// Cadence of the streaming push loop. Each tick: peek the recorder for
+/// new 16 kHz samples, push them into the audiopipe session, emit a
+/// partial-transcript event.
+const STREAM_TICK: Duration = Duration::from_millis(400);
+
+/// Tauri event name for partial-transcript updates pushed by the
+/// streaming worker. Payload is [`PartialTranscriptEvent`].
+const PARTIAL_TRANSCRIPT_EVENT: &str = "recording:partial_transcript";
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PartialTranscriptEvent {
+    text: String,
+    delta: String,
+    is_final: bool,
+}
+
+impl PartialTranscriptEvent {
+    fn from_partial(p: &PartialTranscript) -> Self {
+        Self {
+            text: p.text.clone(),
+            delta: p.delta.clone(),
+            is_final: p.is_final,
+        }
+    }
+
+    fn final_text(text: &str) -> Self {
+        Self {
+            text: text.to_string(),
+            delta: String::new(),
+            is_final: true,
+        }
+    }
+}
+
+/// Snapshot of the recorder's resampled buffer past `cursor`, taken
+/// without stopping the audio stream. Returns the new tail and the
+/// updated cursor (in 16 kHz output samples).
+fn peek_recorder_tail(
+    state: &AppState,
+    cursor: usize,
+) -> Option<(Vec<f32>, usize)> {
+    let inner = state.inner.lock().ok()?;
+    let rec = inner.recorder.as_ref()?;
+    rec.peek_resampled_since(cursor).ok()
+}
+
+/// Spawn the live streaming worker for the current dictation.
+///
+/// The worker opens an audiopipe `StreamSession` (graceful degrade on
+/// `NotSupported`), then loops every [`STREAM_TICK`]: peek the recorder
+/// for new 16 kHz samples, push them into the session, emit a
+/// `recording:partial_transcript` Tauri event. When `handle_up` sends
+/// the authoritative final samples on `stop_tx`, the worker pushes the
+/// remaining tail, calls `session.finish()`, emits one `is_final` event,
+/// and resolves `result_rx` with the cumulative text.
+///
+/// Concurrency: the worker runs on `tokio::task::spawn_blocking` and
+/// holds the STT slot's `blocking_lock` for the entire dictation —
+/// matching the existing one-shot lock-for-duration pattern. Each
+/// `session.push` is synchronous and runs in the same blocking thread.
+pub fn spawn_streaming_session(
+    app: AppHandle,
+    slot: SttSlot,
+    language: Option<String>,
+) -> StreamingHandle {
+    let (stop_tx, stop_rx) = oneshot::channel::<Vec<f32>>();
+    let (result_tx, result_rx) = oneshot::channel::<Option<String>>();
+    // mpsc with capacity 1 lets the tick-driver coalesce wake-ups against
+    // the (rare) stop signal without dropping the final samples.
+    let (tick_tx, tick_rx) = mpsc::channel::<TickEvent>(2);
+
+    // Pacing driver: every STREAM_TICK push a Tick; when stop_rx fires
+    // forward the final samples as a Stop event then exit.
+    let tick_tx_drive = tick_tx.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(STREAM_TICK);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        // Discard the immediate first tick — we want the first peek to
+        // happen STREAM_TICK after handle_down, not instantly.
+        interval.tick().await;
+        tokio::pin!(stop_rx);
+        loop {
+            tokio::select! {
+                biased;
+                final_samples = &mut stop_rx => {
+                    let payload = final_samples.unwrap_or_default();
+                    let _ = tick_tx_drive.send(TickEvent::Stop(payload)).await;
+                    return;
+                }
+                _ = interval.tick() => {
+                    if tick_tx_drive.send(TickEvent::Tick).await.is_err() {
+                        return;
+                    }
+                }
+            }
+        }
+    });
+
+    // Blocking worker: owns the session + slot lock for the dictation.
+    tokio::task::spawn_blocking(move || {
+        run_streaming_worker(app, slot, language, tick_rx, result_tx);
+    });
+
+    StreamingHandle { stop_tx, result_rx }
+}
+
+enum TickEvent {
+    Tick,
+    Stop(Vec<f32>),
+}
+
+fn run_streaming_worker(
+    app: AppHandle,
+    slot: SttSlot,
+    language: Option<String>,
+    mut tick_rx: mpsc::Receiver<TickEvent>,
+    result_tx: oneshot::Sender<Option<String>>,
+) {
+    let state = app.state::<AppState>();
+    let mut guard = slot.blocking_lock();
+    let opts = TranscribeOptions { language, word_timestamps: false };
+
+    let mut session = match guard.transcribe_stream(16_000, opts) {
+        Ok(s) => s,
+        Err(audiopipe::Error::NotSupported) => {
+            tracing::info!(
+                "streaming worker: engine reports NotSupported — falling back to one-shot path"
+            );
+            let _ = result_tx.send(None);
+            return;
+        }
+        Err(e) => {
+            tracing::warn!(?e, "streaming worker: transcribe_stream open failed");
+            let _ = result_tx.send(None);
+            return;
+        }
+    };
+
+    let mut cursor: usize = 0;
+    let mut last_text = String::new();
+    let mut had_error = false;
+
+    while let Some(event) = tick_rx.blocking_recv() {
+        match event {
+            TickEvent::Tick => {
+                let Some((tail, new_cursor)) = peek_recorder_tail(&state, cursor) else {
+                    // Recorder gone (handle_up already took it) — wait for
+                    // the Stop event to arrive with the final samples.
+                    continue;
+                };
+                cursor = new_cursor;
+                if tail.is_empty() {
+                    continue;
+                }
+                match session.push(&tail) {
+                    Ok(partial) => {
+                        last_text = partial.text.clone();
+                        let _ = app.emit(
+                            PARTIAL_TRANSCRIPT_EVENT,
+                            PartialTranscriptEvent::from_partial(&partial),
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(?e, "streaming worker: session.push failed");
+                        // Bail to the fallback path below; the caller will
+                        // run the one-shot transcribe instead.
+                        break;
+                    }
+                }
+            }
+            TickEvent::Stop(final_samples) => {
+                let tail_start = cursor.min(final_samples.len());
+                let tail = &final_samples[tail_start..];
+                if !tail.is_empty() {
+                    if let Err(e) = session.push(tail) {
+                        tracing::warn!(?e, "streaming worker: final session.push failed");
+                        had_error = true;
+                    }
+                }
+                match session.finish() {
+                    Ok(result) => {
+                        let text = result.text.trim().to_string();
+                        let _ = app.emit(
+                            PARTIAL_TRANSCRIPT_EVENT,
+                            PartialTranscriptEvent::final_text(&text),
+                        );
+                        let _ = result_tx.send(if had_error { None } else { Some(text) });
+                        return;
+                    }
+                    Err(e) => {
+                        tracing::warn!(?e, "streaming worker: session.finish failed");
+                        let _ = result_tx.send(None);
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    // Channel closed without a Stop event (driver task dropped early).
+    // Emit a final event with whatever cumulative text we have and bail.
+    let _ = app.emit(
+        PARTIAL_TRANSCRIPT_EVENT,
+        PartialTranscriptEvent::final_text(&last_text),
+    );
+    let _ = result_tx.send(None);
 }
 
 /// Coerce a frontend-supplied language string into the `Option<String>`

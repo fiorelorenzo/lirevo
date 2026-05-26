@@ -110,6 +110,16 @@ export interface InputDeviceEntry {
   isDefault: boolean;
 }
 
+/** Live partial-transcript update emitted by the streaming STT worker.
+ *  `text` is authoritative cumulative; `delta` is a hint of the tail
+ *  added since the previous event (may shrink/rewrite). `isFinal` is
+ *  true only on the very last event of a dictation. */
+export interface PartialTranscript {
+  text: string;
+  delta: string;
+  isFinal: boolean;
+}
+
 export const lda = {
   getSettings: () => invoke<Settings>('get_settings'),
   updateSettings: (patch: Partial<Settings>) => invoke<Settings>('update_settings', { patch }),
@@ -142,6 +152,8 @@ export const lda = {
     listen<boolean>('recording:state', (e) => cb(e.payload)),
   onAudioLevel: (cb: (level: number) => void): Promise<UnlistenFn> =>
     listen<number>('recording:level', (e) => cb(e.payload)),
+  onPartialTranscript: (cb: (p: PartialTranscript) => void): Promise<UnlistenFn> =>
+    listen<PartialTranscript>('recording:partial_transcript', (e) => cb(e.payload)),
   onDownloadProgress: (cb: (p: DownloadProgress) => void): Promise<UnlistenFn> =>
     listen<DownloadProgress>('download:progress', (e) => cb(e.payload)),
   onToast: (cb: (t: Toast) => void): Promise<UnlistenFn> =>

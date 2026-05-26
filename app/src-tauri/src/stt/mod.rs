@@ -14,7 +14,7 @@ pub mod catalog;
 #[cfg(any(test, feature = "test-stt"))]
 pub mod mock;
 
-use audiopipe::{TranscribeOptions, TranscribeResult};
+use audiopipe::{StreamSession, TranscribeOptions, TranscribeResult};
 
 use crate::AppError;
 
@@ -59,6 +59,22 @@ impl SttModelHandle {
             Self::Real(m) => m.transcribe_with_sample_rate(audio, sample_rate, opts),
             #[cfg(any(test, feature = "test-stt"))]
             Self::Mock(m) => m.transcribe(audio, sample_rate, opts),
+        }
+    }
+
+    /// Open a streaming transcription session. Returns
+    /// [`audiopipe::Error::NotSupported`] when the underlying engine does
+    /// not implement streaming (Whisper, Qwen3-ASR). Callers are expected
+    /// to fall back to one-shot [`Self::transcribe`] in that case.
+    pub fn transcribe_stream(
+        &mut self,
+        sample_rate: u32,
+        opts: TranscribeOptions,
+    ) -> Result<Box<dyn StreamSession + Send>, audiopipe::Error> {
+        match self {
+            Self::Real(m) => m.transcribe_stream(sample_rate, opts),
+            #[cfg(any(test, feature = "test-stt"))]
+            Self::Mock(_) => Err(audiopipe::Error::NotSupported),
         }
     }
 }

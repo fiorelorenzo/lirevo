@@ -1,11 +1,25 @@
 import { readable, type Readable } from 'svelte/store';
-import { lda } from '../tauri';
+import { lda, type PartialTranscript } from '../tauri';
 
 export const recording: Readable<boolean> = readable<boolean>(false, (set) => {
   let unlisten: (() => void) | null = null;
   void lda.onRecordingState((r) => set(r)).then((u) => { unlisten = u; });
   return () => unlisten?.();
 });
+
+/** Live cumulative transcript pushed by the streaming STT worker. Empty
+ *  string outside a dictation. Consumers in the main window can use this
+ *  for live-transcript surfaces; the overlay subscribes to the raw Tauri
+ *  event directly (see overlay/+page.svelte) because each webview gets
+ *  its own module instance. */
+export const partialTranscript: Readable<PartialTranscript> = readable<PartialTranscript>(
+  { text: '', delta: '', isFinal: false },
+  (set) => {
+    let unlisten: (() => void) | null = null;
+    void lda.onPartialTranscript((p) => set(p)).then((u) => { unlisten = u; });
+    return () => unlisten?.();
+  },
+);
 
 let audioLevelDebugCount = 0;
 export const audioLevel: Readable<number> = readable<number>(0, (set) => {
