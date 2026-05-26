@@ -5,8 +5,8 @@
   import { Progress } from '$lib/components/ui/progress';
   import { Sparkles, Check, Download as DownloadIcon } from '@lucide/svelte';
   import { settings, updateSettings } from '$lib/stores/settings.svelte';
-  import { lda, type CatalogEntry, type LocalModel } from '$lib/tauri';
-  import { progressFor } from '$lib/stores/downloads';
+  import { lda, type CatalogEntry, type LocalModel, type DownloadProgress } from '$lib/tauri';
+  import { downloads, progressFor } from '$lib/stores/downloads';
   import { t } from '$lib/i18n';
   import { withErrorToast } from '$lib/stores/toasts';
   import type { UnlistenFn } from '@tauri-apps/api/event';
@@ -19,12 +19,6 @@
   // entry with a generic id.
   const SKIP_ID = '__skip__';
 
-  // Catalog ids that this step offers. Must exist in the M3 LLM catalog
-  // (crates/inference-core/data/model_catalog.json). Order matters: first
-  // entry is recommended.
-  const LLAMA_ID = 'llama-3.2-3b-instruct-q4';
-  const QWEN_ID = 'qwen3-4b-instruct-2507-q4';
-
   let catalog = $state<CatalogEntry[]>([]);
   let local = $state<LocalModel[]>([]);
   let loaded = $state(false);
@@ -33,6 +27,14 @@
   // Track the id the user picked but hasn't yet downloaded — used to drive
   // a "downloading" state on Continue.
   let downloadingId = $state<string | null>(null);
+
+  // Data-driven LLM list from the backend catalog (same source the Settings
+  // → Models tab uses). Keeps wizard + settings in sync as the catalog
+  // evolves; no hardcoded ids to drift.
+  let llmEntries = $derived(catalog.filter((c) => c.kind === 'llm'));
+  let recommendedId = $derived(
+    llmEntries.find((c) => c.recommended)?.id ?? llmEntries[0]?.id ?? null,
+  );
 
   async function refreshLocal() {
     try {
@@ -56,18 +58,19 @@
 
   // Pre-selection: if the user already has an LLM configured (e.g. came
   // back via re-run wizard), pre-select that card. Otherwise default to
-  // the recommended Llama option.
+  // the catalog's recommended entry, falling back to the first LLM.
   function initialSelection(): string {
     const stored = $settings?.llmModelPath ?? null;
-    if (!stored) return LLAMA_ID;
-    const match = local.find((l) => l.path === stored);
-    if (match && (match.id === LLAMA_ID || match.id === QWEN_ID)) {
-      return match.id;
+    if (stored) {
+      const match = local.find((l) => l.path === stored);
+      if (match && llmEntries.some((e) => e.id === match.id)) {
+        return match.id;
+      }
     }
-    return LLAMA_ID;
+    return recommendedId ?? SKIP_ID;
   }
 
-  let selected = $state<string>(LLAMA_ID);
+  let selected = $state<string>(SKIP_ID);
 
   onMount(async () => {
     const result = await withErrorToast(t('settings.models.error.refresh'), () =>
@@ -77,11 +80,11 @@
       [catalog, local] = result;
     }
     loaded = true;
-    // Re-evaluate the initial selection now that local + settings are
-    // resolved.
+    // Re-evaluate the initial selection now that catalog + local + settings
+    // are resolved.
     selected = initialSelection();
 
-    unlistenDownload = await lda.onDownloadProgress(async (p) => {
+    unlistenDownload = await lda.onDownloadProgress(async (p: DownloadProgress) => {
       if (p.state === 'complete') {
         await refreshLocal();
         if (downloadingId === p.id) {
@@ -101,15 +104,6 @@
   onDestroy(() => {
     unlistenDownload?.();
   });
-
-  let llamaProgress = $derived(progressFor(LLAMA_ID));
-  let qwenProgress = $derived(progressFor(QWEN_ID));
-
-  function progressStoreFor(id: string) {
-    if (id === LLAMA_ID) return llamaProgress;
-    if (id === QWEN_ID) return qwenProgress;
-    return null;
-  }
 
   async function continueNext() {
     if (selected === SKIP_ID) {
@@ -152,24 +146,23 @@
     return bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.round(bytes / 1e6)} MB`;
   }
 
-  let llama = $derived(entryById(LLAMA_ID));
-  let qwen = $derived(entryById(QWEN_ID));
-
   let activeProgress = $derived(
-    downloadingId ? progressStoreFor(downloadingId) : null,
+    downloadingId ? progressFor(downloadingId) : null,
   );
   let isDownloading = $derived(downloadingId !== null);
   let continueDisabled = $derived(!loaded || isDownloading);
 
-  function statusPill(id: string): { label: string; tone: 'muted' | 'success' | 'progress' } | null {
+  function statusPill(
+    id: string,
+    progress: DownloadProgress | undefined,
+  ): { label: string; tone: 'muted' | 'success' | 'progress' } | null {
     if (id === SKIP_ID) {
       return { label: t('wizard.cleanup.skip_pill'), tone: 'muted' };
     }
     if (isInstalled(id)) {
       return { label: t('wizard.cleanup.downloaded_pill'), tone: 'success' };
     }
-    const p = id === LLAMA_ID ? $llamaProgress : id === QWEN_ID ? $qwenProgress : undefined;
-    if (p && (p.state === 'downloading' || p.state === 'queued' || p.state === 'verifying')) {
+    if (progress && (progress.state === 'downloading' || progress.state === 'queued' || progress.state === 'verifying')) {
       return { label: t('wizard.cleanup.downloading_pill'), tone: 'progress' };
     }
     return null;
@@ -181,56 +174,26 @@
   <p class="text-sm text-muted-foreground mb-6">{t('wizard.cleanup.body')}</p>
 
   <RadioGroup.Root bind:value={selected} class="space-y-2">
-    {#if llama}
-      {@const pill = statusPill(LLAMA_ID)}
-      <label class={cardClasses(selected === LLAMA_ID)}>
+    {#each llmEntries as entry (entry.id)}
+      {@const pill = statusPill(entry.id, $downloads[entry.id])}
+      {@const isRecommended = entry.id === recommendedId}
+      <label class={cardClasses(selected === entry.id)}>
         <div class="flex items-start gap-4">
-          <RadioGroup.Item value={LLAMA_ID} class="mt-1 shrink-0" />
+          <RadioGroup.Item value={entry.id} class="mt-1 shrink-0" />
           <div class="flex-1 min-w-0">
             <div class="flex items-baseline gap-2 flex-wrap">
-              <span class="font-medium">{llama.displayName}</span>
+              <span class="font-medium">{entry.displayName}</span>
               <span class="text-xs text-muted-foreground tabular-nums">
-                {fmtSize(llama.sizeBytes)}
+                {fmtSize(entry.sizeBytes)}
               </span>
-              <span
-                class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[11px] font-medium leading-none"
-              >
-                <Sparkles class="h-3 w-3" />
-                {t('wizard.cleanup.recommended_pill')}
-              </span>
-              {#if pill}
+              {#if isRecommended}
                 <span
-                  class={[
-                    'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium leading-none',
-                    pill.tone === 'success'
-                      ? 'bg-success/10 text-success'
-                      : pill.tone === 'progress'
-                        ? 'bg-muted text-muted-foreground'
-                        : 'bg-muted text-muted-foreground',
-                  ].join(' ')}
+                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[11px] font-medium leading-none"
                 >
-                  {#if pill.tone === 'success'}<Check class="h-3 w-3" />{/if}
-                  {pill.label}
+                  <Sparkles class="h-3 w-3" />
+                  {t('wizard.cleanup.recommended_pill')}
                 </span>
               {/if}
-            </div>
-            <p class="text-sm text-muted-foreground mt-1">{llama.description}</p>
-          </div>
-        </div>
-      </label>
-    {/if}
-
-    {#if qwen}
-      {@const pill = statusPill(QWEN_ID)}
-      <label class={cardClasses(selected === QWEN_ID)}>
-        <div class="flex items-start gap-4">
-          <RadioGroup.Item value={QWEN_ID} class="mt-1 shrink-0" />
-          <div class="flex-1 min-w-0">
-            <div class="flex items-baseline gap-2 flex-wrap">
-              <span class="font-medium">{qwen.displayName}</span>
-              <span class="text-xs text-muted-foreground tabular-nums">
-                {fmtSize(qwen.sizeBytes)}
-              </span>
               {#if pill}
                 <span
                   class={[
@@ -245,11 +208,11 @@
                 </span>
               {/if}
             </div>
-            <p class="text-sm text-muted-foreground mt-1">{qwen.description}</p>
+            <p class="text-sm text-muted-foreground mt-1">{entry.description}</p>
           </div>
         </div>
       </label>
-    {/if}
+    {/each}
 
     <label class={cardClasses(selected === SKIP_ID)}>
       <div class="flex items-start gap-4">
