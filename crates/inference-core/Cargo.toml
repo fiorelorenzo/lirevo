@@ -23,13 +23,9 @@ hound = "3"
 # M4: STT goes through audiopipe (same git pin as the Tauri host crate).
 # Feature set matches `app/src-tauri/Cargo.toml`; with whisper-rs gone, the
 # `whisper` feature on audiopipe can stay enabled here too.
-audiopipe = { git = "https://github.com/fiorelorenzo/audiopipe", rev = "d63cf3ae40094cf0627823eaebde9102b3390cae", default-features = false, features = [
+audiopipe = { git = "https://github.com/fiorelorenzo/audiopipe", rev = "07388df945ed6d826125d44cf63a525aadac1a42", default-features = false, features = [
     "parakeet",
-    # `parakeet-mlx` disabled: mlx-sys 0.2 / vendored MLX 0.25.1 doesn't
-    # compile against Xcode 17 / macOS SDK 26 Metal Toolchain (MTL_CONST
-    # constexpr + simd_shuffle_and_fill_up bf16 ambiguity). Keep in sync
-    # with app/src-tauri/Cargo.toml — feature unification across the
-    # workspace means enabling it here would re-pull mlx-sys for everyone.
+    "parakeet-mlx",
     "qwen3-asr-ggml",
     "whisper",
     "metal",
