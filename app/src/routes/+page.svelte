@@ -181,6 +181,7 @@
       {#if $modelState.kind === 'ready' && canDictate}
         {@const sttReady = ($modelState as any).stt === true}
         {@const llmReady = ($modelState as any).llama === true}
+        {@const cleanupConfigured = $settings?.llmModelPath != null}
         <span class="flex items-center gap-1.5">
           <span class="relative inline-flex h-1.5 w-1.5">
             {#if sttReady}
@@ -194,20 +195,25 @@
             {t('home.status_speech')}
           </span>
         </span>
-        <span class="text-border" aria-hidden="true">·</span>
-        <span class="flex items-center gap-1.5">
-          <span class="relative inline-flex h-1.5 w-1.5">
-            {#if llmReady}
-              <span class="absolute inset-0 rounded-full bg-success/60 animate-ping"></span>
-              <span class="relative inline-flex h-full w-full rounded-full bg-success"></span>
-            {:else}
-              <span class="inline-flex h-full w-full rounded-full bg-muted-foreground/30"></span>
-            {/if}
+        {#if cleanupConfigured}
+          <span class="text-border" aria-hidden="true">·</span>
+          <span
+            class="flex items-center gap-1.5"
+            title={llmReady ? '' : t('home.status_cleanup_loading')}
+          >
+            <span class="relative inline-flex h-1.5 w-1.5">
+              {#if llmReady}
+                <span class="absolute inset-0 rounded-full bg-success/60 animate-ping"></span>
+                <span class="relative inline-flex h-full w-full rounded-full bg-success"></span>
+              {:else}
+                <span class="inline-flex h-full w-full rounded-full bg-muted-foreground/30"></span>
+              {/if}
+            </span>
+            <span class={llmReady ? 'text-foreground' : 'text-muted-foreground'}>
+              {llmReady ? t('home.status_cleanup') : t('home.status_cleanup_loading')}
+            </span>
           </span>
-          <span class={llmReady ? 'text-foreground' : 'text-muted-foreground'}>
-            {t('home.status_cleanup')}
-          </span>
-        </span>
+        {/if}
       {/if}
     </div>
     <button

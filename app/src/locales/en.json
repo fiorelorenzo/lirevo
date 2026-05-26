@@ -85,6 +85,17 @@
       "model_label": "Model",
       "reset_notice": "Language reset because the new model doesn't support it."
     },
+    "cleanup": {
+      "title": "Cleanup model (optional)",
+      "body": "Cleanup adds punctuation, capitalization, and tidies sentence flow. Dictation works without it — you can always add or change a cleanup model later from Settings.",
+      "skip_title": "Skip — speech-to-text only",
+      "skip_body": "No model loaded. Lirevo injects the raw transcript directly into the focused app.",
+      "skip_pill": "no download",
+      "downloading_pill": "downloading…",
+      "downloaded_pill": "ready",
+      "selected_pill": "selected",
+      "recommended_pill": "recommended"
+    },
     "background": {
       "title": "How should it run?",
       "body": "lda is built to live in the menu bar — these settings decide how present it should be.",
@@ -192,6 +203,8 @@
     "open_settings": "Open Settings",
     "settings": "Settings",
     "status_speech": "Speech",
-    "status_cleanup": "Cleanup"
+    "status_cleanup": "Cleanup",
+    "status_cleanup_off": "Cleanup off",
+    "status_cleanup_loading": "Cleanup loading…"
   }
 }

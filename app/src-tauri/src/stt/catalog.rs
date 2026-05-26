@@ -1,11 +1,11 @@
 //! Hardcoded catalog of STT models supported by the M4 audiopipe pipeline.
 //!
 //! Three entries, matching the M4 spec §3:
-//!   1. `parakeet-tdt-0.6b-v3` — default, 25 EU languages incl. IT, ~600 MB.
+//!   1. `parakeet-tdt-0.6b-v3` — default, 25 EU languages, ~600 MB.
 //!      On Apple Silicon the loader silently prefers the `-mlx` variant for
 //!      MLX-accelerated inference; that's the routing concern of
 //!      [`audiopipe_name_for_platform`], not the catalog id itself.
-//!   2. `qwen3-asr-0.6b-ggml` — opt-in, 30 langs + 22 Chinese dialects.
+//!   2. `qwen3-asr-0.6b-ggml` — opt-in, 30 languages, broad coverage.
 //!   3. `whisper-large-v3-turbo` — fallback, 99 langs. **Requires the
 //!      `whisper` Cargo feature on `audiopipe`**, which is OFF in the M4
 //!      Phase-2 baseline (it gets re-enabled in Task 8 once `whisper-rs` is
@@ -96,7 +96,7 @@ const PARAKEET_V3: Metadata = Metadata {
     display_name: "Parakeet TDT v3",
     size_bytes: 600_000_000,
     language_coverage: LanguageCoverage::European25,
-    summary: "25 European languages incl. Italian. Lowest latency.",
+    summary: "25 European languages. Lowest latency.",
     license: "CC-BY-4.0",
     languages: PARAKEET_LANGUAGES,
     default: true,
@@ -108,7 +108,7 @@ const QWEN3_ASR: Metadata = Metadata {
     display_name: "Qwen3-ASR (broad languages)",
     size_bytes: 700_000_000,
     language_coverage: LanguageCoverage::Global30,
-    summary: "30 languages + 22 Chinese dialects. Adds JA/ZH/AR/HI.",
+    summary: "30 languages with broad Asian, Arabic, and European coverage.",
     license: "Apache-2.0",
     languages: QWEN3_LANGUAGES,
     default: false,

@@ -23,14 +23,16 @@ Releases ship as an arm64 `.dmg`. Until M10 the app is **unsigned** (Apple Devel
 
 ## Using the app
 
-After launching the app for the first time, the **setup wizard** guides you through six steps:
+After launching the app for the first time, the **setup wizard** guides you through eight steps:
 
 1. **Welcome.**
 2. **Accessibility** — grant via the System Settings deep link (needed for the global hotkey and text injection).
 3. **Microphone** — confirm the mic test envelope is non-zero.
-4. **STT model** — pick one of three speech-to-text engines: Parakeet TDT v3 (default, 25 European languages, lowest latency), Qwen3-ASR (30 languages + 22 Chinese dialects, adds JA/ZH/AR/HI), or Whisper large-v3-turbo (99-language fallback). Weights download from Hugging Face into `~/.cache/huggingface/hub/`.
+4. **STT model** — pick one of three speech-to-text engines: Parakeet TDT v3 (default, 25 European languages, lowest latency), Qwen3-ASR (30 languages with broad Asian, Arabic, and European coverage), or Whisper large-v3-turbo (99-language fallback). Weights download from Hugging Face into `~/.cache/huggingface/hub/`.
 5. **Language** — pick "Auto-detect" (default) or force a specific language. The dropdown is filtered by the model chosen in the previous step.
-6. **Hotkey** — pick a key (default: Right Option).
+6. **Background mode** — decide how present the app should be (launch at login, start hidden, stay in the menu bar).
+7. **Cleanup model (optional)** — pick a small LLM to add punctuation and tidy sentence flow, or skip to inject raw STT output. Can be added or changed later from Settings.
+8. **Hotkey** — pick a key (default: Right Option).
 
 Once the wizard is done, hold the hotkey anywhere on the system and speak. Release to transcribe → clean → inject into the focused app.
 
@@ -173,8 +175,8 @@ The shipped app's wizard handles STT model downloads automatically. Three models
 
 | Model | Size | Languages | License |
 | --- | --- | --- | --- |
-| **Parakeet TDT 0.6B v3** (default, recommended) | ~600 MB | 25 European languages incl. Italian | CC-BY-4.0 |
-| **Qwen3-ASR 0.6B** (broad languages) | ~700 MB | 30 languages + 22 Chinese dialects (adds JA/ZH/AR/HI/...) | Apache-2.0 |
+| **Parakeet TDT 0.6B v3** (default, recommended) | ~600 MB | 25 European languages | CC-BY-4.0 |
+| **Qwen3-ASR 0.6B** (broad languages) | ~700 MB | 30 languages, broad Asian / Arabic / European coverage | Apache-2.0 |
 | **Whisper large-v3-turbo** (fallback) | ~1.5 GB | ~99 languages | MIT |
 
 Weights are downloaded to the Hugging Face cache (`~/.cache/huggingface/hub/`) on first use of each model — `audiopipe` handles this transparently. There are no `.bin` / `.gguf` paths to provide manually and no CoreML encoder to download separately (audiopipe's Parakeet MLX engine handles Apple Silicon acceleration internally).
