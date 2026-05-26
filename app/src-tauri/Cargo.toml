@@ -42,3 +42,24 @@ inference-core    = { path = "../../crates/inference-core" }
 audio-capture     = { path = "../../crates/audio-capture" }
 os-integration    = { path = "../../crates/os-integration" }
 lirevo-prompts    = { path = "../../crates/lirevo-prompts" }
+
+# M4: STT migration to audiopipe. Pinned on our fork (fiorelorenzo/audiopipe)
+# so we can ship streaming on the fork independently of the upstream PR cadence.
+# Feature set for the macOS-first M4 build; Linux/Windows builds (v2) will
+# add `directml` and `vulkan-ggml` via target-specific dependencies.
+audiopipe = { git = "https://github.com/fiorelorenzo/audiopipe", rev = "f00281ce48f9965c01623565d51d247b523d2656", default-features = false, features = [
+    "parakeet",
+    "parakeet-mlx",
+    "qwen3-asr-ggml",
+    # "whisper" temporarily disabled: audiopipe vendors whisper-rs at a different
+    # rev than inference-core's whisper-rs 0.16, and both link to the native
+    # `whisper` library. Re-enable in Task 8 after whisper-rs is dropped from
+    # inference-core.
+    "metal",
+    "coreml",
+] }
+# audiopipe enables `ort` with `default-features = false`, which strips the
+# `std` feature it relies on (`SessionBuilder::commit_from_file` is gated on
+# `std`). Cargo unifies features across the dep graph, so re-enabling `std`
+# here makes audiopipe compile without forking it.
+ort = { version = "=2.0.0-rc.10", default-features = false, features = ["std", "ndarray", "half"] }
