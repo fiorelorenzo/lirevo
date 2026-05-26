@@ -44,7 +44,7 @@ ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "
 # Llama-3.2-3B, Qwen3-1.7B, Gemma-3-1B, Gemma-3-270M). The Gemma 4 catalog
 # entry will land in a follow-up commit once #2172 merges upstream and we
 # smoke-test real Gemma 4 E2B-it weights.
-mistralrs = { git = "https://github.com/fiorelorenzo/mistral.rs", rev = "fe997f130a47d080509f546a9ad2624f6ec9d034", default-features = false, features = ["metal"] }
+mistralrs = { git = "https://github.com/fiorelorenzo/mistral.rs", rev = "637ee2e14f280a66e443106d4858bdf01b52d048", default-features = false, features = ["metal"] }
 num_cpus = "1"
 
 [dev-dependencies]
