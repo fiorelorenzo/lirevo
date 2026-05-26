@@ -71,9 +71,12 @@ Detailed plans and specs are tracked in the local `docs/` working directory (git
 - CoreML encoder special-casing (audiopipe handles Apple Silicon acceleration internally via its `parakeet-mlx` engine).
 - M3-era frontend `coreml_url` field on STT catalog entries.
 
+### Available but not yet wired
+- **Streaming `transcribe_stream` on the fork** (plan T14, landed 2026-05-26 as `feat/parakeet-streaming` on `fiorelorenzo/audiopipe`, rev `d63cf3a`, two commits): re-decode-growing-buffer architecture for the Parakeet ONNX engine, `PartialTranscript { text, delta, segments, is_final }` shape, cumulative `text` byte-identical to one-shot. Wired through to Lirevo's Cargo dep (pin bumped from `f00281ce` to `d63cf3a`). The dictation state machine still calls one-shot `transcribe()` — wiring live-overlay UX (plan T15) into the hotkey state machine + adding a chunk-peek API to `audio-capture` are tracked as a follow-up.
+
 ### Deferred (not in this release)
-- **Streaming on the fork (Phase 3, plan T14).** The plan's 2-week internal timebox covers upstream Parakeet ONNX `transcribe_stream` implementation. Postponed to a follow-up milestone; without it the live overlay (plan T15) stays one-shot.
-- **Upstream PR to screenpipe/audiopipe (plan T16).** Filed once the fork-side streaming is stable.
+- **Live-overlay UI consuming `transcribe_stream`** (plan T15). Needs `audio-capture` to expose a chunk-peek API and the dictation state machine to feed audio incrementally during hold. Tracked as follow-up.
+- **Upstream PR to screenpipe/audiopipe** (plan T16). Will be filed once the streaming impl has logged real-utterance smoke runs from Lirevo.
 
 ## [0.4.0] - 2026-05-18 — M3: Tauri app shell + model manager
 
