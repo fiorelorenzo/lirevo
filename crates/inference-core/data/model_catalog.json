@@ -43,6 +43,7 @@
   ],
   "llm": [
     {
+      "_note": "M5: Gemma entries dropped (mistralrs GGUFArchitecture doesn't support gemma3/gemma4 yet; Gemma 4 backend pending upstream PR #2172). Qwen3-4B promoted to recommended; it's the highest-scoring entry supported by mistralrs today.",
       "id": "qwen3-4b-instruct-2507-q4",
       "displayName": "Qwen3 4B Instruct 2507 (Q4_K_M)",
       "description": "Highest quality of the lineup, multilingual, non-thinking.",
@@ -61,7 +62,7 @@
         "rawPeakRssKb": 3052944,
         "nCells": 60
       },
-      "recommended": false
+      "recommended": true
     },
     {
       "id": "llama-3.2-3b-instruct-q4",
@@ -101,48 +102,6 @@
         "rawChrfMean": 0.6821560330576274,
         "rawWarmP50Ms": 471,
         "rawPeakRssKb": 1613520,
-        "nCells": 60
-      },
-      "recommended": false
-    },
-    {
-      "id": "gemma-3-1b-it-q4",
-      "displayName": "Gemma 3 1B IT (Q4_K_M)",
-      "description": "Google Gemma 3 instruction-tuned, lightweight (~810 MB).",
-      "sizeBytes": 806058272,
-      "filename": "gemma-3-1b-it-Q4_K_M.gguf",
-      "url": "https://huggingface.co/unsloth/gemma-3-1b-it-GGUF/resolve/main/gemma-3-1b-it-Q4_K_M.gguf",
-      "sha256": "8270790f3ab69fdfe860b7b64008d9a19986d8df7e407bb018184caa08798ebd",
-      "scores": {
-        "quality": 73,
-        "latency": 75,
-        "ram": 79,
-        "compositeEqual": 75,
-        "compositeWeighted": 75,
-        "rawChrfMean": 0.5959847823651235,
-        "rawWarmP50Ms": 203,
-        "rawPeakRssKb": 982464,
-        "nCells": 60
-      },
-      "recommended": true
-    },
-    {
-      "id": "gemma-3-270m-it-q4",
-      "displayName": "Gemma 3 270M IT (Q4_K_M)",
-      "description": "Smallest Gemma 3 — ultra-low RAM, experimental quality (~250 MB).",
-      "sizeBytes": 253115424,
-      "filename": "gemma-3-270m-it-Q4_K_M.gguf",
-      "url": "https://huggingface.co/unsloth/gemma-3-270m-it-GGUF/resolve/main/gemma-3-270m-it-Q4_K_M.gguf",
-      "sha256": "b1baabd6b729e4041822220d3e648e00d99cac5df86b10dffb77bcccf0688e39",
-      "scores": {
-        "quality": 0,
-        "latency": 100,
-        "ram": 100,
-        "compositeEqual": 66,
-        "compositeWeighted": 50,
-        "rawChrfMean": 0.2220852478516694,
-        "rawWarmP50Ms": 24,
-        "rawPeakRssKb": 415728,
         "nCells": 60
       },
       "recommended": false

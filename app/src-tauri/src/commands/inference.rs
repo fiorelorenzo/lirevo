@@ -229,6 +229,30 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
         }
     }
 
+    // Auto-recover from an unloadable LLM (e.g. user has a Gemma 3 GGUF
+    // selected from M3/M4-era settings but mistralrs M5 doesn't support
+    // gemma3/gemma4 architectures yet). Clearing the stale path keeps the
+    // dictation pipeline in STT-only mode and gives the user a clean state
+    // to pick a supported model in Settings instead of an infinite
+    // "Cleanup loading..." pill.
+    if llm_err.is_some() {
+        let mut inner = state.inner.lock().unwrap();
+        if inner.settings.llm_model_path.is_some() {
+            tracing::warn!("clearing settings.llm_model_path after load failure");
+            inner.settings.llm_model_path = None;
+            if let Err(persist_err) = inner.settings.persist(app) {
+                tracing::warn!(?persist_err, "failed to persist cleared llm_model_path");
+            }
+            let _ = app.emit(
+                "toast",
+                crate::commands::toast(
+                    "warn",
+                    "Cleanup model couldn't load; cleared selection. Pick a supported model in Settings.",
+                ),
+            );
+        }
+    }
+
     let next = if !stt_ready && !llm_ready {
         if let Some(name) = stt_downloading.clone() {
             ModelState::Loading {
