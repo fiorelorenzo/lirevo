@@ -70,11 +70,20 @@
       }
     },
     "models": {
-      "title": "Choose your models",
-      "body": "Two models work together: one for transcription, one for cleanup. Both run locally.",
+      "title": "Choose your transcription model",
+      "body": "Pick the speech-to-text model that fits the languages you dictate in. You can change it any time from Settings.",
       "stt_section": "Speech-to-text",
       "llm_section": "Language model",
-      "use_existing": "Or use existing file"
+      "use_existing": "Or use existing file",
+      "recommended_pill": "recommended",
+      "license_label": "License"
+    },
+    "language": {
+      "title": "Pick your dictation language",
+      "body": "Pin a language to lock the decoder, or leave Auto-detect on (recommended).",
+      "auto_label": "Auto-detect (recommended)",
+      "model_label": "Model",
+      "reset_notice": "Language reset because the new model doesn't support it."
     },
     "background": {
       "title": "How should it run?",
@@ -126,9 +135,13 @@
       "llm_ctx_size": "LLM context size (tokens)",
       "whisper_coreml_disable": "Disable CoreML encoder",
       "advanced_section": "Advanced",
+      "stt_section": "Speech-to-text",
+      "stt_section_helper": "Switching to another model triggers a hot-swap — dictation pauses for a moment while the new weights load.",
       "stats": "{{used}} used · {{installed}} of {{total}} catalog models installed",
       "installed_badge": "Installed",
       "in_use_badge": "In use",
+      "switching_badge": "Switching…",
+      "switch_toast": "Reloading model…",
       "use_button": "Use",
       "delete_tooltip": "Uninstall this model",
       "delete_aria": "Uninstall {{name}}",

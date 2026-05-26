@@ -247,6 +247,7 @@ pub fn run() {
             commands::settings::get_settings,
             commands::settings::update_settings,
             commands::models::models_catalog,
+            commands::models::get_stt_catalog,
             commands::models::models_list_local,
             commands::models::models_download,
             commands::models::models_cancel_download,

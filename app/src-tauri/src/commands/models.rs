@@ -1,10 +1,22 @@
 use tauri::{AppHandle, State};
 use crate::{AppError, AppState};
 use crate::models::{catalog, CatalogEntry, LocalModel, list_local};
+use crate::stt::catalog as stt_catalog;
 
 #[tauri::command]
 pub fn models_catalog() -> Vec<CatalogEntry> {
     catalog()
+}
+
+/// M4 wizard contract: surface the hardcoded STT catalog so the frontend
+/// can assert (in dev builds) that its mirror in
+/// `app/src/lib/models/catalog.ts` hasn't drifted. Production builds also
+/// call this for the wizard's model picker — keeping the contract one-way
+/// (backend is source of truth) means a stale TS catalog can be detected
+/// before it ships a model the loader can't resolve.
+#[tauri::command]
+pub fn get_stt_catalog() -> Vec<stt_catalog::Metadata> {
+    stt_catalog::list_models().to_vec()
 }
 
 #[tauri::command]

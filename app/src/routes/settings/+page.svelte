@@ -20,6 +20,12 @@
     type InputDeviceEntry,
     type LocalModel,
   } from '$lib/tauri';
+  import {
+    STT_MODELS,
+    defaultModelId,
+    formatSize as fmtSttSize,
+  } from '$lib/models/catalog';
+  import { Check, Sparkles } from '@lucide/svelte';
   import { toastInfo, toastError, withErrorToast } from '$lib/stores/toasts';
   import type { UnlistenFn } from '@tauri-apps/api/event';
   import { page } from '$app/state';
@@ -129,7 +135,38 @@
 
   let usedBytes = $derived(local.reduce((s, l) => s + l.sizeBytes, 0));
   let installedCount = $derived(local.filter((l) => l.inCatalog).length);
-  const KINDS: ('stt' | 'llm')[] = ['stt', 'llm'];
+  // M4: STT moved to the audiopipe-backed catalog (see $lib/models/catalog).
+  // The legacy `KINDS` loop now only renders the LLM half; STT has its own
+  // dedicated section above it.
+  const KINDS: ('stt' | 'llm')[] = ['llm'];
+
+  // M4 STT section state.
+  // Active = whatever `sttModelId` currently resolves to. When the field
+  // is null the backend falls back to defaultModelId() — mirror that here
+  // so the "In use" badge always lands somewhere.
+  let activeSttId = $derived($settings?.sttModelId ?? defaultModelId());
+  // Track which model we're currently hot-swapping to, so the user gets
+  // immediate feedback ("Switching…") between the click and the next
+  // model-state event landing.
+  let switchingTo = $state<string | null>(null);
+
+  async function useSttModel(id: string) {
+    if (id === activeSttId || switchingTo === id) return;
+    switchingTo = id;
+    toastInfo(t('settings.models.switch_toast'));
+    const result = await updateSettings({ sttModelId: id });
+    if (result === null) {
+      // updateSettings already toasted the error; clear the spinner.
+      switchingTo = null;
+      return;
+    }
+    // The backend reloads asynchronously; the model-state listener (held
+    // by app code elsewhere) will surface progress. Clearing the local
+    // spinner state once the settings round-trip lands is good enough —
+    // the "In use" badge below derives from activeSttId, which already
+    // updated when updateSettings resolved.
+    switchingTo = null;
+  }
 
   async function checkUpdates() {
     checkingUpdates = true;
@@ -321,6 +358,70 @@
           <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-muted/50 text-xs text-muted-foreground">
             {t('settings.models.stats', { used: fmtSize(usedBytes), installed: installedCount, total: catalog.length })}
           </div>
+
+          <!-- M4 STT section: hot-swappable audiopipe models. Source of truth
+               is $lib/models/catalog; the legacy catalog (`local`,
+               `installed`) only governs LLM rows now. -->
+          <section>
+            <h2 class="text-xs font-semibold tracking-wide uppercase text-muted-foreground mb-1">
+              {t('settings.models.stt_section')}
+            </h2>
+            <p class="text-xs text-muted-foreground mb-3">
+              {t('settings.models.stt_section_helper')}
+            </p>
+            <div class="space-y-2">
+              {#each STT_MODELS as entry (entry.id)}
+                {@const isActive = entry.id === activeSttId}
+                {@const isSwitching = switchingTo === entry.id}
+                <div
+                  class={[
+                    'w-full p-4 bg-surface border-2 rounded-lg transition-colors duration-150',
+                    isActive ? 'border-primary ring-2 ring-primary/30' : 'border-border',
+                  ].join(' ')}
+                >
+                  <div class="flex items-start gap-4">
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-baseline gap-2 flex-wrap">
+                        <span class="font-medium">{entry.displayName}</span>
+                        <span class="text-xs text-muted-foreground tabular-nums">
+                          {fmtSttSize(entry.sizeBytes)}
+                        </span>
+                        {#if entry.default}
+                          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[11px] font-medium leading-none">
+                            <Sparkles class="h-3 w-3" />
+                            {t('wizard.models.recommended_pill')}
+                          </span>
+                        {/if}
+                      </div>
+                      <p class="text-sm text-muted-foreground mt-1">{entry.summary}</p>
+                      <div class="mt-2 inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                        <span class="px-1.5 py-0.5 rounded border border-border/60 font-mono leading-none">
+                          {entry.license}
+                        </span>
+                      </div>
+                    </div>
+                    <div class="shrink-0 flex items-center gap-2">
+                      {#if isActive}
+                        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
+                          <Check class="h-3 w-3" />
+                          {t('settings.models.in_use_badge')}
+                        </span>
+                      {:else if isSwitching}
+                        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-muted text-muted-foreground text-xs font-medium">
+                          {t('settings.models.switching_badge')}
+                        </span>
+                      {:else}
+                        <Button variant="outline" size="sm" onclick={() => useSttModel(entry.id)}>
+                          {t('settings.models.use_button')}
+                        </Button>
+                      {/if}
+                    </div>
+                  </div>
+                </div>
+              {/each}
+            </div>
+            <Separator class="mt-6" />
+          </section>
 
           {#each KINDS as kind, i (kind)}
             <section>

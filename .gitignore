@@ -24,6 +24,8 @@ __pycache__/
 
 # Models (downloaded at runtime, not source)
 models/
+# Exception: the frontend `models` lib folder is source, not weights.
+!app/src/lib/models/
 *.bin
 *.gguf
 *.mlmodelc/
