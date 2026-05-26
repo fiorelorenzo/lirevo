@@ -151,13 +151,19 @@ pub fn model_metadata(id: &str) -> Option<&'static Metadata> {
 
 /// Resolve a catalog id to the actual audiopipe model name to load.
 ///
-/// On Apple Silicon (`target_os = "macos"` + `target_arch = "aarch64"`)
-/// `parakeet-tdt-0.6b-v3` is silently upgraded to `parakeet-tdt-0.6b-v3-mlx`
-/// so MLX acceleration kicks in transparently. Elsewhere it stays on the
-/// ONNX path. Other ids pass through unchanged.
+/// On Apple Silicon (`target_os = "macos"` + `target_arch = "aarch64"`),
+/// when the `audiopipe-mlx` Cargo feature is on, `parakeet-tdt-0.6b-v3`
+/// is silently upgraded to `parakeet-tdt-0.6b-v3-mlx` so MLX acceleration
+/// kicks in transparently. With the feature off (current default —
+/// upstream MLX doesn't build on Xcode 17) the id passes through and the
+/// loader uses the ONNX engine with CoreML execution provider, which is
+/// still hardware-accelerated on Apple Silicon. Other ids pass through.
 #[must_use]
 pub fn audiopipe_name_for_platform(id: &str) -> &str {
-    if id == PARAKEET_V3.id && cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+    if id == PARAKEET_V3.id
+        && cfg!(all(target_os = "macos", target_arch = "aarch64"))
+        && cfg!(feature = "audiopipe-mlx")
+    {
         return "parakeet-tdt-0.6b-v3-mlx";
     }
     id
@@ -193,7 +199,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[cfg(all(target_os = "macos", target_arch = "aarch64", feature = "audiopipe-mlx"))]
     fn parakeet_upgrades_to_mlx_on_apple_silicon() {
         assert_eq!(
             audiopipe_name_for_platform(PARAKEET_V3.id),
@@ -202,8 +208,8 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
-    fn parakeet_passthrough_off_apple_silicon() {
+    #[cfg(not(all(target_os = "macos", target_arch = "aarch64", feature = "audiopipe-mlx")))]
+    fn parakeet_passthrough_without_mlx_feature() {
         assert_eq!(audiopipe_name_for_platform(PARAKEET_V3.id), PARAKEET_V3.id);
     }
 

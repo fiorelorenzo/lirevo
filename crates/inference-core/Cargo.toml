@@ -25,16 +25,21 @@ hound = "3"
 # `whisper` feature on audiopipe can stay enabled here too.
 audiopipe = { git = "https://github.com/fiorelorenzo/audiopipe", rev = "f00281ce48f9965c01623565d51d247b523d2656", default-features = false, features = [
     "parakeet",
-    "parakeet-mlx",
+    # `parakeet-mlx` disabled: mlx-sys 0.2 / vendored MLX 0.25.1 doesn't
+    # compile against Xcode 17 / macOS SDK 26 Metal Toolchain (MTL_CONST
+    # constexpr + simd_shuffle_and_fill_up bf16 ambiguity). Keep in sync
+    # with app/src-tauri/Cargo.toml — feature unification across the
+    # workspace means enabling it here would re-pull mlx-sys for everyone.
     "qwen3-asr-ggml",
     "whisper",
     "metal",
     "coreml",
 ] }
 # audiopipe enables `ort` with `default-features = false`, which strips the
-# `std` feature it relies on. Re-enable it here so the workspace resolves
-# the same feature set the Tauri host uses.
-ort = { version = "=2.0.0-rc.10", default-features = false, features = ["std", "ndarray", "half"] }
+# `std` feature it relies on and `download-binaries` needed for linking.
+# Re-enable both here so the workspace resolves the same feature set the
+# Tauri host uses.
+ort = { version = "=2.0.0-rc.10", default-features = false, features = ["std", "ndarray", "half", "download-binaries"] }
 llama-cpp-2 = { version = "0.1", features = ["metal"] }
 num_cpus = "1"
 

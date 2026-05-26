@@ -54,7 +54,12 @@ lirevo-prompts    = { path = "../../crates/lirevo-prompts" }
 # library, so they couldn't coexist before.
 audiopipe = { git = "https://github.com/fiorelorenzo/audiopipe", rev = "f00281ce48f9965c01623565d51d247b523d2656", default-features = false, features = [
     "parakeet",
-    "parakeet-mlx",
+    # `parakeet-mlx` disabled: pulls in mlx-sys 0.2 → vendored MLX 0.25.1,
+    # whose Metal kernels fail to compile against Xcode 17 / macOS SDK 26
+    # (`MTL_CONST constexpr` in program scope, `simd_shuffle_and_fill_up`
+    # bf16 ambiguity). Apple Silicon still gets acceleration via the ONNX
+    # parakeet engine + CoreML execution provider. Re-enable once the MLX
+    # upstream patch + mlx-rs bump are merged or our org fork is ready.
     "qwen3-asr-ggml",
     "whisper",
     "metal",
@@ -62,9 +67,11 @@ audiopipe = { git = "https://github.com/fiorelorenzo/audiopipe", rev = "f00281ce
 ] }
 # audiopipe enables `ort` with `default-features = false`, which strips the
 # `std` feature it relies on (`SessionBuilder::commit_from_file` is gated on
-# `std`). Cargo unifies features across the dep graph, so re-enabling `std`
-# here makes audiopipe compile without forking it.
-ort = { version = "=2.0.0-rc.10", default-features = false, features = ["std", "ndarray", "half"] }
+# `std`) and also strips `download-binaries` (without which the linker fails
+# with the deliberately-loud "add_ort_library_path_or_enable_feature_…"
+# placeholder lib name). Cargo unifies features across the graph, so
+# re-enabling both here lets audiopipe build + link without forking it.
+ort = { version = "=2.0.0-rc.10", default-features = false, features = ["std", "ndarray", "half", "download-binaries"] }
 
 [features]
 default = ["audiopipe-whisper"]
@@ -74,6 +81,11 @@ default = ["audiopipe-whisper"]
 # `audiopipe`'s own feature flag) makes the gating switchable per build
 # target if a future Linux/Windows lane wants to disable Whisper.
 audiopipe-whisper = []
+# Mirror flag for `audiopipe`'s `parakeet-mlx` feature (currently OFF
+# upstream because mlx-sys 0.2 doesn't build on Xcode 17). When re-enabled,
+# the catalog silently upgrades parakeet-tdt-0.6b-v3 to the -mlx variant on
+# Apple Silicon. Off by default so debug + release stay buildable.
+audiopipe-mlx = []
 # In-process STT mock. Pulls in `stt::mock::MockModel` and lets the loader
 # honour `LIREVO_DEV_USE_MOCK_STT=1`. Debug-only by design — release builds
 # must never ship the canned-text path.
