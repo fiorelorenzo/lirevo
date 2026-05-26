@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use tokio::sync::Mutex;
 
 use crate::backend::{
-    ChatRequest, ChatResponse, LlmBackend, LlmError, ModelInfo, StoppedBy, TokenUsage,
+    ChatRequest, ChatResponse, LlmBackendTrait, LlmError, ModelInfo, StoppedBy, TokenUsage,
 };
 
 const LOCK_TIMEOUT: Duration = Duration::from_millis(200);
@@ -48,7 +48,7 @@ fn approx_token_count(text: &str) -> u32 {
 }
 
 #[async_trait]
-impl LlmBackend for StubLlmBackend {
+impl LlmBackendTrait for StubLlmBackend {
     async fn chat(&self, req: ChatRequest) -> Result<ChatResponse, LlmError> {
         let started = Instant::now();
         let _guard = tokio::time::timeout(LOCK_TIMEOUT, self.lock.lock())

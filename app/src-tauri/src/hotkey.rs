@@ -243,7 +243,7 @@ fn hide_overlay_with_delay(app: &AppHandle) {
 /// Stages:
 ///   1. audiopipe STT (blocking → `spawn_blocking`).
 ///   2. LLM cleanup (blocking → `spawn_blocking`); graceful degrade to raw
-///      transcript if the llama backend is missing or fails.
+///      transcript if the LLM backend is missing or fails.
 ///   3. Text injection (AX → pasteboard fallback inside `Injector`); on hard
 ///      failure, copy the cleaned text to the system clipboard and toast.
 ///
@@ -259,11 +259,11 @@ async fn run_pipeline(
 
     // Snapshot what we need; release the lock before any heavy work so we
     // never hold the std::sync::Mutex across an await.
-    let (stt_slot, llama, language, force_pasteboard) = {
+    let (stt_slot, llm, language, force_pasteboard) = {
         let inner = state.inner.lock().unwrap();
         (
             inner.stt.clone(),
-            inner.llama.clone(),
+            inner.llm.clone(),
             inner.settings.language.clone(),
             inner.settings.force_pasteboard,
         )
@@ -330,11 +330,11 @@ async fn run_pipeline(
     let t1 = t0.elapsed();
 
     // 2. Clean (graceful degrade if LLM missing or fails).
-    let cleaned = if let Some(llama) = llama {
+    let cleaned = if let Some(llm) = llm {
         let lang_for_clean = language.clone();
         let raw_for_clean = raw_text.clone();
         let r = tokio::task::spawn_blocking(move || {
-            llama.chat_sync(inference_core::ChatRequest {
+            llm.chat_sync(inference_core::ChatRequest {
                 system: Some(lirevo_prompts::build_clean_system_prompt(&lang_for_clean)),
                 history: vec![],
                 user: raw_for_clean,

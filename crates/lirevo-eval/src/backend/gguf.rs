@@ -1,4 +1,4 @@
-//! GGUF backend: wraps `inference-core::LlamaBackend::chat_sync`.
+//! GGUF backend: wraps `inference-core::LlmBackend::chat_sync`.
 //!
 //! Reuses the exact production code path so quality measurements
 //! transfer directly to the shipped app.
@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use async_trait::async_trait;
-use inference_core::{ChatRequest, LlamaBackend as InnerBackend, LlmError};
+use inference_core::{ChatRequest, LlmBackend as InnerBackend, LlmError};
 use tokio::task;
 
 use super::{BackendError, BackendKind, EvalBackend, GenerateOut, GenerateReq};
@@ -79,7 +79,7 @@ fn map_err(e: LlmError) -> BackendError {
     match e {
         LlmError::Busy => BackendError::Busy,
         LlmError::ModelNotLoaded => BackendError::Inference("model not loaded".into()),
-        LlmError::Llama(s)
+        LlmError::Engine(s)
         | LlmError::Internal(s)
         | LlmError::ContextOverflow(s)
         | LlmError::BadRequest(s) => BackendError::Inference(s),

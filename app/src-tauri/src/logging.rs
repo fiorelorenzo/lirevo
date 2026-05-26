@@ -13,7 +13,7 @@ pub fn init(app: &tauri::AppHandle) -> Result<tracing_appender::non_blocking::Wo
     let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
 
     let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,audiopipe=warn,llama_cpp_2=warn,hyper=warn,ort=warn"));
+        .unwrap_or_else(|_| EnvFilter::new("info,audiopipe=warn,mistralrs_core=warn,hyper=warn,ort=warn"));
 
     let file_layer = tracing_subscriber::fmt::layer()
         .with_writer(file_writer)

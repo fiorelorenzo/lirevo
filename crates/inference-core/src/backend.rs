@@ -33,8 +33,8 @@ pub enum LlmError {
     ModelNotLoaded,
     #[error("backend busy (mutex timeout)")]
     Busy,
-    #[error("llama failure: {0}")]
-    Llama(String),
+    #[error("llm engine failure: {0}")]
+    Engine(String),
     #[error("internal error: {0}")]
     Internal(String),
 }
@@ -96,10 +96,14 @@ pub struct ChatResponse {
     pub tokens: TokenUsage,
 }
 
+/// Trait implemented by concrete LLM backends (the production `LlmBackend`
+/// struct from `llm.rs`, the dev-only `StubLlmBackend`). The dispatcher in
+/// `server.rs` and the dev sidecar's `main.rs` consume it as a trait object
+/// via [`LlmBackendHandle`].
 #[async_trait]
-pub trait LlmBackend: Send + Sync + 'static {
+pub trait LlmBackendTrait: Send + Sync + 'static {
     async fn chat(&self, req: ChatRequest) -> Result<ChatResponse, LlmError>;
     fn model_info(&self) -> ModelInfo;
 }
 
-pub type LlmBackendHandle = Arc<dyn LlmBackend>;
+pub type LlmBackendHandle = Arc<dyn LlmBackendTrait>;

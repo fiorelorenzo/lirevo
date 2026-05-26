@@ -3,7 +3,7 @@ Copyright 2026 Lorenzo Fiore
 
 This product includes software developed by:
 - screenpipe/audiopipe (MIT) — speech-to-text inference layer
-- llama-cpp-2 / llama.cpp (MIT) — LLM inference (M5 swaps to mistral.rs)
+- mistral.rs (MIT) — LLM inference layer (Apple Metal + GGUF)
 - ort (MIT OR Apache-2.0) — ONNX Runtime bindings (used by audiopipe Parakeet engine)
 - mlx-rs (Apache-2.0) — MLX bindings (used by audiopipe Parakeet MLX engine on Apple Silicon)
 - cpal (Apache-2.0 OR MIT) — cross-platform microphone capture

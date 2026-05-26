@@ -304,7 +304,7 @@ fn llm_error_to_response(wire: Wire, err: &LlmError) -> WireResponse<ErrorBody> 
         LlmError::ContextOverflow(_) => (StatusCode::PAYLOAD_TOO_LARGE, "context_overflow"),
         LlmError::ModelNotLoaded => (StatusCode::SERVICE_UNAVAILABLE, "llm_unavailable"),
         LlmError::Busy => (StatusCode::SERVICE_UNAVAILABLE, "busy"),
-        LlmError::Llama(_) | LlmError::Internal(_) => (
+        LlmError::Engine(_) | LlmError::Internal(_) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             "internal",
         ),

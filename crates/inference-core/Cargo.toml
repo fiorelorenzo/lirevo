@@ -23,9 +23,10 @@ hound = "3"
 # M4: STT goes through audiopipe (same git pin as the Tauri host crate).
 # Feature set matches `app/src-tauri/Cargo.toml`; with whisper-rs gone, the
 # `whisper` feature on audiopipe can stay enabled here too.
-audiopipe = { git = "https://github.com/fiorelorenzo/audiopipe", rev = "07388df945ed6d826125d44cf63a525aadac1a42", default-features = false, features = [
+audiopipe = { git = "https://github.com/fiorelorenzo/audiopipe", rev = "d4ef5d7681d52c0459ac0f5e186ca54085c46eb0", default-features = false, features = [
     "parakeet",
-    "parakeet-mlx",
+    # `parakeet-mlx` re-disabled 2026-05-26: full Tauri bundle build hits the
+    # Xcode 26 Metal kernel errors. ONNX+CoreML path covers Apple Silicon.
     "qwen3-asr-ggml",
     "whisper",
     "metal",
@@ -35,8 +36,15 @@ audiopipe = { git = "https://github.com/fiorelorenzo/audiopipe", rev = "07388df9
 # `std` feature it relies on and `download-binaries` needed for linking.
 # Re-enable both here so the workspace resolves the same feature set the
 # Tauri host uses.
-ort = { version = "=2.0.0-rc.10", default-features = false, features = ["std", "ndarray", "half", "download-binaries"] }
-llama-cpp-2 = { version = "0.1", features = ["metal"] }
+ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "half", "download-binaries", "tls-native"] }
+# M5: LLM cleanup runtime is mistral.rs, pinned at our fork. The fork branch
+# `feat/gguf-gemma4` carries a Gemma 4 GGUF backend authored as upstream PR
+# #2172 / RFC #2171; the dispatcher and Apple Silicon Metal kernels mistral.rs
+# already ships work unchanged for the existing Lirevo catalog (Qwen3-4B,
+# Llama-3.2-3B, Qwen3-1.7B, Gemma-3-1B, Gemma-3-270M). The Gemma 4 catalog
+# entry will land in a follow-up commit once #2172 merges upstream and we
+# smoke-test real Gemma 4 E2B-it weights.
+mistralrs = { git = "https://github.com/fiorelorenzo/mistral.rs", rev = "fe997f130a47d080509f546a9ad2624f6ec9d034", default-features = false, features = ["metal"] }
 num_cpus = "1"
 
 [dev-dependencies]

@@ -6,14 +6,14 @@
 //! audiopipe `Model::transcribe_with_sample_rate` signature is owned by an
 //! external crate and pinned via the `rev` in `Cargo.toml`.
 
-use inference_core::{ChatRequest, ChatResponse, LlamaBackend, LlmError};
+use inference_core::{ChatRequest, ChatResponse, LlmBackend, LlmError};
 
 #[test]
-fn llama_chat_sync_signature_compiles() {
-    fn _check(l: &LlamaBackend, req: ChatRequest) {
+fn llm_chat_sync_signature_compiles() {
+    fn _check(l: &LlmBackend, req: ChatRequest) {
         let _r: Result<ChatResponse, LlmError> = l.chat_sync(req);
     }
-    let _ = _check as fn(&LlamaBackend, ChatRequest);
+    let _ = _check as fn(&LlmBackend, ChatRequest);
 }
 
 #[test]

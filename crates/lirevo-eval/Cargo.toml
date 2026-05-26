@@ -26,14 +26,13 @@ toml = "0.8"
 regex = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-ort = "2.0.0-rc.10"
+ort = "2.0.0-rc.12"
 tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
-# Pinned to 0.16 to match the version that `ort 2.0.0-rc.10`'s
-# `TensorRef::from_array_view` impl expects. inference-core's new audiopipe
-# dep pulls ort with `ndarray` 0.16 transitively; if this stayed at 0.17
-# the embedding scoring code would fail to satisfy the `TensorArrayData`
-# trait bound.
-ndarray = "0.16"
+# Matches the ndarray version that `ort 2.0.0-rc.12`'s `TensorRef`
+# constructors expect. inference-core's audiopipe dep pulls ort with
+# ndarray 0.17 transitively; the embedding scoring code's `TensorArrayData`
+# trait bounds resolve only when the two ndarray pins line up.
+ndarray = "0.17"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking"] }
 sha2 = "0.10"
 tempfile = "3"

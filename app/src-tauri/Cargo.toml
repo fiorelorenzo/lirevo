@@ -52,16 +52,16 @@ lirevo-prompts    = { path = "../../crates/lirevo-prompts" }
 # Phase-2 (T8) re-enabled the `whisper` feature now that `whisper-rs` was
 # dropped from `inference-core` — both packages link the native `whisper`
 # library, so they couldn't coexist before.
-audiopipe = { git = "https://github.com/fiorelorenzo/audiopipe", rev = "07388df945ed6d826125d44cf63a525aadac1a42", default-features = false, features = [
+audiopipe = { git = "https://github.com/fiorelorenzo/audiopipe", rev = "d4ef5d7681d52c0459ac0f5e186ca54085c46eb0", default-features = false, features = [
     "parakeet",
-    # `parakeet-mlx` re-enabled 2026-05-26. The earlier Xcode 26 / SDK 26
-    # Metal Toolchain build break (program-scope `MTL_CONST constexpr`,
-    # `simd_shuffle_and_fill_up` bf16 ambiguity) self-resolved via a
-    # Metal Toolchain point release (32023.<earlier> → 32023.864).
-    # Verified by diagnostic run; see rust-ml-contrib/benchmarks/mlx/
-    # pre-pr-xcode-26-fix.md commit d9013b7. If the bug returns, the
-    # workaround is to drop this feature again.
-    "parakeet-mlx",
+    # `parakeet-mlx` re-disabled 2026-05-26 (second occurrence). The earlier
+    # diagnostic on this toolchain (32023.864) passed for cargo check +
+    # cmake-standalone but does not survive the full mlx-sys build-script
+    # invocation in the Tauri bundle pipeline; the Xcode 26 Metal kernel
+    # errors return (`MTL_CONST constexpr` program-scope +
+    # `simd_shuffle_and_fill_up` bf16 ambiguity). Apple Silicon still gets
+    # acceleration via the ONNX parakeet engine + CoreML execution provider.
+    # Real upstream MLX patch tracked in rust-ml-contrib docs/06-mlx.md.
     "qwen3-asr-ggml",
     "whisper",
     "metal",
@@ -73,10 +73,10 @@ audiopipe = { git = "https://github.com/fiorelorenzo/audiopipe", rev = "07388df9
 # with the deliberately-loud "add_ort_library_path_or_enable_feature_…"
 # placeholder lib name). Cargo unifies features across the graph, so
 # re-enabling both here lets audiopipe build + link without forking it.
-ort = { version = "=2.0.0-rc.10", default-features = false, features = ["std", "ndarray", "half", "download-binaries"] }
+ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "half", "download-binaries", "tls-native"] }
 
 [features]
-default = ["audiopipe-whisper", "audiopipe-mlx"]
+default = ["audiopipe-whisper"]
 # Mirror flag for `audiopipe`'s `whisper` feature. The STT loader checks
 # this with `cfg!(feature = ...)` to gate the whisper-large-v3-turbo
 # catalog entry; keeping it as a local feature (instead of poking at

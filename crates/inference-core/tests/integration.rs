@@ -35,14 +35,19 @@ impl TestServer {
             cmd.env(k, v);
         }
         let child = cmd.spawn().expect("spawn sidecar");
-        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        // Bumped from 3s to 15s for the mistral.rs swap: the sidecar binary
+        // itself starts sub-second standalone, but cargo nextest spawns 30+
+        // sidecar processes in parallel for the integration suite and
+        // mistralrs's transitive runtime init has larger CPU + I/O than the
+        // llama-cpp-2 path it replaced. 15s holds even with contention.
+        let deadline = std::time::Instant::now() + Duration::from_secs(15);
         while std::time::Instant::now() < deadline {
             if socket.exists() {
                 break;
             }
             std::thread::sleep(Duration::from_millis(50));
         }
-        assert!(socket.exists(), "sidecar did not create socket within 3s");
+        assert!(socket.exists(), "sidecar did not create socket within 15s");
         Self { child, socket, _tmp: tmp }
     }
 }

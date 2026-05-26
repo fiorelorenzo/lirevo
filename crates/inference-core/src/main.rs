@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 
 use inference_core::backend::LlmBackendHandle;
 use inference_core::stt::{AudiopipeEngine, SttEngineHandle, StubEngine};
-use inference_core::{llama, server, stub_llm};
+use inference_core::{llm, server, stub_llm};
 
 const DEFAULT_STT_MODEL_NAME: &str = "parakeet-tdt-0.6b-v3";
 
@@ -57,29 +57,32 @@ fn load_stt_backend() -> Option<SttEngineHandle> {
 }
 
 /// Picks the LLM backend at startup based on env.
-/// Precedence: `SIDECAR_LLM_BACKEND=stub` > llama.
+/// Precedence: `SIDECAR_LLM_BACKEND=stub` > `mistralrs` (default).
+/// `SIDECAR_LLM_BACKEND=llama` is accepted as a legacy alias for `mistralrs`
+/// so existing dev scripts and integration tests keep working through the M5
+/// engine swap.
 fn load_llm_backend() -> Option<LlmBackendHandle> {
-    let kind = env::var("SIDECAR_LLM_BACKEND").unwrap_or_else(|_| "llama".to_string());
+    let kind = env::var("SIDECAR_LLM_BACKEND").unwrap_or_else(|_| "mistralrs".to_string());
     match kind.as_str() {
         "stub" => Some(Arc::new(stub_llm::StubLlmBackend::new()) as LlmBackendHandle),
-        "llama" => {
+        "mistralrs" | "llama" => {
             let Ok(model_path_s) = env::var("SIDECAR_LLM_MODEL_PATH") else {
                 tracing::warn!("SIDECAR_LLM_MODEL_PATH not set; /v1/chat will return 503");
                 return None;
             };
             let model_path = PathBuf::from(model_path_s);
             if !model_path.exists() {
-                tracing::error!(?model_path, "llama model file does not exist; LLM disabled");
+                tracing::error!(?model_path, "LLM model file does not exist; LLM disabled");
                 return None;
             }
             let ctx_size: u32 = env::var("SIDECAR_LLM_CTX_SIZE")
                 .ok()
                 .and_then(|s| s.parse::<u32>().ok())
                 .unwrap_or(4096);
-            match llama::LlamaBackend::load(model_path, ctx_size) {
+            match llm::LlmBackend::load(model_path, ctx_size) {
                 Ok(b) => Some(Arc::new(b) as LlmBackendHandle),
                 Err(e) => {
-                    tracing::error!(error = ?e, "failed to load LlamaBackend; LLM disabled");
+                    tracing::error!(error = ?e, "failed to load LlmBackend; LLM disabled");
                     None
                 }
             }

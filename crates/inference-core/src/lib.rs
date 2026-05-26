@@ -15,7 +15,7 @@
 pub mod audio;
 pub mod backend;
 pub mod catalog;
-pub mod llama;
+pub mod llm;
 pub mod server;
 pub mod stt;
 pub mod stub_llm;
@@ -23,10 +23,10 @@ pub mod wire;
 
 pub use audiopipe;
 pub use backend::{
-    ChatMessage, ChatRequest, ChatResponse, ChatRole, LlmBackend, LlmBackendHandle, LlmError,
+    ChatMessage, ChatRequest, ChatResponse, ChatRole, LlmBackendHandle, LlmBackendTrait, LlmError,
     ModelInfo, StoppedBy, TokenUsage,
 };
-pub use llama::LlamaBackend;
+pub use llm::LlmBackend;
 pub use stt::{
     AudiopipeEngine, Segment, SttEngine, SttEngineHandle, SttError, SttOptions, StubEngine,
     Transcript,

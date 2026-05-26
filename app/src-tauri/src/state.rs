@@ -4,7 +4,7 @@ use tokio::sync::Mutex as AsyncMutex;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
-use inference_core::LlamaBackend;
+use inference_core::LlmBackend;
 use audio_capture::Recorder;
 use os_integration::Injector;
 
@@ -31,7 +31,7 @@ pub type SttSlot = Arc<AsyncMutex<SttModelHandle>>;
 pub struct AppStateInner {
     pub settings: Settings,
     pub stt: Option<SttSlot>,
-    pub llama: Option<Arc<LlamaBackend>>,
+    pub llm: Option<Arc<LlmBackend>>,
     pub recorder: Option<Recorder>,
     pub injector: Injector,
     pub current_load_token: u64,
@@ -62,7 +62,7 @@ impl AppState {
             inner: Mutex::new(AppStateInner {
                 settings,
                 stt: None,
-                llama: None,
+                llm: None,
                 recorder: None,
                 injector,
                 current_load_token: 0,

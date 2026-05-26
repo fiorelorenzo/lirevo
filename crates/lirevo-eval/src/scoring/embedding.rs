@@ -48,9 +48,9 @@ impl Embedder {
 
         let session = build_session(&model_path)?;
         let needs_token_type_ids = session
-            .inputs
+            .inputs()
             .iter()
-            .any(|i| i.name == "token_type_ids");
+            .any(|i| i.name() == "token_type_ids");
         let output_name = pick_output_name(&session)?;
         let tokenizer =
             Tokenizer::from_file(&tok_path).map_err(|e| anyhow::anyhow!("tokenizer load: {e}"))?;
@@ -145,19 +145,31 @@ pub fn cosine(a: &[f32], b: &[f32]) -> f64 {
 }
 
 #[cfg(target_os = "macos")]
+// ort 2.0.0-rc.12 makes `ort::Error` generic over a recovery payload
+// (e.g. `Error<SessionBuilder>`) that holds raw pointers and is not
+// `Send + Sync` — which `anyhow::Error` requires. Strip the recovery
+// payload via `ort::Error::from(...)`. clippy flags it as
+// `useless_conversion` because the outer type is also `ort::Error`,
+// but the recovery generic is what we are erasing.
+#[allow(clippy::useless_conversion)]
 fn build_session(model_path: &Path) -> Result<Session> {
     use ort::execution_providers::CoreMLExecutionProvider;
-    // `SessionBuilder` config methods return `Error<SessionBuilder>` (carrying
-    // the builder for recovery); convert to `ort::Error<()>` so `?` can lift it
-    // into `anyhow::Error` (which requires `Send + Sync`).
-    let builder = Session::builder()?
-        .with_execution_providers([CoreMLExecutionProvider::default().build()])?;
-    Ok(builder.commit_from_file(model_path)?)
+    let mut builder = Session::builder()
+        .map_err(ort::Error::<()>::from)?
+        .with_execution_providers([CoreMLExecutionProvider::default().build()])
+        .map_err(ort::Error::<()>::from)?;
+    Ok(builder
+        .commit_from_file(model_path)
+        .map_err(ort::Error::<()>::from)?)
 }
 
 #[cfg(not(target_os = "macos"))]
+#[allow(clippy::useless_conversion)]
 fn build_session(model_path: &Path) -> Result<Session> {
-    Ok(Session::builder()?.commit_from_file(model_path)?)
+    let mut builder = Session::builder().map_err(ort::Error::<()>::from)?;
+    Ok(builder
+        .commit_from_file(model_path)
+        .map_err(ort::Error::<()>::from)?)
 }
 
 fn pick_output_name(session: &Session) -> Result<String> {
@@ -166,19 +178,19 @@ fn pick_output_name(session: &Session) -> Result<String> {
     // ONNX export changes conventions.
     let preferred = ["last_hidden_state", "sentence_embedding", "output"];
     for name in preferred {
-        if session.outputs.iter().any(|o| o.name == name) {
+        if session.outputs().iter().any(|o| o.name() == name) {
             return Ok(name.to_string());
         }
     }
     let first = session
-        .outputs
+        .outputs()
         .first()
         .ok_or_else(|| anyhow::anyhow!("model has no outputs"))?;
     tracing::warn!(
-        output = %first.name,
+        output = %first.name(),
         "no known embedding output name; using first output"
     );
-    Ok(first.name.clone())
+    Ok(first.name().to_string())
 }
 
 fn ensure_file(cache_dir: &Path, name: &str, url: &str, expected_sha: &str) -> Result<PathBuf> {

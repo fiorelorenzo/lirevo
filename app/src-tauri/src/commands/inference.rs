@@ -6,7 +6,7 @@ use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::{mpsc, oneshot};
 
 use audiopipe::{PartialTranscript, TranscribeOptions};
-use inference_core::{ChatRequest, LlamaBackend};
+use inference_core::{ChatRequest, LlmBackend};
 
 use crate::state::{ModelState, SttSlot};
 use crate::stt::{self, LoadOutcome};
@@ -72,12 +72,12 @@ pub async fn clean(
             MAX_CLEAN_TEXT_BYTES
         )));
     }
-    let llama = {
+    let llm = {
         let inner = state.inner.lock().unwrap();
         inner
-            .llama
+            .llm
             .as_ref()
-            .ok_or(AppError::LlamaNotLoaded)?
+            .ok_or(AppError::LlmNotLoaded)?
             .clone()
     };
     let req = ChatRequest {
@@ -88,7 +88,7 @@ pub async fn clean(
         max_tokens: 2048,
         stop: vec![],
     };
-    let resp = tokio::task::spawn_blocking(move || llama.chat_sync(req))
+    let resp = tokio::task::spawn_blocking(move || llm.chat_sync(req))
         .await
         .map_err(|e| AppError::Internal(e.to_string()))??;
     Ok(resp.text)
@@ -105,7 +105,7 @@ pub fn get_model_state(state: State<'_, AppState>) -> Result<ModelState, AppErro
     Ok(state.current_model_state())
 }
 
-/// Load STT (audiopipe) + LLM (llama-cpp) in parallel based on current
+/// Load STT (audiopipe) + LLM (mistral.rs) in parallel based on current
 /// settings.
 ///
 /// Cancellation: a newer load (e.g. user changes settings) increments the
@@ -141,6 +141,9 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
         app,
         ModelState::Loading {
             stt: !stt_model_id.is_empty(),
+            // `llama` is the wire field on `ModelState` that the renderer
+            // listens on; we keep the legacy name across the M5 engine swap
+            // so the frontend `model:state` consumer keeps working.
             llama: llm_path.is_some(),
         },
     );
@@ -156,7 +159,7 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
     // user deleted the .gguf manually). Treating a missing file as "not
     // configured" lets the dictation pipeline keep running in STT-only mode
     // instead of bubbling a confusing load error to the UI.
-    let llama_handle = llm_path.and_then(|p| {
+    let llm_handle = llm_path.and_then(|p| {
         if !p.exists() {
             tracing::warn!(
                 path = %p.display(),
@@ -164,22 +167,22 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
             );
             return None;
         }
-        Some(tokio::task::spawn_blocking(move || LlamaBackend::load(p, ctx_size)))
+        Some(tokio::task::spawn_blocking(move || LlmBackend::load(p, ctx_size)))
     });
 
     let stt_result = match stt_handle {
         Some(h) => Some(h.await),
         None => None,
     };
-    let llama_result = match llama_handle {
+    let llm_result = match llm_handle {
         Some(h) => Some(h.await),
         None => None,
     };
 
     let mut stt_ready = false;
-    let mut llama_ready = false;
+    let mut llm_ready = false;
     let mut stt_err: Option<String> = None;
-    let mut llama_err: Option<String> = None;
+    let mut llm_err: Option<String> = None;
     let mut stt_downloading: Option<String> = None;
     {
         let mut inner = state.inner.lock().unwrap();
@@ -209,24 +212,24 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
             }
             None => {}
         }
-        match llama_result {
+        match llm_result {
             Some(Ok(Ok(l))) => {
-                inner.llama = Some(Arc::new(l));
-                llama_ready = true;
+                inner.llm = Some(Arc::new(l));
+                llm_ready = true;
             }
             Some(Ok(Err(e))) => {
-                tracing::warn!(?e, "llama load failed");
-                llama_err = Some(e.to_string());
+                tracing::warn!(?e, "LLM load failed");
+                llm_err = Some(e.to_string());
             }
             Some(Err(e)) => {
-                tracing::warn!(%e, "llama load join error");
-                llama_err = Some(format!("worker panic: {e}"));
+                tracing::warn!(%e, "LLM load join error");
+                llm_err = Some(format!("worker panic: {e}"));
             }
             None => {}
         }
     }
 
-    let next = if !stt_ready && !llama_ready {
+    let next = if !stt_ready && !llm_ready {
         if let Some(name) = stt_downloading.clone() {
             ModelState::Loading {
                 stt: !name.is_empty(),
@@ -235,7 +238,7 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
         } else {
             let parts: Vec<String> = [
                 stt_err.as_ref().map(|e| format!("STT: {e}")),
-                llama_err.as_ref().map(|e| format!("LLM: {e}")),
+                llm_err.as_ref().map(|e| format!("LLM: {e}")),
             ]
             .into_iter()
             .flatten()
@@ -251,18 +254,18 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
     } else if stt_downloading.is_some() {
         ModelState::Loading {
             stt: true,
-            llama: llama_ready,
+            llama: llm_ready,
         }
     } else {
         ModelState::Ready {
             stt: stt_ready,
-            llama: llama_ready,
+            llama: llm_ready,
         }
     };
     state.set_model_state(app, next);
 
     // Register the macOS shutdown-safety atexit handler now that GPU
-    // backends (Metal via audiopipe / llama-cpp-2, plus CoreML when
+    // backends (Metal via audiopipe / mistral.rs, plus CoreML when
     // enabled) may have been touched. This must happen AFTER the loads
     // above so our atexit is registered later than ggml's `__cxa_atexit`
     // and therefore runs earlier in the LIFO finalize order — see
@@ -276,17 +279,17 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
     // and there is nothing to swallow on shutdown.
     crate::register_quit_safety_atexit();
 
-    let (keep_warm, stt_for_warmup, llama_for_warmup) = {
+    let (keep_warm, stt_for_warmup, llm_for_warmup) = {
         let inner = state.inner.lock().unwrap();
         (
             inner.settings.keep_models_warm,
             if stt_ready { inner.stt.clone() } else { None },
-            if llama_ready { inner.llama.clone() } else { None },
+            if llm_ready { inner.llm.clone() } else { None },
         )
     };
-    if keep_warm && (stt_for_warmup.is_some() || llama_for_warmup.is_some()) {
+    if keep_warm && (stt_for_warmup.is_some() || llm_for_warmup.is_some()) {
         tokio::task::spawn_blocking(move || {
-            warm_up(stt_for_warmup, llama_for_warmup);
+            warm_up(stt_for_warmup, llm_for_warmup);
         });
     }
 }
@@ -306,7 +309,7 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
 /// can also fire it when the user toggles `keep_models_warm` from off
 /// to on while models are already loaded — without this they'd have
 /// to either trigger a reload or restart the app to see the benefit.
-pub(crate) fn warm_up(stt: Option<SttSlot>, llama: Option<Arc<LlamaBackend>>) {
+pub(crate) fn warm_up(stt: Option<SttSlot>, llm: Option<Arc<LlmBackend>>) {
     if let Some(slot) = stt {
         // 1 second of silence at 16 kHz mono — long enough for any of
         // the audiopipe backends to exercise their full encode/decode
@@ -324,7 +327,7 @@ pub(crate) fn warm_up(stt: Option<SttSlot>, llama: Option<Arc<LlamaBackend>>) {
             Err(e) => tracing::warn!(?e, elapsed_ms = elapsed_ms(), "STT warm-up failed (non-fatal)"),
         }
     }
-    if let Some(l) = llama {
+    if let Some(l) = llm {
         let req = ChatRequest {
             system: None,
             history: vec![],
@@ -336,8 +339,8 @@ pub(crate) fn warm_up(stt: Option<SttSlot>, llama: Option<Arc<LlamaBackend>>) {
         let t0 = std::time::Instant::now();
         let elapsed_ms = || u64::try_from(t0.elapsed().as_millis()).unwrap_or(u64::MAX);
         match l.chat_sync(req) {
-            Ok(_) => tracing::info!(elapsed_ms = elapsed_ms(), "llama warm-up completed"),
-            Err(e) => tracing::warn!(?e, elapsed_ms = elapsed_ms(), "llama warm-up failed (non-fatal)"),
+            Ok(_) => tracing::info!(elapsed_ms = elapsed_ms(), "LLM warm-up completed"),
+            Err(e) => tracing::warn!(?e, elapsed_ms = elapsed_ms(), "LLM warm-up failed (non-fatal)"),
         }
     }
 }
