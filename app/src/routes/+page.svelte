@@ -145,8 +145,12 @@
         </div>
       </div>
     {:else if $modelState.kind === 'loading' || $modelState.kind === 'reloading'}
-      <Logo size={64} />
-      <p class="text-sm text-muted-foreground">{t('home.loading')}</p>
+      <Logo size={72} loading />
+      <p class="text-sm text-muted-foreground animate-pulse">
+        {$modelState.kind === 'reloading'
+          ? (($modelState as any).reason ?? t('home.loading'))
+          : t('home.loading')}
+      </p>
     {:else if $modelState.kind === 'idle' || ($modelState.kind === 'ready' && !canDictate)}
       <Logo size={64} />
       <div class="text-center max-w-sm">
