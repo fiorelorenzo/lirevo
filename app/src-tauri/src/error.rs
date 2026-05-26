@@ -4,8 +4,8 @@ use thiserror::Error;
 #[derive(Debug, Error, Serialize)]
 #[serde(tag = "kind", content = "message", rename_all = "snake_case")]
 pub enum AppError {
-    #[error("Whisper model not loaded")]
-    WhisperNotLoaded,
+    #[error("STT model not loaded")]
+    SttNotLoaded,
     #[error("LLM model not loaded")]
     LlamaNotLoaded,
     #[error("Inference error: {0}")]
@@ -26,8 +26,8 @@ pub enum AppError {
     Internal(String),
 }
 
-impl From<inference_core::SttError> for AppError {
-    fn from(e: inference_core::SttError) -> Self {
+impl From<audiopipe::Error> for AppError {
+    fn from(e: audiopipe::Error) -> Self {
         AppError::Inference(e.to_string())
     }
 }
@@ -62,11 +62,11 @@ mod tests {
 
     #[test]
     fn serializes_with_tagged_format() {
-        let e = AppError::WhisperNotLoaded;
+        let e = AppError::SttNotLoaded;
         let j = serde_json::to_value(&e).unwrap();
         // Unit variants under #[serde(tag, content)] omit the content key entirely.
         // Frontend should treat a missing `message` as absent/null.
-        assert_eq!(j, serde_json::json!({ "kind": "whisper_not_loaded" }));
+        assert_eq!(j, serde_json::json!({ "kind": "stt_not_loaded" }));
     }
 
     #[test]
@@ -78,7 +78,7 @@ mod tests {
 
     #[test]
     fn display_includes_message() {
-        assert_eq!(AppError::WhisperNotLoaded.to_string(), "Whisper model not loaded");
+        assert_eq!(AppError::SttNotLoaded.to_string(), "STT model not loaded");
         assert_eq!(
             AppError::Hotkey("EventTap install failed".into()).to_string(),
             "Hotkey listener error: EventTap install failed"

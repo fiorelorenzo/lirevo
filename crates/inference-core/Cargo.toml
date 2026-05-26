@@ -20,11 +20,21 @@ tower = "0.5"
 async-trait = "0.1"
 thiserror = "2"
 hound = "3"
-rubato = "2"
-audioadapter-buffers = "3"
-# whisper-rs 0.16 dropped the `accelerate` feature (now baked in for arm64 builds).
-# On macOS arm64 we use metal + coreml. accelerate is no longer a selectable feature.
-whisper-rs = { version = "0.16", features = ["metal", "coreml"] }
+# M4: STT goes through audiopipe (same git pin as the Tauri host crate).
+# Feature set matches `app/src-tauri/Cargo.toml`; with whisper-rs gone, the
+# `whisper` feature on audiopipe can stay enabled here too.
+audiopipe = { git = "https://github.com/fiorelorenzo/audiopipe", rev = "f00281ce48f9965c01623565d51d247b523d2656", default-features = false, features = [
+    "parakeet",
+    "parakeet-mlx",
+    "qwen3-asr-ggml",
+    "whisper",
+    "metal",
+    "coreml",
+] }
+# audiopipe enables `ort` with `default-features = false`, which strips the
+# `std` feature it relies on. Re-enable it here so the workspace resolves
+# the same feature set the Tauri host uses.
+ort = { version = "=2.0.0-rc.10", default-features = false, features = ["std", "ndarray", "half"] }
 llama-cpp-2 = { version = "0.1", features = ["metal"] }
 num_cpus = "1"
 

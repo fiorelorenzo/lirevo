@@ -18,11 +18,20 @@ pub enum Hotkey {
 /// Bump when introducing a new one-shot migration in [`Settings::migrate`].
 /// Existing `settings.json` files written before the bump carry a lower
 /// `schema_version` (or none at all → 0) and the migration runs once.
-const SCHEMA_VERSION: u32 = 2;
+const SCHEMA_VERSION: u32 = 3;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
+    /// M4: catalog id of the STT model to load. `None` falls back to
+    /// [`crate::stt::catalog::default_model_id`]. Replaces the pre-M4
+    /// `whisper_model_path` field, which is kept in the struct for
+    /// backward compatibility with older `settings.json` files but is
+    /// no longer read by the loader.
+    pub stt_model_id: Option<String>,
+    /// Legacy: ggml whisper model path. Pre-M4 loader used this; M4
+    /// loader uses [`Settings::stt_model_id`] instead. Retained so
+    /// older settings files deserialize cleanly.
     pub whisper_model_path: Option<PathBuf>,
     pub llm_model_path: Option<PathBuf>,
     pub llm_ctx_size: u32,
@@ -68,6 +77,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            stt_model_id: None,
             whisper_model_path: None,
             llm_model_path: None,
             llm_ctx_size: 4096,
@@ -199,7 +209,8 @@ impl Settings {
     }
 
     pub fn env_affecting_diff(before: &Self, after: &Self) -> bool {
-        before.whisper_model_path != after.whisper_model_path
+        before.stt_model_id != after.stt_model_id
+            || before.whisper_model_path != after.whisper_model_path
             || before.llm_model_path != after.llm_model_path
             || before.llm_ctx_size != after.llm_ctx_size
             || before.whisper_coreml_disable != after.whisper_coreml_disable
@@ -225,6 +236,19 @@ impl Settings {
                     self.language = derived;
                     dirty = true;
                 }
+            }
+        }
+        if self.schema_version < 3 {
+            // M4: introduce `stt_model_id`. We deliberately leave it `None`
+            // for users with a pre-M4 `whisper_model_path` configured — the
+            // wizard's new model picker (see M4 plan Phase 4) is the right
+            // place to ask which audiopipe model they want, rather than
+            // silently mapping their old ggml path to a different model.
+            // `None` means "use the catalog default" at load time.
+            if self.stt_model_id.is_none() {
+                tracing::info!(
+                    "M4 migration: stt_model_id left unset; loader will use the catalog default"
+                );
             }
         }
         if self.schema_version != SCHEMA_VERSION {

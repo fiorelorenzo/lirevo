@@ -37,6 +37,7 @@ tracing-appender = "0.2"
 anyhow = "1"
 once_cell = "1"
 sys-locale = "0.3"
+hound = "3"
 
 inference-core    = { path = "../../crates/inference-core" }
 audio-capture     = { path = "../../crates/audio-capture" }
@@ -47,14 +48,15 @@ lirevo-prompts    = { path = "../../crates/lirevo-prompts" }
 # so we can ship streaming on the fork independently of the upstream PR cadence.
 # Feature set for the macOS-first M4 build; Linux/Windows builds (v2) will
 # add `directml` and `vulkan-ggml` via target-specific dependencies.
+#
+# Phase-2 (T8) re-enabled the `whisper` feature now that `whisper-rs` was
+# dropped from `inference-core` — both packages link the native `whisper`
+# library, so they couldn't coexist before.
 audiopipe = { git = "https://github.com/fiorelorenzo/audiopipe", rev = "f00281ce48f9965c01623565d51d247b523d2656", default-features = false, features = [
     "parakeet",
     "parakeet-mlx",
     "qwen3-asr-ggml",
-    # "whisper" temporarily disabled: audiopipe vendors whisper-rs at a different
-    # rev than inference-core's whisper-rs 0.16, and both link to the native
-    # `whisper` library. Re-enable in Task 8 after whisper-rs is dropped from
-    # inference-core.
+    "whisper",
     "metal",
     "coreml",
 ] }
@@ -63,3 +65,16 @@ audiopipe = { git = "https://github.com/fiorelorenzo/audiopipe", rev = "f00281ce
 # `std`). Cargo unifies features across the dep graph, so re-enabling `std`
 # here makes audiopipe compile without forking it.
 ort = { version = "=2.0.0-rc.10", default-features = false, features = ["std", "ndarray", "half"] }
+
+[features]
+default = ["audiopipe-whisper"]
+# Mirror flag for `audiopipe`'s `whisper` feature. The STT loader checks
+# this with `cfg!(feature = ...)` to gate the whisper-large-v3-turbo
+# catalog entry; keeping it as a local feature (instead of poking at
+# `audiopipe`'s own feature flag) makes the gating switchable per build
+# target if a future Linux/Windows lane wants to disable Whisper.
+audiopipe-whisper = []
+# In-process STT mock. Pulls in `stt::mock::MockModel` and lets the loader
+# honour `LIREVO_DEV_USE_MOCK_STT=1`. Debug-only by design — release builds
+# must never ship the canned-text path.
+test-stt = []

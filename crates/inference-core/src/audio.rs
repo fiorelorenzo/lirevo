@@ -1,17 +1,20 @@
+//! Minimal WAV decoder used by the dev-only HTTP sidecar.
+//!
+//! Returns mono f32 samples plus the WAV's source sample rate; audiopipe
+//! does the resample to 16 kHz internally via
+//! `Model::transcribe_with_sample_rate`. Pre-M4 this file also held a
+//! rubato-based resampler — gone now that audiopipe owns that step.
+
 use std::io::Cursor;
 
-use audioadapter_buffers::direct::InterleavedSlice;
-use rubato::{Fft, FixedSync, Resampler};
+use crate::stt::SttError;
 
-use crate::backend::SttError;
-
-const TARGET_RATE: u32 = 16_000;
 const MIN_RATE: u32 = 8_000;
 const MAX_RATE: u32 = 96_000;
 const MAX_CHANNELS: u16 = 2;
 
-/// Decodes a WAV byte slice and returns mono f32 samples at 16 kHz.
-pub fn process_wav(bytes: &[u8]) -> Result<Vec<f32>, SttError> {
+/// Decode a WAV byte slice into `(mono_f32_samples, sample_rate_hz)`.
+pub fn decode_wav(bytes: &[u8]) -> Result<(Vec<f32>, u32), SttError> {
     let cursor = Cursor::new(bytes);
     let reader = hound::WavReader::new(cursor)
         .map_err(|e| SttError::AudioDecode(e.to_string()))?;
@@ -30,17 +33,13 @@ pub fn process_wav(bytes: &[u8]) -> Result<Vec<f32>, SttError> {
         )));
     }
 
-    let samples_f32 = decode_samples(reader)?;
-    if samples_f32.is_empty() {
+    let interleaved = decode_samples(reader)?;
+    if interleaved.is_empty() {
         return Err(SttError::AudioUnsupported("zero samples".to_string()));
     }
 
-    let mono = to_mono(samples_f32, spec.channels);
-    if spec.sample_rate == TARGET_RATE {
-        Ok(mono)
-    } else {
-        resample_to_16k(&mono, spec.sample_rate)
-    }
+    let mono = to_mono(interleaved, spec.channels);
+    Ok((mono, spec.sample_rate))
 }
 
 fn decode_samples(reader: hound::WavReader<Cursor<&[u8]>>) -> Result<Vec<f32>, SttError> {
@@ -100,34 +99,6 @@ fn to_mono(interleaved: Vec<f32>, channels: u16) -> Vec<f32> {
     out
 }
 
-fn resample_to_16k(samples: &[f32], src_rate: u32) -> Result<Vec<f32>, SttError> {
-    let mut resampler = Fft::<f32>::new(
-        src_rate as usize,
-        TARGET_RATE as usize,
-        1024,
-        2,
-        1,
-        FixedSync::Both,
-    )
-    .map_err(|e| SttError::Resample(e.to_string()))?;
-
-    let input_frames = samples.len();
-    let input = InterleavedSlice::new(samples, 1, input_frames)
-        .map_err(|e| SttError::Resample(format!("input adapter: {e}")))?;
-
-    let out_frames = resampler.process_all_needed_output_len(input_frames);
-    let mut out_data = vec![0.0_f32; out_frames];
-    let mut output = InterleavedSlice::new_mut(&mut out_data, 1, out_frames)
-        .map_err(|e| SttError::Resample(format!("output adapter: {e}")))?;
-
-    let (_n_in, n_out) = resampler
-        .process_all_into_buffer(&input, &mut output, input_frames, None)
-        .map_err(|e| SttError::Resample(e.to_string()))?;
-
-    out_data.truncate(n_out);
-    Ok(out_data)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,49 +124,34 @@ mod tests {
     }
 
     #[test]
-    fn decodes_mono_16k_i16_without_resampling() {
-        // 1000 samples at 16k = 62.5 ms
+    fn decodes_mono_16k_i16_keeps_source_rate() {
         #[allow(clippy::cast_possible_truncation)]
         let s: Vec<i16> = (0..1000).map(|i| (i * 32) as i16).collect();
         let wav = synth_wav_i16(&s, 1, 16_000);
-        let out = process_wav(&wav).unwrap();
+        let (out, rate) = decode_wav(&wav).unwrap();
         assert_eq!(out.len(), 1000);
-        // First sample should be ~0.0 (i16 0 → f32 0/32767)
+        assert_eq!(rate, 16_000);
         assert!(out[0].abs() < 0.001);
     }
 
     #[test]
-    fn decodes_stereo_16k_and_mixes_to_mono() {
-        // 100 stereo frames = 200 interleaved samples
+    fn decodes_stereo_44100_and_mixes_to_mono_preserving_rate() {
+        // 100 stereo frames = 200 interleaved samples at 44.1 kHz.
         let s: Vec<i16> = (0..200).map(|i| if i % 2 == 0 { 32767 } else { -32768 }).collect();
-        let wav = synth_wav_i16(&s, 2, 16_000);
-        let out = process_wav(&wav).unwrap();
+        let wav = synth_wav_i16(&s, 2, 44_100);
+        let (out, rate) = decode_wav(&wav).unwrap();
         assert_eq!(out.len(), 100);
-        // L=+1.0, R=-1.0 mean = 0
+        assert_eq!(rate, 44_100);
         for v in &out {
             assert!(v.abs() < 0.01, "got {v}");
         }
     }
 
     #[test]
-    fn resamples_44100_to_16000() {
-        // 44100 samples at 44.1k = 1 s -> should produce ~16000 at 16k
-        let s: Vec<i16> = vec![0; 44_100];
-        let wav = synth_wav_i16(&s, 1, 44_100);
-        let out = process_wav(&wav).unwrap();
-        // Allow ±5% tolerance because of chunked resampling padding.
-        let expected = 16_000;
-        let lo = expected * 95 / 100;
-        let hi = expected * 105 / 100;
-        assert!(out.len() >= lo && out.len() <= hi, "got {} samples, expected ~{expected}", out.len());
-    }
-
-    #[test]
-    fn rejects_zero_channel_wav_at_header_level() {
-        // hound rejects channels=0 at write time; instead test sample-rate out of range:
+    fn rejects_out_of_range_sample_rate() {
         let s: Vec<i16> = vec![0; 10];
-        let wav = synth_wav_i16(&s, 1, 4_000); // below MIN_RATE
-        let err = process_wav(&wav).unwrap_err();
+        let wav = synth_wav_i16(&s, 1, 4_000);
+        let err = decode_wav(&wav).unwrap_err();
         match err {
             SttError::AudioUnsupported(_) => {}
             other => panic!("unexpected error: {other:?}"),
@@ -204,7 +160,7 @@ mod tests {
 
     #[test]
     fn rejects_garbage_bytes_as_bad_audio() {
-        let err = process_wav(b"not a wav file").unwrap_err();
+        let err = decode_wav(b"not a wav file").unwrap_err();
         match err {
             SttError::AudioDecode(_) => {}
             other => panic!("unexpected error: {other:?}"),

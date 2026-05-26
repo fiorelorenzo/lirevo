@@ -232,11 +232,11 @@ async fn models_lists_stub_when_loaded() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "requires SIDECAR_WHISPER_MODEL_PATH to a real ggml file + sample-30s.wav fixture"]
-async fn stt_real_whisper_transcribes_sample() {
-    let model_path = std::env::var("SIDECAR_WHISPER_MODEL_PATH")
-        .expect("set SIDECAR_WHISPER_MODEL_PATH to a real ggml whisper model");
-    assert!(std::path::Path::new(&model_path).exists(), "model not found at {model_path}");
+#[ignore = "requires the chosen audiopipe model to be cached in ~/.cache/huggingface + sample-30s.wav fixture"]
+async fn stt_real_audiopipe_transcribes_sample() {
+    // Default mirrors the sidecar's own DEFAULT_STT_MODEL_NAME.
+    let model_name = std::env::var("SIDECAR_STT_MODEL_NAME")
+        .unwrap_or_else(|_| "parakeet-tdt-0.6b-v3".to_string());
 
     let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/sample-30s.wav");
@@ -245,12 +245,12 @@ async fn stt_real_whisper_transcribes_sample() {
     );
 
     let server = TestServer::spawn_with_env(&[
-        ("SIDECAR_STT_BACKEND", "whisper"),
-        ("SIDECAR_WHISPER_MODEL_PATH", model_path.as_str()),
+        ("SIDECAR_STT_BACKEND", "audiopipe"),
+        ("SIDECAR_STT_MODEL_NAME", model_name.as_str()),
     ]);
     let (status, body) = unix_post(&server.socket, "/v1/stt", "audio/wav", wav).await;
     assert!(status.is_success(), "body: {body}");
-    assert!(body.contains("\"backend\":\"whisper-rs\""), "body: {body}");
+    assert!(body.contains("\"backend\":\"audiopipe\""), "body: {body}");
     let text_idx = body.find("\"text\":\"").expect("text field");
     let after = &body[text_idx + 8..];
     let close = after.find('"').expect("text close");

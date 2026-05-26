@@ -19,10 +19,8 @@ use tokio::signal::unix::{signal, SignalKind};
 use tracing::{info, warn};
 
 use crate::audio;
-use crate::backend::{
-    ChatMessage, ChatRequest, ChatRole, LlmBackendHandle, LlmError, ModelInfo, SttBackendHandle,
-    SttError, SttOptions,
-};
+use crate::backend::{ChatMessage, ChatRequest, ChatRole, LlmBackendHandle, LlmError, ModelInfo};
+use crate::stt::{SttEngineHandle, SttError, SttOptions};
 use crate::wire::{error_response, ErrorBody, Wire, WireResponse};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -37,7 +35,7 @@ const MAX_BODY_BYTES: usize = 50 * 1024 * 1024; // 50 MiB
 #[derive(Clone)]
 pub struct AppState {
     pub started_at: Instant,
-    pub stt: Option<SttBackendHandle>,
+    pub stt: Option<SttEngineHandle>,
     pub llm: Option<LlmBackendHandle>,
 }
 
@@ -148,28 +146,31 @@ async fn stt(
         .into_response();
     };
 
-    // Audio processing is CPU-bound: run on the blocking pool.
+    // Audio decode is CPU-bound: run on the blocking pool. audiopipe owns
+    // the resample to 16 kHz internally, so we only mono-mix + extract the
+    // source rate here.
     let body_vec = body.to_vec();
-    let samples = match tokio::task::spawn_blocking(move || audio::process_wav(&body_vec)).await {
-        Ok(Ok(s)) => s,
-        Ok(Err(e)) => return stt_error_to_response(wire, &e).into_response(),
-        Err(join_err) => {
-            return error_response(
-                wire,
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "internal",
-                format!("audio task panicked: {join_err}"),
-            )
-            .into_response();
-        }
-    };
+    let (samples, sample_rate) =
+        match tokio::task::spawn_blocking(move || audio::decode_wav(&body_vec)).await {
+            Ok(Ok(s)) => s,
+            Ok(Err(e)) => return stt_error_to_response(wire, &e).into_response(),
+            Err(join_err) => {
+                return error_response(
+                    wire,
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal",
+                    format!("audio task panicked: {join_err}"),
+                )
+                .into_response();
+            }
+        };
 
     let opts = SttOptions {
         language: q.language,
-        translate: q.translate,
         want_segments: q.segments,
     };
-    match stt_handle.transcribe(samples, opts).await {
+    let _ = q.translate; // translate flag is no longer supported by audiopipe
+    match stt_handle.transcribe(samples, sample_rate, opts).await {
         Ok(transcript) => WireResponse::ok(wire, transcript).into_response(),
         Err(e) => stt_error_to_response(wire, &e).into_response(),
     }
@@ -181,10 +182,9 @@ fn stt_error_to_response(wire: Wire, err: &SttError) -> WireResponse<ErrorBody> 
         SttError::AudioUnsupported(_) => (StatusCode::BAD_REQUEST, "unsupported_audio"),
         SttError::ModelNotLoaded => (StatusCode::SERVICE_UNAVAILABLE, "stt_unavailable"),
         SttError::Busy => (StatusCode::SERVICE_UNAVAILABLE, "busy"),
-        SttError::Resample(_) | SttError::Whisper(_) | SttError::Internal(_) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "internal",
-        ),
+        SttError::Audiopipe(_) | SttError::Internal(_) => {
+            (StatusCode::INTERNAL_SERVER_ERROR, "internal")
+        }
     };
     error_response(wire, status, code, err.to_string())
 }
@@ -341,7 +341,7 @@ pub async fn shutdown_signal(socket_path: PathBuf) {
 
 pub async fn run(
     socket_path: PathBuf,
-    stt: Option<SttBackendHandle>,
+    stt: Option<SttEngineHandle>,
     llm: Option<LlmBackendHandle>,
 ) -> Result<()> {
     if socket_path.exists() {

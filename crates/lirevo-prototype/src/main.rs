@@ -144,7 +144,7 @@ fn run_preflight(cli: &Cli) -> Result<PathBuf, ExitCode> {
         }
     };
     if !health.stt_ready {
-        eprintln!("sidecar reachable but stt_ready=false; set SIDECAR_WHISPER_MODEL_PATH and restart it");
+        eprintln!("sidecar reachable but stt_ready=false; set SIDECAR_STT_MODEL_NAME (or SIDECAR_STT_BACKEND=stub) and restart it");
         return Err(ExitCode::from(4));
     }
     if !health.llm_ready {

@@ -1,27 +1,35 @@
 use std::sync::{Arc, Mutex};
 use tokio::sync::watch;
+use tokio::sync::Mutex as AsyncMutex;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
-use inference_core::{WhisperBackend, LlamaBackend};
+use inference_core::LlamaBackend;
 use audio_capture::Recorder;
 use os_integration::Injector;
 
 use crate::settings::Settings;
+use crate::stt::SttModelHandle;
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ModelState {
     Idle,
-    Loading { whisper: bool, llama: bool },
-    Ready { whisper: bool, llama: bool },
+    Loading { stt: bool, llama: bool },
+    Ready { stt: bool, llama: bool },
     Reloading { reason: String },
     Error { reason: String },
 }
 
+/// The STT model is held behind a `tokio::sync::Mutex` because
+/// `audiopipe::Model::transcribe_with_sample_rate` takes `&mut self` — a
+/// single shared handle plus this mutex lets the dictation pipeline run
+/// from many tasks without re-loading weights per call.
+pub type SttSlot = Arc<AsyncMutex<SttModelHandle>>;
+
 pub struct AppStateInner {
     pub settings: Settings,
-    pub whisper: Option<Arc<WhisperBackend>>,
+    pub stt: Option<SttSlot>,
     pub llama: Option<Arc<LlamaBackend>>,
     pub recorder: Option<Recorder>,
     pub injector: Injector,
@@ -49,7 +57,7 @@ impl AppState {
         Self {
             inner: Mutex::new(AppStateInner {
                 settings,
-                whisper: None,
+                stt: None,
                 llama: None,
                 recorder: None,
                 injector,
@@ -86,19 +94,19 @@ mod tests {
 
     #[test]
     fn model_state_serializes_with_tagged_kind() {
-        let s = ModelState::Loading { whisper: true, llama: false };
+        let s = ModelState::Loading { stt: true, llama: false };
         let j = serde_json::to_value(&s).unwrap();
         assert_eq!(j, serde_json::json!({
-            "kind": "loading", "whisper": true, "llama": false
+            "kind": "loading", "stt": true, "llama": false
         }));
     }
 
     #[test]
     fn ready_state_serializes() {
-        let s = ModelState::Ready { whisper: true, llama: true };
+        let s = ModelState::Ready { stt: true, llama: true };
         let j = serde_json::to_value(&s).unwrap();
         assert_eq!(j, serde_json::json!({
-            "kind": "ready", "whisper": true, "llama": true
+            "kind": "ready", "stt": true, "llama": true
         }));
     }
 

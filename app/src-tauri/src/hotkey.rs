@@ -89,12 +89,12 @@ async fn dictation_loop(app: AppHandle, mut rx: tokio::sync::mpsc::Receiver<Hotk
 fn handle_down(app: &AppHandle, state: &tauri::State<AppState>) {
     tracing::info!("handle_down: hotkey pressed");
     let ms = state.current_model_state();
-    let whisper_ok = matches!(ms, ModelState::Ready { whisper: true, .. });
-    if !whisper_ok {
-        tracing::warn!(?ms, "handle_down: whisper not ready, ignoring");
+    let stt_ok = matches!(ms, ModelState::Ready { stt: true, .. });
+    if !stt_ok {
+        tracing::warn!(?ms, "handle_down: STT not ready, ignoring");
         let _ = app.emit(
             "toast",
-            crate::commands::toast("warn", "Whisper model not ready — open Settings"),
+            crate::commands::toast("warn", "Transcription model not ready — open Settings"),
         );
         return;
     }
@@ -217,7 +217,7 @@ fn hide_overlay_with_delay(app: &AppHandle) {
 /// Full STT → cleanup → inject pipeline.
 ///
 /// Stages:
-///   1. Whisper STT (blocking → `spawn_blocking`).
+///   1. audiopipe STT (blocking → `spawn_blocking`).
 ///   2. LLM cleanup (blocking → `spawn_blocking`); graceful degrade to raw
 ///      transcript if the llama backend is missing or fails.
 ///   3. Text injection (AX → pasteboard fallback inside `Injector`); on hard
@@ -231,51 +231,45 @@ async fn run_pipeline(app: AppHandle, samples: Vec<f32>) {
 
     // Snapshot what we need; release the lock before any heavy work so we
     // never hold the std::sync::Mutex across an await.
-    let (whisper, llama, language, force_pasteboard) = {
+    let (stt_slot, llama, language, force_pasteboard) = {
         let inner = state.inner.lock().unwrap();
         (
-            inner.whisper.clone(),
+            inner.stt.clone(),
             inner.llama.clone(),
             inner.settings.language.clone(),
             inner.settings.force_pasteboard,
         )
     };
 
-    let Some(whisper) = whisper else {
+    let Some(stt_slot) = stt_slot else {
         let _ = app.emit(
             "toast",
-            crate::commands::toast("warn", "Whisper model not loaded"),
+            crate::commands::toast("warn", "Transcription model not loaded"),
         );
         return;
     };
 
-    // 1. Transcribe. The recorder already produces 16 kHz mono f32 — call
-    // `transcribe_samples` directly to skip the WAV encode + decode + no-op
-    // resample round-trip that `transcribe(wav_bytes)` would do.
-    let lang_for_stt = if language == "auto" {
-        String::new()
+    // 1. Transcribe. Recorder produces 16 kHz mono f32, so audiopipe's
+    // `transcribe()` (which assumes that exact format) is the right entry —
+    // no resample needed.
+    let lang_for_stt = if language == "auto" || language.is_empty() {
+        None
     } else {
-        language.clone()
+        Some(language.clone())
     };
-    let stt = tokio::task::spawn_blocking(move || whisper.transcribe_samples(&samples, &lang_for_stt))
-        .await;
-    let raw_text = match stt {
-        Ok(Ok(t)) => t,
-        Ok(Err(e)) => {
-            let _ = app.emit(
-                "toast",
-                crate::commands::toast("error", format!("Transcription failed: {e}")),
-            );
-            return;
-        }
-        Err(e) => {
-            let _ = app.emit(
-                "toast",
-                crate::commands::toast("error", format!("STT join error: {e}")),
-            );
-            return;
-        }
-    };
+    let raw_text =
+        match crate::commands::inference::transcribe_samples_async(stt_slot, samples, lang_for_stt)
+            .await
+        {
+            Ok(t) => t,
+            Err(e) => {
+                let _ = app.emit(
+                    "toast",
+                    crate::commands::toast("error", format!("Transcription failed: {e}")),
+                );
+                return;
+            }
+        };
     let t1 = t0.elapsed();
 
     // 2. Clean (graceful degrade if LLM missing or fails).

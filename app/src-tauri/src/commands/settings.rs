@@ -44,13 +44,13 @@ pub async fn update_settings(
         // will warm up at the end of load_models anyway; firing here too
         // would warm a cold (still-loading) handle and then fight the
         // reload's own warm-up on the new handle.
-        let (whisper, llama) = {
+        let (stt, llama) = {
             let inner = state.inner.lock().unwrap();
-            (inner.whisper.clone(), inner.llama.clone())
+            (inner.stt.clone(), inner.llama.clone())
         };
-        if whisper.is_some() || llama.is_some() {
+        if stt.is_some() || llama.is_some() {
             tokio::task::spawn_blocking(move || {
-                crate::commands::inference::warm_up(whisper, llama);
+                crate::commands::inference::warm_up(stt, llama);
             });
         }
     }

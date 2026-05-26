@@ -5,6 +5,7 @@ mod logging;
 mod models;
 mod settings;
 mod state;
+mod stt;
 mod tray;
 
 pub use error::AppError;
@@ -28,7 +29,7 @@ pub(crate) static LIREVO_EXIT_REQUESTED: std::sync::atomic::AtomicBool =
 
 /// macOS-only: register a late `atexit` handler that flips `LIREVO_EXIT_REQUESTED`
 /// before `libc::exit`'s C++ destructor chain runs. Call this AFTER ggml-metal
-/// has been touched (i.e. after a whisper-rs / llama-cpp-2 load) so our
+/// has been touched (i.e. after an audiopipe / llama-cpp-2 load) so our
 /// handler is registered LATER than ggml's `__cxa_atexit` and therefore runs
 /// EARLIER in the LIFO finalize order. Idempotent in effect — multiple
 /// registrations just queue multiple no-op flag flips. Safe to call from

@@ -99,8 +99,8 @@ fn update_for_state(app: &AppHandle, model: &ModelState, recording: bool) -> Res
 fn state_label(s: &ModelState) -> String {
     match s {
         ModelState::Idle => "Idle".into(),
-        ModelState::Loading { whisper, llama } => format!("Loading (STT {} LLM {})", flag(*whisper), flag(*llama)),
-        ModelState::Ready { whisper, llama } => format!("Ready (STT {} LLM {})", flag(*whisper), flag(*llama)),
+        ModelState::Loading { stt, llama } => format!("Loading (STT {} LLM {})", flag(*stt), flag(*llama)),
+        ModelState::Ready { stt, llama } => format!("Ready (STT {} LLM {})", flag(*stt), flag(*llama)),
         ModelState::Reloading { reason } => format!("Reloading — {reason}"),
         ModelState::Error { reason } => format!("⚠️ {reason}"),
     }

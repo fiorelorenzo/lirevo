@@ -48,9 +48,9 @@ impl Embedder {
 
         let session = build_session(&model_path)?;
         let needs_token_type_ids = session
-            .inputs()
+            .inputs
             .iter()
-            .any(|i| i.name() == "token_type_ids");
+            .any(|i| i.name == "token_type_ids");
         let output_name = pick_output_name(&session)?;
         let tokenizer =
             Tokenizer::from_file(&tok_path).map_err(|e| anyhow::anyhow!("tokenizer load: {e}"))?;
@@ -150,9 +150,8 @@ fn build_session(model_path: &Path) -> Result<Session> {
     // `SessionBuilder` config methods return `Error<SessionBuilder>` (carrying
     // the builder for recovery); convert to `ort::Error<()>` so `?` can lift it
     // into `anyhow::Error` (which requires `Send + Sync`).
-    let mut builder = Session::builder()?
-        .with_execution_providers([CoreMLExecutionProvider::default().build()])
-        .map_err(<ort::Error as From<_>>::from)?;
+    let builder = Session::builder()?
+        .with_execution_providers([CoreMLExecutionProvider::default().build()])?;
     Ok(builder.commit_from_file(model_path)?)
 }
 
@@ -167,19 +166,19 @@ fn pick_output_name(session: &Session) -> Result<String> {
     // ONNX export changes conventions.
     let preferred = ["last_hidden_state", "sentence_embedding", "output"];
     for name in preferred {
-        if session.outputs().iter().any(|o| o.name() == name) {
+        if session.outputs.iter().any(|o| o.name == name) {
             return Ok(name.to_string());
         }
     }
     let first = session
-        .outputs()
+        .outputs
         .first()
         .ok_or_else(|| anyhow::anyhow!("model has no outputs"))?;
     tracing::warn!(
-        output = %first.name(),
+        output = %first.name,
         "no known embedding output name; using first output"
     );
-    Ok(first.name().to_string())
+    Ok(first.name.clone())
 }
 
 fn ensure_file(cache_dir: &Path, name: &str, url: &str, expected_sha: &str) -> Result<PathBuf> {
