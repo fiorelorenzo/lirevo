@@ -1,18 +1,24 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import { Button } from '$lib/components/ui/button';
   import * as RadioGroup from '$lib/components/ui/radio-group';
   import { Progress } from '$lib/components/ui/progress';
-  import { Sparkles, Check, Download as DownloadIcon } from '@lucide/svelte';
+  import { Sparkles, Check } from '@lucide/svelte';
   import { settings, updateSettings } from '$lib/stores/settings.svelte';
   import { lda, type CatalogEntry, type LocalModel, type DownloadProgress } from '$lib/tauri';
   import { downloads, progressFor } from '$lib/stores/downloads';
   import { t } from '$lib/i18n';
   import { withErrorToast } from '$lib/stores/toasts';
   import type { UnlistenFn } from '@tauri-apps/api/event';
+  import { defaultStepState, type WizardStepState } from './step-state';
 
-  interface Props { onnext: () => void; }
-  let { onnext }: Props = $props();
+  interface Props {
+    onnext: () => void;
+    nextState?: WizardStepState;
+  }
+  let {
+    onnext,
+    nextState = $bindable(defaultStepState()),
+  }: Props = $props();
 
   // Pseudo-id for the "Skip" radio option. Kept distinct from any catalog id
   // so the selection state is unambiguous even if a future catalog adds an
@@ -31,7 +37,18 @@
   // Data-driven LLM list from the backend catalog (same source the Settings
   // → Models tab uses). Keeps wizard + settings in sync as the catalog
   // evolves; no hardcoded ids to drift.
-  let llmEntries = $derived(catalog.filter((c) => c.kind === 'llm'));
+  // keep in sync with settings/+page.svelte
+  let llmEntries = $derived(
+    catalog
+      .filter((c) => c.kind === 'llm')
+      .toSorted((a, b) => {
+        if (a.recommended !== b.recommended) return a.recommended ? -1 : 1;
+        const sa = a.scores?.compositeWeighted ?? -1;
+        const sb = b.scores?.compositeWeighted ?? -1;
+        if (sa !== sb) return sb - sa;
+        return b.sizeBytes - a.sizeBytes;
+      }),
+  );
   let recommendedId = $derived(
     llmEntries.find((c) => c.recommended)?.id ?? llmEntries[0]?.id ?? null,
   );
@@ -123,7 +140,8 @@
     }
 
     // Need to download first. The progress handler in onMount picks up the
-    // `complete` event, persists the path, and advances the wizard.
+    // `complete` event, persists the path, and advances the wizard — so
+    // we signal `deferAdvance` to the footer Next button.
     downloadingId = selected;
     const result = await withErrorToast(
       t('settings.models.download_failed', { name: entryById(selected)?.displayName ?? selected }),
@@ -132,6 +150,7 @@
     if (result === null) {
       downloadingId = null;
     }
+    return { deferAdvance: true };
   }
 
   function cardClasses(active: boolean): string {
@@ -150,7 +169,22 @@
     downloadingId ? progressFor(downloadingId) : null,
   );
   let isDownloading = $derived(downloadingId !== null);
-  let continueDisabled = $derived(!loaded || isDownloading);
+
+  let nextLabel = $derived.by(() => {
+    if (isDownloading) return t('wizard.cleanup.downloading_pill');
+    if (selected !== SKIP_ID && !isInstalled(selected)) {
+      return t('wizard.cleanup.download_button');
+    }
+    return undefined;
+  });
+
+  $effect(() => {
+    nextState = {
+      canNext: loaded && !isDownloading,
+      nextLabel,
+      onNextClick: continueNext,
+    };
+  });
 
   function statusPill(
     id: string,
@@ -170,10 +204,15 @@
 </script>
 
 <div class="max-w-2xl mx-auto">
-  <h1 class="text-2xl font-semibold mb-2 tracking-tight">{t('wizard.cleanup.title')}</h1>
-  <p class="text-sm text-muted-foreground mb-6">{t('wizard.cleanup.body')}</p>
+  <h1 class="text-2xl font-semibold mb-2 tracking-tight animate-in fade-in slide-in-from-bottom-2 duration-500">
+    {t('wizard.cleanup.title')}
+  </h1>
+  <p class="text-sm text-muted-foreground mb-6 animate-in fade-in duration-500 delay-100">
+    {t('wizard.cleanup.body')}
+  </p>
 
-  <RadioGroup.Root bind:value={selected} class="space-y-2">
+  <div class="animate-in fade-in duration-500 delay-200">
+    <RadioGroup.Root bind:value={selected} class="space-y-2">
     {#each llmEntries as entry (entry.id)}
       {@const pill = statusPill(entry.id, $downloads[entry.id])}
       {@const isRecommended = entry.id === recommendedId}
@@ -231,6 +270,7 @@
       </div>
     </label>
   </RadioGroup.Root>
+  </div>
 
   {#if isDownloading && $activeProgress && $activeProgress.state === 'downloading'}
     <div class="mt-6 space-y-1">
@@ -246,17 +286,4 @@
       </div>
     </div>
   {/if}
-
-  <div class="flex justify-end mt-8">
-    <Button onclick={continueNext} disabled={continueDisabled}>
-      {#if isDownloading}
-        {t('wizard.cleanup.downloading_pill')}
-      {:else if selected !== SKIP_ID && !isInstalled(selected)}
-        <DownloadIcon class="h-3.5 w-3.5 mr-1.5" />
-        {t('wizard.common.next')}
-      {:else}
-        {t('wizard.common.next')}
-      {/if}
-    </Button>
-  </div>
 </div>

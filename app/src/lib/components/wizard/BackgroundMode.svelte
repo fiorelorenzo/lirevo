@@ -11,15 +11,21 @@
   // `keep_models_warm` is intentionally NOT in this step — it's a
   // performance preference, not a presence one, and the default is
   // already "on" which is what 99% of users want. Lives in Settings.
-  import { Button } from '$lib/components/ui/button';
   import { Label } from '$lib/components/ui/label';
   import { Switch } from '$lib/components/ui/switch';
   import { Rocket, EyeOff, MonitorOff } from '@lucide/svelte';
   import { settings, updateSettings } from '$lib/stores/settings.svelte';
   import { t } from '$lib/i18n';
+  import { defaultStepState, type WizardStepState } from './step-state';
 
-  interface Props { onnext: () => void; }
-  let { onnext }: Props = $props();
+  interface Props {
+    onnext: () => void;
+    nextState?: WizardStepState;
+  }
+  let {
+    onnext,
+    nextState = $bindable(defaultStepState()),
+  }: Props = $props();
 
   // Local mirrors so toggles feel instant; updateSettings happens on
   // change so the persisted state matches the UI even if the user
@@ -29,13 +35,24 @@
   let stayRunningOnWindowClose = $derived(
     $settings?.stayRunningOnWindowClose ?? true,
   );
+
+  $effect(() => {
+    nextState = {
+      canNext: true,
+      onNextClick: onnext,
+    };
+  });
 </script>
 
 <div class="min-h-full flex flex-col items-center justify-center max-w-md mx-auto gap-6 text-center">
-  <h1 class="text-2xl font-semibold tracking-tight">{t('wizard.background.title')}</h1>
-  <p class="text-sm text-muted-foreground">{t('wizard.background.body')}</p>
+  <h1 class="text-2xl font-semibold tracking-tight animate-in fade-in slide-in-from-bottom-2 duration-500">
+    {t('wizard.background.title')}
+  </h1>
+  <p class="text-sm text-muted-foreground animate-in fade-in duration-500 delay-100">
+    {t('wizard.background.body')}
+  </p>
 
-  <div class="w-full rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden text-left">
+  <div class="w-full rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden text-left animate-in fade-in duration-500 delay-200">
     <div class="p-4 flex items-start justify-between gap-4">
       <div class="flex items-start gap-3 min-w-0">
         <Rocket class="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
@@ -84,6 +101,4 @@
       />
     </div>
   </div>
-
-  <Button onclick={onnext}>{t('wizard.common.next')}</Button>
 </div>

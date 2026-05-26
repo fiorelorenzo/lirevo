@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Button } from '$lib/components/ui/button';
   import * as RadioGroup from '$lib/components/ui/radio-group';
   import { Sparkles } from '@lucide/svelte';
   import {
@@ -12,9 +11,16 @@
   } from '$lib/models/catalog';
   import { settings, updateSettings } from '$lib/stores/settings.svelte';
   import { t } from '$lib/i18n';
+  import { defaultStepState, type WizardStepState } from './step-state';
 
-  interface Props { onnext: () => void; }
-  let { onnext }: Props = $props();
+  interface Props {
+    onnext: () => void;
+    nextState?: WizardStepState;
+  }
+  let {
+    onnext,
+    nextState = $bindable(defaultStepState()),
+  }: Props = $props();
 
   // Pre-select the persisted id if it's still in the catalog, otherwise
   // fall back to the catalog default. This handles two cases at once:
@@ -55,51 +61,58 @@
       active ? 'border-primary ring-2 ring-primary/30' : 'border-border',
     ].join(' ');
   }
+
+  $effect(() => {
+    nextState = {
+      canNext: !!selected,
+      onNextClick: continueNext,
+    };
+  });
 </script>
 
 <div class="max-w-2xl mx-auto">
-  <h1 class="text-2xl font-semibold mb-2 tracking-tight">{t('wizard.models.title')}</h1>
-  <p class="text-sm text-muted-foreground mb-6">{t('wizard.models.body')}</p>
+  <h1 class="text-2xl font-semibold mb-2 tracking-tight animate-in fade-in slide-in-from-bottom-2 duration-500">
+    {t('wizard.models.title')}
+  </h1>
+  <p class="text-sm text-muted-foreground mb-6 animate-in fade-in duration-500 delay-100">
+    {t('wizard.models.body')}
+  </p>
 
-  <RadioGroup.Root bind:value={selected} class="space-y-2">
-    {#each STT_MODELS as entry (entry.id)}
-      <!-- The label is the click surface; the radio control sits inside
-           so keyboard focus + spacebar selection work via the native
-           input. Avoids the click-handler-on-div anti-pattern. -->
-      <label class={cardClasses(entry)}>
-        <div class="flex items-start gap-4">
-          <RadioGroup.Item value={entry.id} class="mt-1 shrink-0" />
+  <div class="animate-in fade-in duration-500 delay-200">
+    <RadioGroup.Root bind:value={selected} class="space-y-2">
+      {#each STT_MODELS as entry (entry.id)}
+        <!-- The label is the click surface; the radio control sits inside
+             so keyboard focus + spacebar selection work via the native
+             input. Avoids the click-handler-on-div anti-pattern. -->
+        <label class={cardClasses(entry)}>
+          <div class="flex items-start gap-4">
+            <RadioGroup.Item value={entry.id} class="mt-1 shrink-0" />
 
-          <div class="flex-1 min-w-0">
-            <div class="flex items-baseline gap-2 flex-wrap">
-              <span class="font-medium">{entry.displayName}</span>
-              <span class="text-xs text-muted-foreground tabular-nums">
-                {formatSize(entry.sizeBytes)}
-              </span>
-              {#if entry.default}
-                <span
-                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[11px] font-medium leading-none"
-                >
-                  <Sparkles class="h-3 w-3" />
-                  {t('wizard.models.recommended_pill')}
+            <div class="flex-1 min-w-0">
+              <div class="flex items-baseline gap-2 flex-wrap">
+                <span class="font-medium">{entry.displayName}</span>
+                <span class="text-xs text-muted-foreground tabular-nums">
+                  {formatSize(entry.sizeBytes)}
                 </span>
-              {/if}
-            </div>
-            <p class="text-sm text-muted-foreground mt-1">{entry.summary}</p>
-            <div class="mt-2 inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
-              <span class="px-1.5 py-0.5 rounded border border-border/60 font-mono leading-none">
-                {entry.license}
-              </span>
+                {#if entry.default}
+                  <span
+                    class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[11px] font-medium leading-none"
+                  >
+                    <Sparkles class="h-3 w-3" />
+                    {t('wizard.models.recommended_pill')}
+                  </span>
+                {/if}
+              </div>
+              <p class="text-sm text-muted-foreground mt-1">{entry.summary}</p>
+              <div class="mt-2 inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <span class="px-1.5 py-0.5 rounded border border-border/60 font-mono leading-none">
+                  {entry.license}
+                </span>
+              </div>
             </div>
           </div>
-        </div>
-      </label>
-    {/each}
-  </RadioGroup.Root>
-
-  <div class="flex justify-end mt-8">
-    <Button onclick={continueNext} disabled={!selected}>
-      {t('wizard.common.next')}
-    </Button>
+        </label>
+      {/each}
+    </RadioGroup.Root>
   </div>
 </div>

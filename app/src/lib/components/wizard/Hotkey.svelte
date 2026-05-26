@@ -1,12 +1,18 @@
 <script lang="ts">
-  import { Button } from '$lib/components/ui/button';
   import KeyChip from '$lib/components/KeyChip.svelte';
   import { settings, updateSettings } from '$lib/stores/settings.svelte';
   import type { Hotkey } from '$lib/tauri';
   import { t } from '$lib/i18n';
+  import { defaultStepState, type WizardStepState } from './step-state';
 
-  interface Props { onfinish: () => void; }
-  let { onfinish }: Props = $props();
+  interface Props {
+    onfinish: () => void;
+    nextState?: WizardStepState;
+  }
+  let {
+    onfinish,
+    nextState = $bindable(defaultStepState()),
+  }: Props = $props();
 
   interface Option { value: Hotkey; glyph: string; label: string; }
   const OPTIONS: Option[] = [
@@ -23,25 +29,29 @@
     await updateSettings({ hotkey: selected });
     onfinish();
   }
+
+  $effect(() => {
+    nextState = {
+      canNext: true,
+      nextLabel: t('wizard.common.done'),
+      onNextClick: finish,
+    };
+  });
 </script>
 
 <!--
-  Picker layout: title + body, then a single row of medium chips, then
-  the finish button. The previous design rendered the selected chip
-  twice (a large preview labelled "SELECTED:" above the row) — the row
-  itself already shows which one is active via the primary border +
-  ring on the selected chip, so the preview was visual redundancy.
-  Going down to a single row also lets the chips be bigger and easier
-  to hit without crowding the dialog.
+  Picker layout: title + body, then a single row of medium chips. The
+  finish action lives in the wizard footer Next button — last-step
+  Next reads "Done" via the nextLabel exposed above.
 -->
 <div class="min-h-full flex flex-col items-center justify-center max-w-md mx-auto gap-8 text-center">
-  <div class="space-y-2">
+  <div class="space-y-2 animate-in fade-in slide-in-from-bottom-2 duration-500">
     <h1 class="text-2xl font-semibold tracking-tight">{t('wizard.hotkey.title')}</h1>
     <p class="text-sm text-muted-foreground">{t('wizard.hotkey.body')}</p>
   </div>
 
   <div
-    class="flex flex-wrap items-center justify-center gap-3"
+    class="flex flex-wrap items-center justify-center gap-3 animate-in fade-in zoom-in duration-500 delay-200"
     role="radiogroup"
     aria-label={t('wizard.hotkey.aria_group')}
   >
@@ -55,6 +65,4 @@
       />
     {/each}
   </div>
-
-  <Button size="lg" onclick={finish}>{t('wizard.hotkey.finish')}</Button>
 </div>

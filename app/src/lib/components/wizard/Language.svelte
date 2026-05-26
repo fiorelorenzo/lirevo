@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Button } from '$lib/components/ui/button';
   import * as Select from '$lib/components/ui/select';
   import { Info } from '@lucide/svelte';
   import {
@@ -10,9 +9,16 @@
   } from '$lib/models/catalog';
   import { settings, updateSettings } from '$lib/stores/settings.svelte';
   import { t } from '$lib/i18n';
+  import { defaultStepState, type WizardStepState } from './step-state';
 
-  interface Props { onnext: () => void; }
-  let { onnext }: Props = $props();
+  interface Props {
+    onnext: () => void;
+    nextState?: WizardStepState;
+  }
+  let {
+    onnext,
+    nextState = $bindable(defaultStepState()),
+  }: Props = $props();
 
   // Reuses the flat `settings.language` field (camelCase: `language`) that
   // the existing dictation pipeline already consumes via
@@ -129,16 +135,23 @@
   let triggerLabel = $derived(
     selected === AUTO ? t('wizard.language.auto_label') : labelFor(selected),
   );
+
+  $effect(() => {
+    nextState = {
+      canNext: true,
+      onNextClick: continueNext,
+    };
+  });
 </script>
 
 <div class="max-w-md mx-auto flex flex-col items-center text-center gap-6">
-  <div class="space-y-2">
+  <div class="space-y-2 animate-in fade-in slide-in-from-bottom-2 duration-500">
     <h1 class="text-2xl font-semibold tracking-tight">{t('wizard.language.title')}</h1>
     <p class="text-sm text-muted-foreground">{t('wizard.language.body')}</p>
   </div>
 
   {#if model}
-    <div class="w-full rounded-xl border border-border bg-surface p-4 text-left space-y-3">
+    <div class="w-full rounded-xl border border-border bg-surface p-4 text-left space-y-3 animate-in fade-in duration-500 delay-200">
       <div class="text-xs uppercase tracking-wide text-muted-foreground">
         {t('wizard.language.model_label')}
       </div>
@@ -171,6 +184,4 @@
       {/if}
     </div>
   {/if}
-
-  <Button onclick={continueNext}>{t('wizard.common.next')}</Button>
 </div>

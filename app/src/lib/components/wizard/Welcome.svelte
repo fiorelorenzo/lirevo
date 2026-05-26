@@ -1,11 +1,25 @@
 <script lang="ts">
-  import { Button } from '$lib/components/ui/button';
   import Logo from '$lib/components/Logo.svelte';
   import { Zap, Lock, Keyboard } from '@lucide/svelte';
   import { t } from '$lib/i18n';
+  import { defaultStepState, type WizardStepState } from './step-state';
 
-  interface Props { onnext: () => void; }
-  let { onnext }: Props = $props();
+  interface Props {
+    onnext: () => void;
+    nextState?: WizardStepState;
+  }
+  let {
+    onnext,
+    nextState = $bindable(defaultStepState()),
+  }: Props = $props();
+
+  $effect(() => {
+    nextState = {
+      canNext: true,
+      nextLabel: t('wizard.welcome.next'),
+      onNextClick: onnext,
+    };
+  });
 </script>
 
 <div class="min-h-full flex flex-col items-center justify-center text-center gap-8 max-w-md mx-auto">
@@ -29,9 +43,5 @@
       <Keyboard class="h-3 w-3 text-primary" />
       {t('wizard.welcome.feature_hotkey')}
     </div>
-  </div>
-
-  <div class="animate-in fade-in zoom-in duration-500 delay-500">
-    <Button size="lg" onclick={onnext}>{t('wizard.welcome.next')}</Button>
   </div>
 </div>

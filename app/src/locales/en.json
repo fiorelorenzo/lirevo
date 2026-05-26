@@ -12,6 +12,7 @@
     "common": {
       "back": "← Back",
       "next": "Next →",
+      "done": "Done",
       "skip": "Skip setup",
       "skip_confirm_title": "Skip setup?",
       "skip_confirm_body": "You can finish setup later from the menu bar icon.",
@@ -94,7 +95,8 @@
       "downloading_pill": "downloading…",
       "downloaded_pill": "ready",
       "selected_pill": "selected",
-      "recommended_pill": "recommended"
+      "recommended_pill": "recommended",
+      "download_button": "Download →"
     },
     "background": {
       "title": "How should it run?",

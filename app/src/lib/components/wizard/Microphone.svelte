@@ -17,9 +17,16 @@
   import { settings, updateSettings } from '$lib/stores/settings.svelte';
   import { audioLevel } from '$lib/stores/recording';
   import { t } from '$lib/i18n';
+  import { defaultStepState, type WizardStepState } from './step-state';
 
-  interface Props { onnext: () => void; }
-  let { onnext }: Props = $props();
+  interface Props {
+    onnext: () => void;
+    nextState?: WizardStepState;
+  }
+  let {
+    onnext,
+    nextState = $bindable(defaultStepState()),
+  }: Props = $props();
 
   let status = $state<Status | null>(null);
   let testing = $state(false);
@@ -208,11 +215,22 @@
       ? `${def.name} (${t('wizard.microphone.default')})`
       : t('wizard.microphone.default');
   });
+
+  $effect(() => {
+    nextState = {
+      canNext: status === 'granted',
+      onNextClick: onnext,
+    };
+  });
 </script>
 
 <div class="flex flex-col items-center max-w-md mx-auto gap-5 text-center pb-2">
-  <h1 class="text-2xl font-semibold tracking-tight">{t('wizard.microphone.title')}</h1>
-  <p class="text-sm text-muted-foreground">{t('wizard.microphone.body')}</p>
+  <h1 class="text-2xl font-semibold tracking-tight animate-in fade-in slide-in-from-bottom-2 duration-500">
+    {t('wizard.microphone.title')}
+  </h1>
+  <p class="text-sm text-muted-foreground animate-in fade-in duration-500 delay-100">
+    {t('wizard.microphone.body')}
+  </p>
 
   <PermissionStatus
     {status}
@@ -221,7 +239,7 @@
     not_determined_label={t('wizard.microphone.not_determined')}
   />
 
-  <div class="w-full bg-surface border border-border rounded-2xl p-5 space-y-4">
+  <div class="w-full bg-surface border border-border rounded-2xl p-5 space-y-4 animate-in fade-in duration-500 delay-200">
     <div class="h-16 flex items-end justify-center gap-[3px]" aria-hidden="true">
       {#each bars as level, i (i)}
         <div
@@ -309,7 +327,7 @@
     </div>
   </div>
 
-  <div class="w-full max-w-xs space-y-2 text-left">
+  <div class="w-full max-w-xs space-y-2 text-left animate-in fade-in duration-400 delay-300">
     <Label class="text-xs uppercase tracking-wide text-muted-foreground">
       {t('wizard.microphone.input_device')}
     </Label>
@@ -336,8 +354,4 @@
       </Select.Content>
     </Select.Root>
   </div>
-
-  <Button disabled={status !== 'granted'} onclick={onnext}>
-    {t('wizard.common.next')}
-  </Button>
 </div>
