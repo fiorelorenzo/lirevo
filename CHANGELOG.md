@@ -13,9 +13,8 @@ The project is evolving into a **personal agent that learns how you write and he
 - **v0.5 (~month 3-4): free dictation public** — clean, fast, local-first dictation app with style learning, released as the OSS foundation. Free forever under AGPL-3.0-or-later. Serves as both the audience-building loss leader and the runtime base for the agent.
 - **v1.0 (~month 10-12): paid agent launch** — full personal agent built on top of the dictation base. Observes (opt-in), learns, acts. Paid €129 one-time perpetual license. Free dictation users get conversion path; agent buyers get the loss-leader features included.
 
-The inference stack is being rewritten end-to-end on Rust-native, multi-vendor foundations to support both v0.5 and v1.0. Two engine swaps land back-to-back (M4 for STT, M5 for LLM), then the agent stack is built out (M6-M7), then polish + license + launch (M8-M10).
+The inference stack is being rewritten end-to-end on Rust-native, multi-vendor foundations to support both v0.5 and v1.0. M4 (STT swap) shipped in 0.5.0; M5 (LLM swap) is next; then the agent stack is built out (M6-M7); then polish + license + launch (M8-M10).
 
-- **M4 — STT migration to audiopipe.** Replaces `whisper-rs` with `audiopipe::Model` (Rust, MIT, screenpipe team) consumed directly (no project-side wrapper). Audiopipe ships **Parakeet TDT 0.6B v3** (CC-BY-4.0, 25 European languages incl. Italian, lowest-latency transducer), **Qwen3-ASR 0.6B** (Apache-2.0, 30 languages + 22 Chinese dialects), and **Whisper** variants behind a unified `Model::from_pretrained()` API, with **multi-vendor GPU acceleration**: Apple Metal/MLX/CoreML, NVIDIA CUDA, AMD/Intel via DirectML on Windows and Vulkan-GGML on Linux. The setup wizard adds a 3-option model picker. We mirror audiopipe in our org and **implement a streaming API on the fork** for live partial transcripts. No pre-launch WER benchmark gate — wizard is the gate.
 - **M5 — LLM runtime migration to mistral.rs + Gemma 4 default.** Replaces `llama-cpp-2` with `mistralrs::*` consumed directly. New model catalog: **Gemma 4 E2B-it + assistant draft pair** (Apache-2.0, ~1.55GB Q4, multimodal image+audio+video, 140+ languages, 128K context, speculative decoding 3x speedup) as default, and **Qwen3-VL-2B-Instruct** (Apache-2.0, 256K context, 102M HF downloads) as stable alternative. Catalog entries include `benchmark_score` from `lirevo-eval`. Audit + perf bench Task 1 as kill switch; conditional Task 1.5 = upstream fix of Gemma 4 issues #2098/#2058/#2051 in mistral.rs via `~/Progetti/Personale/rust-ml-contrib/`. **At the end of M5: v0.5 free dictation public release.**
 - **M6 — Agent core.** SQLite + migration runner + screen capture infrastructure (custom modulo on cidre, AGENTS.md-compliant cross-platform abstraction) + style learning vision-based (Gemma 4 multimodal consolidator) + retrieval foundations (vector DB local choice TBD via M6 brainstorm) + hierarchical context (per-app + per-window-title + per-recipient where detectable). Capture cadence configurable, screenshots discarded after feature extraction (storage as structured data only).
 - **M7 — Agent UX.** Agent Console as full-screen overlay summoned by `Cmd+Shift+Space` (Spotlight/Raycast-style). Search/retrieve over learned activity. "What I've learned" inspector for transparency. Manual teach hotkey ("this is how I write"). Privacy UX polish.
@@ -41,6 +40,40 @@ One-time pricing (not subscription) for agent respects "the app is yours when yo
 **Cross-platform discipline** (AGENTS.md): v1 ships macOS-only (binary signed/notarized). Code stays portable. v2 adds Linux + Windows via existing abstraction layers (`os-integration` traits, audiopipe multi-vendor GPU support, future Win32/X11/Wayland screen capture implementations). Active upstream contribution work in `rust-ml-contrib/` targets Metal perf parity with llama.cpp, cross-vendor GPU expansion for LLMs (Vulkan/DirectML), MLX-style optimization, and future NPU support.
 
 Detailed plans and specs are tracked in the local `docs/` working directory (gitignored, including a strategic decision memo). The CHANGELOG entry for each milestone will be added under [Unreleased] when work begins.
+
+## [0.5.0] - 2026-05-26 — M4: STT migration to audiopipe
+
+### Added
+- **`audiopipe` as the STT inference layer.** Three models available behind a unified `Model::from_pretrained()` API:
+  - **Parakeet TDT 0.6B v3** (default, CC-BY-4.0) — 25 European languages incl. Italian; lowest-latency transducer.
+  - **Qwen3-ASR 0.6B** (opt-in, Apache-2.0) — 30 languages + 22 Chinese dialects; adds JA/ZH/AR/HI/...
+  - **Whisper large-v3-turbo** (fallback, MIT) — ~99 languages; broadest coverage.
+- **Wizard model picker** (3-card radio) on a new wizard step; Parakeet pre-selected as recommended.
+- **Wizard language step** filters its dropdown by the chosen model's language list. Auto-detect is always the default; switching the model after picking a language resets to auto-detect with an inline notice.
+- **Settings → Models tab** lists all three STT models with Active / Installed / Not-downloaded status and a Use button for hot-swap.
+- **`get_stt_catalog` Tauri command** — exposes the backend STT catalog to the frontend so the static TypeScript mirror can assert parity in debug builds.
+- **`app/src-tauri/src/stt/` module** with `catalog.rs` (model metadata), `mod.rs` (loader + `SttModelHandle` enum), and `mock.rs` (`MockModel` gated on `test-stt` feature + `LIREVO_DEV_USE_MOCK_STT=1` env var) so unit tests + UI iteration don't need real ONNX weights.
+- **`audiopipe` mirror at `https://github.com/fiorelorenzo/audiopipe`**, Cargo dep pinned to commit `f00281ce`. The fork is the integration anchor — streaming on the fork (Phase 3) is **deferred** beyond this release; the live overlay UI ships in a follow-up when fork-side streaming lands.
+- **Multi-vendor GPU lanes via audiopipe Cargo features.** This DMG enables `metal`, `coreml`, `parakeet-mlx`, `qwen3-asr-ggml`, `whisper`. Future v2 Linux/Windows builds add `directml` and `vulkan-ggml` via target-specific deps.
+- NOTICE updated with audiopipe + Parakeet + Qwen3-ASR + Whisper attributions.
+
+### Changed
+- **STT engine: `whisper-rs` → `audiopipe`.** The HTTP sidecar (dev-only, `inference-core` binary) and the shipped Tauri app both now load `audiopipe::Model`. The wire protocol of the sidecar's `/v1/stt` endpoint is unchanged (WAV in, text out) — `lirevo-cli stt` and `lirevo-prototype` keep working end-to-end.
+- Settings schema bumped to **v3** (additive): adds `stt_model_id: Option<String>` keyed by the catalog id (e.g. `"parakeet-tdt-0.6b-v3"`).
+- Sidecar env vars: `SIDECAR_WHISPER_MODEL_PATH` / `SIDECAR_WHISPER_COREML_DISABLE` replaced with `SIDECAR_STT_MODEL_NAME`. The `SIDECAR_STT_BACKEND=stub` test escape hatch is preserved.
+- `ModelState` events: the `whisper: bool` field is renamed to `stt: bool` for semantic accuracy now that the engine is not whisper-specific. **Breaking** for any downstream consumer of the event payload (none in tree).
+- `AppError::WhisperNotLoaded` renamed `SttNotLoaded`. Internal rename only.
+- README "Whisper model provisioning" section replaced with "STT model provisioning (M4+: audiopipe)" — three-model table + headless sidecar instructions.
+
+### Removed
+- **`whisper-rs` dependency** (and `whisper-rs-sys`, `whisper.cpp` transitives).
+- `crates/inference-core/src/whisper.rs`, `crates/inference-core/src/stub.rs`, and the `SttBackend` / `StubBackend` traits in `backend.rs`. The audiopipe surface is the abstraction; we don't re-introduce a project-side wrapper trait.
+- CoreML encoder special-casing (audiopipe handles Apple Silicon acceleration internally via its `parakeet-mlx` engine).
+- M3-era frontend `coreml_url` field on STT catalog entries.
+
+### Deferred (not in this release)
+- **Streaming on the fork (Phase 3, plan T14).** The plan's 2-week internal timebox covers upstream Parakeet ONNX `transcribe_stream` implementation. Postponed to a follow-up milestone; without it the live overlay (plan T15) stays one-shot.
+- **Upstream PR to screenpipe/audiopipe (plan T16).** Filed once the fork-side streaming is stable.
 
 ## [0.4.0] - 2026-05-18 — M3: Tauri app shell + model manager
 

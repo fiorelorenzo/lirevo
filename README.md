@@ -8,7 +8,7 @@ Inspired by FreeFlow, Wispr Flow, Superwhisper — but learns your writing style
 
 **Pronunciation:** Lirevo — *lee-REH-voh*.
 
-**Status:** **M3 shipped** — Tauri app with full setup wizard, model manager, push-to-talk dictation, and STT + LLM cleanup. The next milestones (M4–M10) migrate the inference stack onto `audiopipe` + `mistral.rs`, build the agent core, then ship v0.5 (free dictation) and v1.0 (paid agent). See [CHANGELOG](CHANGELOG.md) for the full roadmap.
+**Status:** **M4 shipped** — Tauri app with full setup wizard, push-to-talk dictation, and STT now powered by `audiopipe` (Parakeet TDT v3 / Qwen3-ASR / Whisper, multi-vendor GPU). Next: M5 swaps the LLM cleanup runtime to `mistral.rs` + Gemma 4. M6–M10 build the agent core, then ship v0.5 (free dictation) and v1.0 (paid agent). See [CHANGELOG](CHANGELOG.md) for the full roadmap.
 
 ## Installing
 
@@ -23,13 +23,14 @@ Releases ship as an arm64 `.dmg`. Until M10 the app is **unsigned** (Apple Devel
 
 ## Using the app
 
-After launching the app for the first time, the **setup wizard** guides you through five steps:
+After launching the app for the first time, the **setup wizard** guides you through six steps:
 
 1. **Welcome.**
 2. **Accessibility** — grant via the System Settings deep link (needed for the global hotkey and text injection).
 3. **Microphone** — confirm the mic test envelope is non-zero.
-4. **Models** — download Whisper (`large-v3-turbo` ~1.5 GB) + the LLM (`Qwen3-4B-Instruct` ~2.5 GB), or pick existing local files.
-5. **Hotkey** — pick a key (default: Right Option).
+4. **STT model** — pick one of three speech-to-text engines: Parakeet TDT v3 (default, 25 European languages, lowest latency), Qwen3-ASR (30 languages + 22 Chinese dialects, adds JA/ZH/AR/HI), or Whisper large-v3-turbo (99-language fallback). Weights download from Hugging Face into `~/.cache/huggingface/hub/`.
+5. **Language** — pick "Auto-detect" (default) or force a specific language. The dropdown is filtered by the model chosen in the previous step.
+6. **Hotkey** — pick a key (default: Right Option).
 
 Once the wizard is done, hold the hotkey anywhere on the system and speak. Release to transcribe → clean → inject into the focused app.
 
@@ -44,7 +45,7 @@ The menu bar icon shows model state (loading / ready / recording / error). **Set
 
 ## Architecture (one paragraph)
 
-Single Tauri 2 process. The frontend is Svelte 5 + Tailwind v4 + shadcn-svelte running in WKWebView. The backend is Rust, calling `whisper-rs` and `llama-cpp-2` directly (M4–M5 will swap these for `audiopipe` and `mistral.rs`). Hotkey events flow from a CGEventTap thread (in `os-integration`) through an mpsc channel into a tokio task that owns the dictation state machine. Settings persist via `tauri-plugin-store`. Auto-update plumbing is wired but inactive until code signing lands in M10.
+Single Tauri 2 process. The frontend is Svelte 5 + Tailwind v4 + shadcn-svelte running in WKWebView. The backend is Rust, calling `audiopipe::Model` (Parakeet / Qwen3-ASR / Whisper) for STT and `llama-cpp-2` for LLM cleanup — M5 will swap the latter for `mistral.rs`. Hotkey events flow from a CGEventTap thread (in `os-integration`) through an mpsc channel into a tokio task that owns the dictation state machine. Settings persist via `tauri-plugin-store`. Auto-update plumbing is wired but inactive until code signing lands in M10.
 
 Cross-platform discipline (see [AGENTS.md](AGENTS.md)): macOS-only today, but platform-specific code is gated behind abstractions in `os-integration` / `audio-capture` so the v2 Linux + Windows ports are a matter of adding sibling implementations, not rewriting consumers.
 
@@ -166,28 +167,33 @@ lirevo-cli stt ~/sample.wav | lirevo-cli clean
 
 Exit codes: `0` success, `2` server unreachable, `3` HTTP 4xx, `4` HTTP 5xx, `5` bad input file.
 
-### Whisper model provisioning (headless / sidecar use)
+### STT model provisioning (M4+: audiopipe)
 
-The shipped app's wizard handles model downloads. For headless / sidecar workflows (e.g. `lirevo-prototype`, `lirevo-cli` against a standalone `inference-core`), point the sidecar at a model file via env:
+The shipped app's wizard handles STT model downloads automatically. Three models are offered:
 
-1. Download a ggml Whisper model from the [whisper.cpp HuggingFace repo](https://huggingface.co/ggerganov/whisper.cpp/tree/main). Recommended: `ggml-large-v3-turbo.bin` (~1.5 GB, good quality/speed tradeoff on M-series).
-2. *(Optional, recommended on M-series)* Download the matching CoreML encoder (e.g. `ggml-large-v3-turbo-encoder.mlmodelc.zip`) and unzip it **next to** the `.bin`. The sidecar auto-detects `<basename>-encoder.mlmodelc/` adjacent to the `.bin`.
-3. Export:
-   ```bash
-   export SIDECAR_WHISPER_MODEL_PATH=/absolute/path/to/ggml-large-v3-turbo.bin
-   # Optional: disable CoreML encoder on M1 units with known ANE bugs
-   export SIDECAR_WHISPER_COREML_DISABLE=1
-   ```
-4. Start the sidecar:
-   ```bash
-   SIDECAR_SOCKET_PATH=/tmp/s.sock cargo run -p inference-core
-   ```
+| Model | Size | Languages | License |
+| --- | --- | --- | --- |
+| **Parakeet TDT 0.6B v3** (default, recommended) | ~600 MB | 25 European languages incl. Italian | CC-BY-4.0 |
+| **Qwen3-ASR 0.6B** (broad languages) | ~700 MB | 30 languages + 22 Chinese dialects (adds JA/ZH/AR/HI/...) | Apache-2.0 |
+| **Whisper large-v3-turbo** (fallback) | ~1.5 GB | ~99 languages | MIT |
 
-If the model is missing, the sidecar still starts but `/v1/stt` returns `503 stt_unavailable` and `/healthz` reports `stt_ready: false`.
+Weights are downloaded to the Hugging Face cache (`~/.cache/huggingface/hub/`) on first use of each model — `audiopipe` handles this transparently. There are no `.bin` / `.gguf` paths to provide manually and no CoreML encoder to download separately (audiopipe's Parakeet MLX engine handles Apple Silicon acceleration internally).
+
+For headless / sidecar workflows (`lirevo-prototype`, `lirevo-cli` against a standalone `inference-core`), point the sidecar at a model by name:
+
+```bash
+# Select model (defaults to parakeet-tdt-0.6b-v3 on Apple Silicon, mlx variant)
+export SIDECAR_STT_MODEL_NAME=parakeet-tdt-0.6b-v3
+# Or, for testing without weights:
+export SIDECAR_STT_BACKEND=stub
+SIDECAR_SOCKET_PATH=/tmp/s.sock cargo run -p inference-core
+```
+
+Multi-vendor GPU acceleration is configured via Cargo features on the `audiopipe` dep (`metal`, `coreml`, and on v2 builds `directml` / `vulkan-ggml`). The shipped macOS DMG ships with Metal + CoreML + MLX enabled.
 
 ### LLM model provisioning (headless / sidecar use)
 
-Same pattern for the LLM. Recommended GGUF instruct models on 16 GB+ M-series:
+Recommended GGUF instruct models on 16 GB+ M-series:
 
 - `Llama-3.2-3B-Instruct-Q4_K_M.gguf` (~2 GB, current recommended default)
 - `Qwen2.5-3B-Instruct-Q4_K_M.gguf` (~2 GB, strong on Italian)
@@ -201,7 +207,7 @@ export SIDECAR_LLM_CTX_SIZE=4096
 
 Start the sidecar with `cargo run -p inference-core` or `just dev`. If the model is missing, `/v1/chat` returns `503 llm_unavailable` and `/healthz` reports `llm_ready: false`.
 
-Both env-var-based provisioning paths will be **superseded by M5** when `mistral.rs` takes over and the model catalog moves into the app catalog with `benchmark_score` from `lirevo-eval`.
+The env-var-based LLM path will be **superseded by M5** when `mistral.rs` takes over and the model catalog moves into the app catalog with `benchmark_score` from `lirevo-eval`.
 
 ## Documentation
 
