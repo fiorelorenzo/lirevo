@@ -3394,7 +3394,7 @@ dependencies = [
 [[package]]
 name = "mistralrs"
 version = "0.8.1"
-source = "git+https://github.com/fiorelorenzo/mistral.rs?rev=637ee2e14f280a66e443106d4858bdf01b52d048#637ee2e14f280a66e443106d4858bdf01b52d048"
+source = "git+https://github.com/fiorelorenzo/mistral.rs?rev=33dfa5f6dbb86d53e784d904133e0d8cb4c70c5b#33dfa5f6dbb86d53e784d904133e0d8cb4c70c5b"
 dependencies = [
  "anyhow",
  "candle-core",
@@ -3421,7 +3421,7 @@ dependencies = [
 [[package]]
 name = "mistralrs-audio"
 version = "0.8.1"
-source = "git+https://github.com/fiorelorenzo/mistral.rs?rev=637ee2e14f280a66e443106d4858bdf01b52d048#637ee2e14f280a66e443106d4858bdf01b52d048"
+source = "git+https://github.com/fiorelorenzo/mistral.rs?rev=33dfa5f6dbb86d53e784d904133e0d8cb4c70c5b#33dfa5f6dbb86d53e784d904133e0d8cb4c70c5b"
 dependencies = [
  "anyhow",
  "apodize",
@@ -3432,7 +3432,7 @@ dependencies = [
 [[package]]
 name = "mistralrs-core"
 version = "0.8.1"
-source = "git+https://github.com/fiorelorenzo/mistral.rs?rev=637ee2e14f280a66e443106d4858bdf01b52d048#637ee2e14f280a66e443106d4858bdf01b52d048"
+source = "git+https://github.com/fiorelorenzo/mistral.rs?rev=33dfa5f6dbb86d53e784d904133e0d8cb4c70c5b#33dfa5f6dbb86d53e784d904133e0d8cb4c70c5b"
 dependencies = [
  "ahash",
  "akin",
@@ -3531,7 +3531,7 @@ dependencies = [
 [[package]]
 name = "mistralrs-macros"
 version = "0.8.1"
-source = "git+https://github.com/fiorelorenzo/mistral.rs?rev=637ee2e14f280a66e443106d4858bdf01b52d048#637ee2e14f280a66e443106d4858bdf01b52d048"
+source = "git+https://github.com/fiorelorenzo/mistral.rs?rev=33dfa5f6dbb86d53e784d904133e0d8cb4c70c5b#33dfa5f6dbb86d53e784d904133e0d8cb4c70c5b"
 dependencies = [
  "darling 0.23.0",
  "proc-macro2",
@@ -3542,7 +3542,7 @@ dependencies = [
 [[package]]
 name = "mistralrs-mcp"
 version = "0.8.1"
-source = "git+https://github.com/fiorelorenzo/mistral.rs?rev=637ee2e14f280a66e443106d4858bdf01b52d048#637ee2e14f280a66e443106d4858bdf01b52d048"
+source = "git+https://github.com/fiorelorenzo/mistral.rs?rev=33dfa5f6dbb86d53e784d904133e0d8cb4c70c5b#33dfa5f6dbb86d53e784d904133e0d8cb4c70c5b"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3563,7 +3563,7 @@ dependencies = [
 [[package]]
 name = "mistralrs-paged-attn"
 version = "0.8.1"
-source = "git+https://github.com/fiorelorenzo/mistral.rs?rev=637ee2e14f280a66e443106d4858bdf01b52d048#637ee2e14f280a66e443106d4858bdf01b52d048"
+source = "git+https://github.com/fiorelorenzo/mistral.rs?rev=33dfa5f6dbb86d53e784d904133e0d8cb4c70c5b#33dfa5f6dbb86d53e784d904133e0d8cb4c70c5b"
 dependencies = [
  "anyhow",
  "candle-core",
@@ -3579,7 +3579,7 @@ dependencies = [
 [[package]]
 name = "mistralrs-quant"
 version = "0.8.1"
-source = "git+https://github.com/fiorelorenzo/mistral.rs?rev=637ee2e14f280a66e443106d4858bdf01b52d048#637ee2e14f280a66e443106d4858bdf01b52d048"
+source = "git+https://github.com/fiorelorenzo/mistral.rs?rev=33dfa5f6dbb86d53e784d904133e0d8cb4c70c5b#33dfa5f6dbb86d53e784d904133e0d8cb4c70c5b"
 dependencies = [
  "byteorder",
  "candle-core",
@@ -3608,7 +3608,7 @@ dependencies = [
 [[package]]
 name = "mistralrs-sandbox"
 version = "0.8.1"
-source = "git+https://github.com/fiorelorenzo/mistral.rs?rev=637ee2e14f280a66e443106d4858bdf01b52d048#637ee2e14f280a66e443106d4858bdf01b52d048"
+source = "git+https://github.com/fiorelorenzo/mistral.rs?rev=33dfa5f6dbb86d53e784d904133e0d8cb4c70c5b#33dfa5f6dbb86d53e784d904133e0d8cb4c70c5b"
 dependencies = [
  "anyhow",
  "itoa",
@@ -3625,7 +3625,7 @@ dependencies = [
 [[package]]
 name = "mistralrs-vision"
 version = "0.8.1"
-source = "git+https://github.com/fiorelorenzo/mistral.rs?rev=637ee2e14f280a66e443106d4858bdf01b52d048#637ee2e14f280a66e443106d4858bdf01b52d048"
+source = "git+https://github.com/fiorelorenzo/mistral.rs?rev=33dfa5f6dbb86d53e784d904133e0d8cb4c70c5b#33dfa5f6dbb86d53e784d904133e0d8cb4c70c5b"
 dependencies = [
  "candle-core",
  "image",
