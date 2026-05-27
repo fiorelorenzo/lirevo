@@ -148,6 +148,8 @@ export const lda = {
 
   onModelState: (cb: (s: ModelState) => void): Promise<UnlistenFn> =>
     listen<ModelState>('model:state', (e) => cb(e.payload)),
+  onSettingsChanged: (cb: (s: Settings) => void): Promise<UnlistenFn> =>
+    listen<Settings>('settings:changed', (e) => cb(e.payload)),
   onRecordingState: (cb: (rec: boolean) => void): Promise<UnlistenFn> =>
     listen<boolean>('recording:state', (e) => cb(e.payload)),
   onAudioLevel: (cb: (level: number) => void): Promise<UnlistenFn> =>

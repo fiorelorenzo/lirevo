@@ -8,7 +8,9 @@
   import Titlebar from '$lib/components/Titlebar.svelte';
 
   import { initI18n } from '$lib/i18n';
-  import { loadSettings } from '$lib/stores/settings.svelte';
+  import { loadSettings, settings } from '$lib/stores/settings.svelte';
+  import { lda } from '$lib/tauri';
+  import type { UnlistenFn } from '@tauri-apps/api/event';
 
   // Side-effect imports: instantiate stores so they subscribe to backend events.
   import '$lib/stores/modelState';
@@ -31,10 +33,23 @@
     return '';
   });
 
+  let unlistenSettings: UnlistenFn | null = null;
+
   onMount(async () => {
     await initI18n('en');
     i18nReady = true;
     void loadSettings();
+    // Backend may rewrite settings out-of-band (e.g. the loader auto-
+    // clears llm_model_path when the chosen LLM fails to load). Mirror
+    // those changes into the frontend store so reactive UI (footer pill,
+    // Settings tab) stays in sync without a manual reload.
+    unlistenSettings = await lda.onSettingsChanged((s) => settings.set(s));
+  });
+
+  $effect(() => {
+    return () => {
+      unlistenSettings?.();
+    };
   });
 </script>
 

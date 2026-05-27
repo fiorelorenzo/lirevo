@@ -243,6 +243,11 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
             if let Err(persist_err) = inner.settings.persist(app) {
                 tracing::warn!(?persist_err, "failed to persist cleared llm_model_path");
             }
+            // Emit the new settings so the frontend store reflects the
+            // cleared path immediately. Without this the footer keeps the
+            // "Cleanup loading..." pill (frontend believes llm_model_path
+            // is still set) even after the auto-recover persists null.
+            let _ = app.emit("settings:changed", inner.settings.clone());
             let _ = app.emit(
                 "toast",
                 crate::commands::toast(
