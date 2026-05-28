@@ -24,7 +24,7 @@ block2 = "0.6"
 core-foundation = "0.10"
 mach2 = "0.4"
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", features = ["NSWorkspace", "NSRunningApplication"] }
+objc2-app-kit = { version = "0.3", features = ["NSWorkspace", "NSRunningApplication", "libc"] }
 objc2-foundation = { version = "0.3", features = ["NSNotification", "NSProcessInfo", "NSString", "NSOperation", "block2"] }
 
 [dev-dependencies]

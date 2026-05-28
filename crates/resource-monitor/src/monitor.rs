@@ -212,4 +212,22 @@ mod tests {
         let s = monitor.current();
         assert!(s.cpu_used_pct <= 100);
     }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "requires macOS hardware"]
+    #[cfg(target_os = "macos")]
+    async fn real_macos_foreground_eventually_populates() {
+        let monitor = ResourceMonitor::spawn().await.expect("spawn");
+        // One foreground poll (5s tick) populates bundle id + memory; CPU
+        // stays 0 until the second poll.
+        tokio::time::sleep(std::time::Duration::from_secs(6)).await;
+        let s = monitor.current();
+        // Permissive: in a headless test runner there may be no frontmost
+        // app with a bundle id at all (None is valid). When present, the
+        // bundle id must be non-empty and the CPU bucket must be in range.
+        if let Some(fg) = s.foreground {
+            assert!(!fg.bundle_id.is_empty(), "expected non-empty bundle_id");
+            assert!(fg.cpu_used_pct <= 100, "cpu_used_pct = {}", fg.cpu_used_pct);
+        }
+    }
 }

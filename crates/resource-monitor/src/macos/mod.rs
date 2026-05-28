@@ -15,6 +15,7 @@ use tokio::task::JoinHandle;
 use crate::shared::SharedState;
 
 mod cpu;
+mod foreground;
 mod memory;
 mod power;
 mod thermal;
@@ -48,6 +49,12 @@ pub(crate) fn build_platform_sensors(
     handles.append(&mut h);
 
     let (notify, mut h) = cpu::spawn(state.clone());
+    if let Some(n) = notify {
+        notifiers.push(n);
+    }
+    handles.append(&mut h);
+
+    let (notify, mut h) = foreground::spawn(state.clone());
     if let Some(n) = notify {
         notifiers.push(n);
     }
