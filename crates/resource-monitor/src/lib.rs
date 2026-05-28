@@ -21,12 +21,18 @@ pub use error::MonitorError;
 
 mod shared;
 
-// T7 swaps in a real macOS sensor module that supersedes `stub` on
-// `target_os = "macos"`. Until then the stub provides the no-op
-// `build_platform_sensors` on every target so `ResourceMonitor::spawn`
-// compiles.
+// macOS uses the real sensor stack; every other target falls back to
+// the no-op `stub` so `ResourceMonitor::spawn` keeps compiling. Both
+// expose `build_platform_sensors` with the same signature.
+#[cfg(not(target_os = "macos"))]
 mod stub;
+#[cfg(not(target_os = "macos"))]
 pub(crate) use stub::build_platform_sensors;
+
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(target_os = "macos")]
+pub(crate) use macos::build_platform_sensors;
 
 mod monitor;
 pub use monitor::ResourceMonitor;

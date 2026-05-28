@@ -150,4 +150,19 @@ mod tests {
         // assert only that the subscriber was created cleanly.
         let _ = recv;
     }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "requires macOS hardware"]
+    #[cfg(target_os = "macos")]
+    async fn real_macos_thermal_is_plausible() {
+        let monitor = ResourceMonitor::spawn().await.expect("spawn");
+        let s = monitor.current();
+        assert!(matches!(
+            s.thermal,
+            crate::ThermalState::Nominal
+                | crate::ThermalState::Fair
+                | crate::ThermalState::Serious
+                | crate::ThermalState::Critical
+        ));
+    }
 }
