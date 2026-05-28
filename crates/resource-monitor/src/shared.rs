@@ -11,8 +11,6 @@ use crate::{ForegroundApp, MemoryPressure, ThermalState};
 /// battery are encoded into atomics via small numeric maps; the
 /// `ForegroundApp` struct is owned by a `Mutex` because it carries an
 /// owned `String`.
-// Wired up by T6 onward; fields/methods are intentionally unused here.
-#[allow(dead_code)]
 #[derive(Debug, Default)]
 pub struct SharedState {
     // 0xFF = None, 0..=100 = Some(value)
@@ -28,6 +26,9 @@ pub struct SharedState {
     foreground: Mutex<Option<ForegroundApp>>,
 }
 
+// Setters are exercised by `#[cfg(test)]` round-trip tests and by sensors
+// landing in T7+; they are not called from non-test crate code yet, so
+// suppress dead-code on the setter half of the API for now.
 #[allow(dead_code)]
 impl SharedState {
     // Battery

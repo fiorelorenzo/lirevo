@@ -3026,6 +3026,7 @@ version = "0.0.1"
 dependencies = [
  "block2",
  "core-foundation 0.10.1",
+ "futures",
  "mach2 0.4.3",
  "objc2",
  "objc2-app-kit",

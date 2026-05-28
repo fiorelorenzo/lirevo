@@ -7,9 +7,8 @@
 //!
 //! On non-macOS targets, every sensor returns its default ("conservative")
 //! value (`ThermalState::Nominal`, `battery_pct = None`, etc.) and
-//! [`ResourceMonitor::spawn`] returns an error variant indicating the
-//! platform is unsupported. The crate still compiles cross-platform so
-//! consumers do not need their own cfg-gating.
+//! [`ResourceMonitor::spawn`] succeeds with a no-op sensor stack —
+//! consumers don't need their own cfg-gating.
 
 #![warn(clippy::pedantic)]
 #![allow(clippy::missing_errors_doc, clippy::missing_panics_doc)]
@@ -22,9 +21,12 @@ pub use error::MonitorError;
 
 mod shared;
 
-#[cfg(not(target_os = "macos"))]
+// T7 swaps in a real macOS sensor module that supersedes `stub` on
+// `target_os = "macos"`. Until then the stub provides the no-op
+// `build_platform_sensors` on every target so `ResourceMonitor::spawn`
+// compiles.
 mod stub;
-// Wired up by T6 onward; intentionally unused here.
-#[cfg(not(target_os = "macos"))]
-#[allow(unused_imports)]
 pub(crate) use stub::build_platform_sensors;
+
+mod monitor;
+pub use monitor::ResourceMonitor;

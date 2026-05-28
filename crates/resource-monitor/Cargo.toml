@@ -17,6 +17,7 @@ thiserror = "2"
 tracing = "0.1"
 tokio = { version = "1", features = ["sync", "time", "macros", "rt"] }
 serde = { version = "1", features = ["derive"] }
+futures = "0.3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6"
