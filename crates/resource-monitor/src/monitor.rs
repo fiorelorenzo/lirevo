@@ -189,4 +189,16 @@ mod tests {
         // `on_ac` should be set (true or false, just not panic).
         let _ = s.on_ac;
     }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "requires macOS hardware"]
+    #[cfg(target_os = "macos")]
+    async fn real_macos_memory_is_plausible() {
+        let monitor = ResourceMonitor::spawn().await.expect("spawn");
+        // Give the synchronous initial host_statistics64 poll time to run.
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        let s = monitor.current();
+        assert!(s.mem_free_mb > 0, "expected free MB > 0 on real hardware");
+        assert!(s.mem_free_pct <= 100, "mem_free_pct = {}", s.mem_free_pct);
+    }
 }
