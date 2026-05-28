@@ -19,3 +19,5 @@ pub use signals::{ForegroundApp, MemoryPressure, Signals, SignalsBuilder, Therma
 
 mod error;
 pub use error::MonitorError;
+
+mod shared;
