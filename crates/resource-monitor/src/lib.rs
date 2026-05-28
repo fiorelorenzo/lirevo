@@ -21,3 +21,10 @@ mod error;
 pub use error::MonitorError;
 
 mod shared;
+
+#[cfg(not(target_os = "macos"))]
+mod stub;
+// Wired up by T6 onward; intentionally unused here.
+#[cfg(not(target_os = "macos"))]
+#[allow(unused_imports)]
+pub(crate) use stub::build_platform_sensors;
