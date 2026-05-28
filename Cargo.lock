@@ -3031,6 +3031,7 @@ dependencies = [
  "objc2-app-kit",
  "objc2-foundation",
  "serde",
+ "serde_json",
  "thiserror 2.0.18",
  "tokio",
  "tracing",

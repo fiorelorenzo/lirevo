@@ -28,3 +28,4 @@ objc2-foundation = { version = "0.3", features = ["NSNotification", "NSProcessIn
 
 [dev-dependencies]
 tokio = { version = "1", features = ["sync", "time", "macros", "rt", "rt-multi-thread", "test-util"] }
+serde_json = "1"
