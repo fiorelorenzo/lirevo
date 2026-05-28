@@ -84,6 +84,17 @@ impl ResourceMonitor {
     pub fn current(&self) -> Signals {
         self.latest.lock().expect("latest mutex").clone()
     }
+
+    /// Test-only: directly mutate the underlying `SharedState`. The next
+    /// tick (or `notify`-triggered emission) will reflect the change.
+    /// Only the non-macOS deterministic tests call this; on macOS the
+    /// helper is unused because real sensors would race injected values,
+    /// so suppress the dead-code warning there.
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn shared(&self) -> &Arc<SharedState> {
+        &self.state
+    }
 }
 
 async fn run_loop(
@@ -229,5 +240,43 @@ mod tests {
             assert!(!fg.bundle_id.is_empty(), "expected non-empty bundle_id");
             assert!(fg.cpu_used_pct <= 100, "cpu_used_pct = {}", fg.cpu_used_pct);
         }
+    }
+
+    // Deterministic tokio-time tests. Gated to non-macOS so real sensors
+    // (thermal KVO, memory pressure dispatch source, etc.) can't race the
+    // injected `SharedState` values; on those targets `build_platform_sensors`
+    // is a stub that writes nothing.
+    #[cfg(not(target_os = "macos"))]
+    use crate::{MemoryPressure, ThermalState};
+
+    // `start_paused` requires the current_thread flavor; that's fine for
+    // these tests since they only spawn the monitor task and the test body.
+    #[cfg(not(target_os = "macos"))]
+    #[tokio::test(start_paused = true)]
+    async fn emits_after_first_tick() {
+        let monitor = ResourceMonitor::spawn().await.expect("spawn");
+        let mut rx = monitor.subscribe();
+        // First tick fires immediately under `interval`.
+        let s = tokio::time::timeout(Duration::from_secs(1), rx.recv())
+            .await
+            .expect("emission within 1s")
+            .expect("snapshot");
+        assert!(matches!(s.thermal, ThermalState::Nominal));
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[tokio::test(start_paused = true)]
+    async fn current_reflects_state_after_tick() {
+        let monitor = ResourceMonitor::spawn().await.expect("spawn");
+        monitor.shared().set_thermal(ThermalState::Serious);
+        monitor.shared().set_mem_pressure(MemoryPressure::Warning);
+
+        // Advance past 5s tick.
+        tokio::time::advance(Duration::from_secs(6)).await;
+        tokio::task::yield_now().await;
+
+        let s = monitor.current();
+        assert_eq!(s.thermal, ThermalState::Serious);
+        assert_eq!(s.mem_pressure, MemoryPressure::Warning);
     }
 }
