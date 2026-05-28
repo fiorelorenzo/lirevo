@@ -1,0 +1,30 @@
+[package]
+name = "resource-monitor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+
+[dependencies]
+thiserror = "2"
+tracing = "0.1"
+tokio = { version = "1", features = ["sync", "time", "macros", "rt"] }
+serde = { version = "1", features = ["derive"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6"
+core-foundation = "0.10"
+mach2 = "0.4"
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSWorkspace", "NSRunningApplication"] }
+objc2-foundation = { version = "0.3", features = ["NSNotification", "NSProcessInfo", "NSString", "NSOperation"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["sync", "time", "macros", "rt", "rt-multi-thread", "test-util"] }

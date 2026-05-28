@@ -3021,6 +3021,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "resource-monitor"
+version = "0.0.1"
+dependencies = [
+ "block2",
+ "core-foundation 0.10.1",
+ "mach2 0.4.3",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "serde",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "ring"
 version = "0.17.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"

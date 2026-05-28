@@ -7,6 +7,7 @@ members = [
     "crates/os-integration",
     "crates/lirevo-prototype",
     "crates/lirevo-eval",
+    "crates/resource-monitor",
 ]
 resolver = "2"
 
