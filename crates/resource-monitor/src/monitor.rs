@@ -22,12 +22,19 @@ pub struct ResourceMonitor {
     state: Arc<SharedState>,
     latest: Arc<std::sync::Mutex<Signals>>,
     task: JoinHandle<()>,
+    sensor_tasks: Vec<JoinHandle<()>>,
 }
 
 impl Drop for ResourceMonitor {
-    /// Aborts the background tick loop so the task and its `Arc` clones are released.
+    /// Aborts the background tick loop and every sensor-owned polling
+    /// task so all `Arc` clones held by those futures are released. KVO
+    /// observers (thermal, `lowPowerMode`) keep running until process
+    /// exit by design — they don't hold a tokio handle.
     fn drop(&mut self) {
         self.task.abort();
+        for h in &self.sensor_tasks {
+            h.abort();
+        }
     }
 }
 
@@ -44,8 +51,10 @@ impl ResourceMonitor {
 
         // Build platform sensors. They write to `state` from background
         // tasks / Objective-C callbacks and return their "instant-change"
-        // notifiers for monitor::run_loop to select over.
-        let instant_notifiers = crate::build_platform_sensors(state.clone());
+        // notifiers (for monitor::run_loop to select over) plus the
+        // `JoinHandle`s of any tokio polling tasks they own, so Drop can
+        // abort them.
+        let (instant_notifiers, sensor_tasks) = crate::build_platform_sensors(state.clone());
 
         // Initial snapshot for `current()`.
         let initial = snapshot(&state);
@@ -58,7 +67,7 @@ impl ResourceMonitor {
             instant_notifiers,
         ));
 
-        Ok(Self { tx, state, latest, task })
+        Ok(Self { tx, state, latest, task, sensor_tasks })
     }
 
     /// Subscribe to subsequent snapshots. The receiver yields each new
@@ -164,5 +173,20 @@ mod tests {
                 | crate::ThermalState::Serious
                 | crate::ThermalState::Critical
         ));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "requires macOS hardware"]
+    #[cfg(target_os = "macos")]
+    async fn real_macos_power_is_plausible() {
+        let monitor = ResourceMonitor::spawn().await.expect("spawn");
+        // Give battery poll a moment.
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        let s = monitor.current();
+        if let Some(pct) = s.battery_pct {
+            assert!(pct <= 100, "battery_pct = {pct}");
+        }
+        // `on_ac` should be set (true or false, just not panic).
+        let _ = s.on_ac;
     }
 }

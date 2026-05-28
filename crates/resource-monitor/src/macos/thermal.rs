@@ -16,18 +16,20 @@ use objc2_foundation::{
     NSProcessInfoThermalState, NSProcessInfoThermalStateDidChangeNotification,
 };
 use tokio::sync::Notify;
+use tokio::task::JoinHandle;
 use tracing::warn;
 
 use crate::ThermalState;
 use crate::shared::SharedState;
 
-/// Spawn the sensor. Returns `Some(notify)` whose `notify_one` is called
-/// every time the thermal state changes. Returns `None` if the system
-/// API isn't reachable (extremely unlikely on macOS but defensive — and
-/// other sensors landing in T8+ will legitimately return `None` when
-/// their underlying API is missing, so the `Option` shape is shared).
+/// Spawn the sensor. Returns `(Some(notify), handles)` where `notify_one`
+/// is called every time the thermal state changes. The `handles` Vec is
+/// empty here because thermal state arrives via a KVO block dispatched by
+/// Foundation — there is no owned tokio task to abort. The `Option` on
+/// the notifier is retained because future sensors may legitimately have
+/// no instant-change path.
 #[allow(clippy::needless_pass_by_value, clippy::unnecessary_wraps)]
-pub(super) fn spawn(state: Arc<SharedState>) -> Option<Arc<Notify>> {
+pub(super) fn spawn(state: Arc<SharedState>) -> (Option<Arc<Notify>>, Vec<JoinHandle<()>>) {
     let pi = NSProcessInfo::processInfo();
     let current = thermal_from_ns(pi.thermalState());
     state.set_thermal(current);
@@ -66,7 +68,7 @@ pub(super) fn spawn(state: Arc<SharedState>) -> Option<Arc<Notify>> {
         let _ = Retained::into_raw(observer);
     }
 
-    Some(notify)
+    (Some(notify), Vec::new())
 }
 
 fn thermal_from_ns(raw: NSProcessInfoThermalState) -> ThermalState {

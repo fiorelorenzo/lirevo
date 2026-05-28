@@ -39,6 +39,12 @@ impl SharedState {
             None
         }
     }
+    /// Single writer required (e.g. one polling task or one KVO observer).
+    /// Concurrent writes from multiple sources may produce a stale value
+    /// paired with `present=true` because the value + presence flag are
+    /// two separate atomics. The current architecture has exactly one
+    /// writer per sensor (`macos::power::poll_battery_once` for battery),
+    /// so this is safe in practice.
     pub fn set_battery_pct(&self, v: Option<u8>) {
         match v {
             Some(p) => {
@@ -135,6 +141,8 @@ mod tests {
         s.set_cpu_used_pct(80);
 
         assert_eq!(s.battery_pct(), Some(42));
+        s.set_battery_pct(None);
+        assert_eq!(s.battery_pct(), None);
         assert!(!s.on_ac());
         assert!(s.power_saver_user_pref());
         assert_eq!(s.thermal(), ThermalState::Serious);
