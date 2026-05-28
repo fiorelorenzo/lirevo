@@ -201,4 +201,15 @@ mod tests {
         assert!(s.mem_free_mb > 0, "expected free MB > 0 on real hardware");
         assert!(s.mem_free_pct <= 100, "mem_free_pct = {}", s.mem_free_pct);
     }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "requires macOS hardware"]
+    #[cfg(target_os = "macos")]
+    async fn real_macos_cpu_eventually_populates() {
+        let monitor = ResourceMonitor::spawn().await.expect("spawn");
+        // Two CPU polls needed (5s apart) before pct populates; wait 11s.
+        tokio::time::sleep(std::time::Duration::from_secs(11)).await;
+        let s = monitor.current();
+        assert!(s.cpu_used_pct <= 100);
+    }
 }
