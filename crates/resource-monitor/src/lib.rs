@@ -16,3 +16,6 @@
 
 mod signals;
 pub use signals::{ForegroundApp, MemoryPressure, Signals, SignalsBuilder, ThermalState};
+
+mod error;
+pub use error::MonitorError;
