@@ -226,6 +226,29 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
         }
     }
 
+    // Auto-recover from an unloadable LLM: if the cleanup model failed to
+    // load (corrupted GGUF, unsupported architecture, missing file, etc.),
+    // clear the stale path so the dictation pipeline drops cleanly into
+    // STT-only mode and the user gets a clear "pick a different model"
+    // signal instead of an infinite "Cleanup loading…" pill.
+    if llama_err.is_some() {
+        let mut inner = state.inner.lock().unwrap();
+        if inner.settings.llm_model_path.is_some() {
+            tracing::warn!("clearing settings.llm_model_path after load failure");
+            inner.settings.llm_model_path = None;
+            if let Err(persist_err) = inner.settings.persist(app) {
+                tracing::warn!(?persist_err, "failed to persist cleared llm_model_path");
+            }
+            let _ = app.emit(
+                "toast",
+                crate::commands::toast(
+                    "warn",
+                    "Cleanup model couldn't load; cleared selection. Pick a supported model in Settings.",
+                ),
+            );
+        }
+    }
+
     let next = if !stt_ready && !llama_ready {
         if let Some(name) = stt_downloading.clone() {
             ModelState::Loading {
