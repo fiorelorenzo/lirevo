@@ -144,8 +144,7 @@ fn poll_battery_once(state: &Arc<SharedState>) {
                 continue;
             }
             // GetPowerSourceDescription is a "Get" function — no retain to release.
-            let desc: CFDictionary<CFString, CFType> =
-                CFDictionary::wrap_under_get_rule(desc_raw);
+            let desc: CFDictionary<CFString, CFType> = CFDictionary::wrap_under_get_rule(desc_raw);
 
             // Capacity (CFNumber, Int 0..100)
             let key_cap = CFString::from_static_string("Current Capacity");

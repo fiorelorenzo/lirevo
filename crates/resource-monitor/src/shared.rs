@@ -1,5 +1,5 @@
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
 
 use crate::{ForegroundApp, MemoryPressure, ThermalState};
 
@@ -18,8 +18,8 @@ pub struct SharedState {
     battery_pct_present: AtomicBool,
     on_ac: AtomicBool,
     power_saver_user_pref: AtomicBool,
-    thermal: AtomicU8,                    // 0=Nominal 1=Fair 2=Serious 3=Critical
-    mem_pressure: AtomicU8,               // 0=Normal 1=Warning 2=Critical
+    thermal: AtomicU8,      // 0=Nominal 1=Fair 2=Serious 3=Critical
+    mem_pressure: AtomicU8, // 0=Normal 1=Warning 2=Critical
     mem_free_pct: AtomicU8,
     mem_free_mb: AtomicU32,
     cpu_used_pct: AtomicU8,
@@ -56,8 +56,12 @@ impl SharedState {
     }
 
     // On AC + power saver pref + simple bools
-    pub fn on_ac(&self) -> bool { self.on_ac.load(Ordering::Acquire) }
-    pub fn set_on_ac(&self, v: bool) { self.on_ac.store(v, Ordering::Release); }
+    pub fn on_ac(&self) -> bool {
+        self.on_ac.load(Ordering::Acquire)
+    }
+    pub fn set_on_ac(&self, v: bool) {
+        self.on_ac.store(v, Ordering::Release);
+    }
 
     pub fn power_saver_user_pref(&self) -> bool {
         self.power_saver_user_pref.load(Ordering::Acquire)
@@ -103,15 +107,27 @@ impl SharedState {
     }
 
     // Free memory
-    pub fn mem_free_pct(&self) -> u8 { self.mem_free_pct.load(Ordering::Acquire) }
-    pub fn set_mem_free_pct(&self, v: u8) { self.mem_free_pct.store(v, Ordering::Release); }
+    pub fn mem_free_pct(&self) -> u8 {
+        self.mem_free_pct.load(Ordering::Acquire)
+    }
+    pub fn set_mem_free_pct(&self, v: u8) {
+        self.mem_free_pct.store(v, Ordering::Release);
+    }
 
-    pub fn mem_free_mb(&self) -> u32 { self.mem_free_mb.load(Ordering::Acquire) }
-    pub fn set_mem_free_mb(&self, v: u32) { self.mem_free_mb.store(v, Ordering::Release); }
+    pub fn mem_free_mb(&self) -> u32 {
+        self.mem_free_mb.load(Ordering::Acquire)
+    }
+    pub fn set_mem_free_mb(&self, v: u32) {
+        self.mem_free_mb.store(v, Ordering::Release);
+    }
 
     // CPU
-    pub fn cpu_used_pct(&self) -> u8 { self.cpu_used_pct.load(Ordering::Acquire) }
-    pub fn set_cpu_used_pct(&self, v: u8) { self.cpu_used_pct.store(v, Ordering::Release); }
+    pub fn cpu_used_pct(&self) -> u8 {
+        self.cpu_used_pct.load(Ordering::Acquire)
+    }
+    pub fn set_cpu_used_pct(&self, v: u8) {
+        self.cpu_used_pct.store(v, Ordering::Release);
+    }
 
     // Foreground (cloned out because it owns a String)
     pub fn foreground(&self) -> Option<ForegroundApp> {

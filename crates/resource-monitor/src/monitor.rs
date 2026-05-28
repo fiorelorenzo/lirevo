@@ -5,10 +5,10 @@ use tokio::sync::{broadcast, Notify};
 use tokio::task::JoinHandle;
 use tokio::time::{self, Interval};
 
-use crate::Signals;
 use crate::error::MonitorError;
 use crate::shared::SharedState;
 use crate::signals::SignalsBuilder;
+use crate::Signals;
 
 const BROADCAST_CAPACITY: usize = 16;
 const TICK_INTERVAL: Duration = Duration::from_secs(5);
@@ -67,7 +67,13 @@ impl ResourceMonitor {
             instant_notifiers,
         ));
 
-        Ok(Self { tx, state, latest, task, sensor_tasks })
+        Ok(Self {
+            tx,
+            state,
+            latest,
+            task,
+            sensor_tasks,
+        })
     }
 
     /// Subscribe to subsequent snapshots. The receiver yields each new

@@ -14,7 +14,7 @@ use std::ffi::c_void;
 use std::sync::Arc;
 use std::time::Duration;
 
-use mach2::kern_return::{KERN_SUCCESS, kern_return_t};
+use mach2::kern_return::{kern_return_t, KERN_SUCCESS};
 use mach2::mach_types::host_t;
 use mach2::vm_page_size::vm_page_size;
 use mach2::vm_types::natural_t;
@@ -22,8 +22,8 @@ use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 use tracing::warn;
 
-use crate::MemoryPressure;
 use crate::shared::SharedState;
+use crate::MemoryPressure;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(10);
 
@@ -252,8 +252,7 @@ fn poll_vm_once(state: &Arc<SharedState>) {
     // u32 caps at ~4 PiB worth of MB, way above any realistic RAM total,
     // so the `as u32` cast is safe.
     let free_mb = u32::try_from(free_pages * page_size_bytes / 1_048_576).unwrap_or(u32::MAX);
-    let free_pct =
-        u8::try_from(((free_pages * 100) / total_pages).min(100)).unwrap_or(u8::MAX);
+    let free_pct = u8::try_from(((free_pages * 100) / total_pages).min(100)).unwrap_or(u8::MAX);
     state.set_mem_free_mb(free_mb);
     state.set_mem_free_pct(free_pct);
 }

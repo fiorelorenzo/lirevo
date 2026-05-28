@@ -11,7 +11,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use mach2::kern_return::{KERN_SUCCESS, kern_return_t};
+use mach2::kern_return::{kern_return_t, KERN_SUCCESS};
 use mach2::mach_types::host_t;
 use mach2::message::mach_msg_type_number_t;
 use mach2::port::mach_port_t;

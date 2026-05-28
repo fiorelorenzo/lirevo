@@ -132,7 +132,10 @@ impl SignalsBuilder {
 
     #[must_use]
     pub fn build(self) -> Signals {
-        Signals { ts: SystemTime::now(), ..self.inner }
+        Signals {
+            ts: SystemTime::now(),
+            ..self.inner
+        }
     }
 }
 

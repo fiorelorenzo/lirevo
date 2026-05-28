@@ -19,8 +19,8 @@ use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 use tracing::warn;
 
-use crate::ThermalState;
 use crate::shared::SharedState;
+use crate::ThermalState;
 
 /// Spawn the sensor. Returns `(Some(notify), handles)` where `notify_one`
 /// is called every time the thermal state changes. The `handles` Vec is

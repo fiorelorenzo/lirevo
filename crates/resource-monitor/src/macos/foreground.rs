@@ -19,14 +19,16 @@ use std::time::Duration;
 
 use block2::RcBlock;
 use objc2::rc::Retained;
-use objc2_app_kit::{NSRunningApplication, NSWorkspace, NSWorkspaceDidActivateApplicationNotification};
+use objc2_app_kit::{
+    NSRunningApplication, NSWorkspace, NSWorkspaceDidActivateApplicationNotification,
+};
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSOperationQueue};
 use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 use tracing::warn;
 
-use crate::ForegroundApp;
 use crate::shared::SharedState;
+use crate::ForegroundApp;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(5);
 
@@ -78,13 +80,7 @@ const PROC_PIDTASKINFO_SIZE: i32 = {
 
 #[link(name = "System", kind = "dylib")]
 unsafe extern "C" {
-    fn proc_pidinfo(
-        pid: i32,
-        flavor: i32,
-        arg: u64,
-        buffer: *mut c_void,
-        buffersize: i32,
-    ) -> i32;
+    fn proc_pidinfo(pid: i32, flavor: i32, arg: u64, buffer: *mut c_void, buffersize: i32) -> i32;
 }
 
 /// Tracked state for the current foreground PID. All fields are touched
@@ -185,7 +181,11 @@ fn update_frontmost(ctx: &Arc<PidContext>) {
 
 fn poll_foreground(ctx: &Arc<PidContext>, state: &Arc<SharedState>) {
     let pid_opt = *ctx.pid.lock().expect("foreground pid mutex");
-    let bid_opt = ctx.bundle_id.lock().expect("foreground bundle_id mutex").clone();
+    let bid_opt = ctx
+        .bundle_id
+        .lock()
+        .expect("foreground bundle_id mutex")
+        .clone();
 
     let (Some(pid), Some(bundle_id)) = (pid_opt, bid_opt) else {
         state.set_foreground(None);
@@ -209,7 +209,10 @@ fn poll_foreground(ctx: &Arc<PidContext>, state: &Arc<SharedState>) {
         // App may have exited between the KVO callback and this poll, or
         // it may be sandboxed in a way that denies introspection. Either
         // way: leave previous values in place rather than zeroing them.
-        warn!(pid, n, "proc_pidinfo PROC_PIDTASKINFO returned unexpected size");
+        warn!(
+            pid,
+            n, "proc_pidinfo PROC_PIDTASKINFO returned unexpected size"
+        );
         return;
     }
 
@@ -238,8 +241,7 @@ fn poll_foreground(ctx: &Arc<PidContext>, state: &Arc<SharedState>) {
     *prev_guard = Some(total_ticks);
     drop(prev_guard);
 
-    let mem_mb =
-        u32::try_from(info.pti_resident_size / 1_048_576).unwrap_or(u32::MAX);
+    let mem_mb = u32::try_from(info.pti_resident_size / 1_048_576).unwrap_or(u32::MAX);
 
     state.set_foreground(Some(ForegroundApp {
         bundle_id,
