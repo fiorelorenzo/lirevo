@@ -6,8 +6,6 @@
 //! count) so the lifecycle logic stays clock-injectable and testable
 //! without real models.
 
-#![allow(dead_code)] // consumed by the Engine shell in Phase C
-
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -19,7 +17,11 @@ use crate::state::SttSlot;
 /// built with, so the lifecycle layer can detect a profile-driven change.
 pub enum LlmSlot {
     Unloaded,
-    Loading { since: Instant },
+    // `since` is read by the C2 lifecycle loop (stuck-loading detection).
+    Loading {
+        #[allow(dead_code)]
+        since: Instant,
+    },
     Loaded {
         backend: Arc<LlamaBackend>,
         last_use: Instant,
@@ -32,7 +34,11 @@ pub enum LlmSlot {
 /// lock during a dictation.
 pub enum SttSlotState {
     Unloaded,
-    Loading { since: Instant },
+    // `since` is read by the C2 lifecycle loop (stuck-loading detection).
+    Loading {
+        #[allow(dead_code)]
+        since: Instant,
+    },
     Loaded { slot: SttSlot, last_use: Instant },
 }
 
