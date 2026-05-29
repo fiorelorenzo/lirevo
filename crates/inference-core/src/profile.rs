@@ -236,19 +236,13 @@ pub fn emergency_target(s: &Signals) -> Option<EmergencyReason> {
     }
 }
 
-// The Decider, its impl, and the hysteresis consts are exercised by tests
-// here but only wired into the (non-test) build by the M5.2 T6 async shell;
-// allow dead_code until then.
-#[allow(dead_code)]
 const HISTORY_WINDOW: Duration = Duration::from_secs(30);
-#[allow(dead_code)]
 const MIN_DWELL: Duration = Duration::from_secs(30);
 
 /// Pure decision engine. Owns hysteresis history + override state. Takes
 /// an injected `Instant` per [`Decider::observe`] so tests are
 /// deterministic (no wall clock). Not thread-safe on its own; the async
 /// shell wraps it in a `Mutex`.
-#[allow(dead_code)]
 pub(crate) struct Decider {
     mode: ProfileMode,
     decided: ProfileName,
@@ -257,7 +251,6 @@ pub(crate) struct Decider {
     emergency: Option<EmergencyReason>,
 }
 
-#[allow(dead_code)]
 impl Decider {
     pub(crate) fn new(mode: ProfileMode, initial: ProfileName, now: Instant) -> Self {
         Self {
@@ -277,6 +270,8 @@ impl Decider {
         self.mode
     }
 
+    // Consumed by M5.3 toast wiring; not yet read by the async shell.
+    #[allow(dead_code)]
     pub(crate) fn emergency(&self) -> Option<EmergencyReason> {
         self.emergency
     }
@@ -357,6 +352,134 @@ impl Decider {
         // i32 range; `try_from` keeps clippy::pedantic happy without an
         // allow and the fallback is unreachable.
         i32::try_from(sum / count).unwrap_or(0)
+    }
+}
+
+use std::sync::{Arc, Mutex};
+
+use tokio::sync::{broadcast, watch};
+use tokio::task::JoinHandle;
+
+struct Inner {
+    decider: Mutex<Decider>,
+    /// Published profile, for UI subscribers.
+    changes_tx: watch::Sender<ProfileName>,
+    /// The profile last handed to a consumer via `take_pending_apply`.
+    /// A change is "pending" when `decided != applied`.
+    applied: Mutex<ProfileName>,
+}
+
+/// Async front-end over the [`Decider`]. Consumes a broadcast of
+/// [`Signals`], updates the decision on each sample, and exposes the
+/// current profile + a pending-apply hook for the Engine and a watch
+/// channel for the UI.
+pub struct ProfileSelector {
+    inner: Arc<Inner>,
+    task: JoinHandle<()>,
+}
+
+impl ProfileSelector {
+    /// Spawn the selector. `initial` is the profile to start from before
+    /// any signal arrives.
+    #[must_use]
+    pub fn new(
+        rx: broadcast::Receiver<Signals>,
+        mode: ProfileMode,
+        initial: ProfileName,
+    ) -> Arc<Self> {
+        let (changes_tx, _) = watch::channel(initial);
+        let inner = Arc::new(Inner {
+            decider: Mutex::new(Decider::new(mode, initial, Instant::now())),
+            changes_tx,
+            applied: Mutex::new(initial),
+        });
+
+        let task_inner = inner.clone();
+        let task = tokio::spawn(run_loop(task_inner, rx));
+
+        Arc::new(Self { inner, task })
+    }
+
+    #[must_use]
+    pub fn current_profile(&self) -> ProfileName {
+        self.inner.decider.lock().expect("decider mutex").decided()
+    }
+
+    #[must_use]
+    pub fn current_policy(&self) -> ProfilePolicy {
+        policy_for(self.current_profile())
+    }
+
+    #[must_use]
+    pub fn current_mode(&self) -> ProfileMode {
+        self.inner.decider.lock().expect("decider mutex").mode()
+    }
+
+    /// User override (Auto vs `PinnedSoft`). Takes effect on the next signal.
+    pub fn set_mode(&self, mode: ProfileMode) {
+        self.inner
+            .decider
+            .lock()
+            .expect("decider mutex")
+            .set_mode(mode);
+    }
+
+    /// Returns the next-desired policy if the decided profile has changed
+    /// since the last call (consumes the pending change); `None` otherwise.
+    /// The Engine calls this at the end-of-dictation boundary.
+    // Not `#[must_use]`: the call has a side effect (clears the pending
+    // change), so dropping the result to merely acknowledge it is valid.
+    #[allow(clippy::must_use_candidate)]
+    pub fn take_pending_apply(&self) -> Option<ProfilePolicy> {
+        let decided = self.current_profile();
+        let mut applied = self.inner.applied.lock().expect("applied mutex");
+        if decided == *applied {
+            None
+        } else {
+            *applied = decided;
+            Some(policy_for(decided))
+        }
+    }
+
+    /// Watch channel of decided-profile changes, for the UI.
+    #[must_use]
+    pub fn subscribe_changes(&self) -> watch::Receiver<ProfileName> {
+        self.inner.changes_tx.subscribe()
+    }
+}
+
+impl Drop for ProfileSelector {
+    fn drop(&mut self) {
+        // Stop the background consumer so it releases its `Arc<Inner>`.
+        self.task.abort();
+    }
+}
+
+async fn run_loop(inner: Arc<Inner>, mut rx: broadcast::Receiver<Signals>) {
+    loop {
+        match rx.recv().await {
+            Ok(signals) => {
+                let decided = {
+                    let mut decider = inner.decider.lock().expect("decider mutex");
+                    decider.observe(&signals, Instant::now())
+                };
+                // Publish to UI subscribers only when the value actually
+                // changes (send_if_modified avoids spurious wakeups).
+                inner.changes_tx.send_if_modified(|cur| {
+                    if *cur == decided {
+                        false
+                    } else {
+                        *cur = decided;
+                        true
+                    }
+                });
+            }
+            // Lagged: we missed some signals; the next recv resyncs. Keep
+            // going — the decider reads each fresh sample anyway.
+            Err(broadcast::error::RecvError::Lagged(_)) => {}
+            // Sender dropped: no more signals will arrive, exit the loop.
+            Err(broadcast::error::RecvError::Closed) => break,
+        }
     }
 }
 
@@ -713,5 +836,68 @@ mod tests {
         d.observe(&baseline(), t0 + Duration::from_secs(1));
         assert_eq!(d.decided(), ProfileName::PowerSaver);
         assert_eq!(d.mode(), ProfileMode::PinnedSoft(ProfileName::PowerSaver));
+    }
+
+    use tokio::sync::broadcast;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn selector_reacts_to_emergency_signal() {
+        let (tx, rx) = broadcast::channel(16);
+        let selector = ProfileSelector::new(rx, ProfileMode::Auto, ProfileName::Balanced);
+
+        assert_eq!(selector.current_profile(), ProfileName::Balanced);
+        assert_eq!(selector.current_mode(), ProfileMode::Auto);
+
+        let mut emerg = baseline();
+        emerg.power_saver_user_pref = true;
+        tx.send(emerg).unwrap();
+
+        for _ in 0..50 {
+            if selector.current_profile() == ProfileName::PowerSaver {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(selector.current_profile(), ProfileName::PowerSaver);
+        assert_eq!(selector.current_policy().name, ProfileName::PowerSaver);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn take_pending_apply_reports_change_once() {
+        let (tx, rx) = broadcast::channel(16);
+        let selector = ProfileSelector::new(rx, ProfileMode::Auto, ProfileName::Balanced);
+
+        assert!(selector.take_pending_apply().is_none());
+
+        let mut emerg = baseline();
+        emerg.power_saver_user_pref = true;
+        tx.send(emerg).unwrap();
+        for _ in 0..50 {
+            if selector.current_profile() == ProfileName::PowerSaver {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        let first = selector.take_pending_apply();
+        assert_eq!(first.map(|p| p.name), Some(ProfileName::PowerSaver));
+        assert!(selector.take_pending_apply().is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn subscribe_changes_yields_updates() {
+        let (tx, rx) = broadcast::channel(16);
+        let selector = ProfileSelector::new(rx, ProfileMode::Auto, ProfileName::Balanced);
+        let mut changes = selector.subscribe_changes();
+
+        let mut emerg = baseline();
+        emerg.power_saver_user_pref = true;
+        tx.send(emerg).unwrap();
+
+        tokio::time::timeout(Duration::from_secs(2), changes.changed())
+            .await
+            .expect("a change within 2s")
+            .expect("sender alive");
+        assert_eq!(*changes.borrow_and_update(), ProfileName::PowerSaver);
     }
 }
