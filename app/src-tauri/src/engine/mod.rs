@@ -12,9 +12,11 @@ mod streak;
 use std::sync::Arc;
 use std::time::Instant;
 
-use arc_swap::ArcSwap;
+use arc_swap::{ArcSwap, ArcSwapOption};
 use inference_core::profile::{policy_for, ProfileName, ProfilePolicy};
 use inference_core::{ChatRequest, ChatResponse, LlamaBackend, LlmError};
+use serde::Serialize;
+use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex as AsyncMutex;
 
 use crate::engine::decision::resolve_n_threads;
@@ -36,12 +38,31 @@ pub struct EngineConfig {
     pub keep_warm: bool,
 }
 
+/// Payload for the informational `engine:llm_state_changed` event. This is
+/// SEPARATE from the `model:state` Ready/Loading/Error lifecycle: it reports
+/// whether the LLM is currently *resident in memory* (loaded) so a future
+/// "model resident" indicator / debugging can observe the lifecycle-loop's
+/// idle/pressure unloads and transparent reloads. An idle-unloaded model is
+/// still `Ready` from the user's POV (it reloads on next dictation), so the
+/// UI must NOT regress `model:state` on this event.
+#[derive(Debug, Clone, Serialize)]
+pub struct LlmStateChanged {
+    pub loaded: bool,
+    pub reason: Option<String>,
+}
+
 pub struct Engine {
     config: ArcSwap<EngineConfig>,
     current_policy: ArcSwap<ProfilePolicy>,
     llm: AsyncMutex<LlmSlot>,
     stt: AsyncMutex<SttSlotState>,
     last_dictation: std::sync::Mutex<Instant>,
+    /// Optional Tauri handle used to emit the informational
+    /// `engine:llm_state_changed` event. `None` in unit tests (the Engine is
+    /// constructed without a running Tauri app); set via
+    /// [`Engine::set_state_reporter`] from `lib.rs` startup. Lock-free reads
+    /// on the hot path (every load/unload) via `ArcSwapOption`.
+    state_reporter: ArcSwapOption<AppHandle>,
 }
 
 impl Engine {
@@ -53,7 +74,25 @@ impl Engine {
             llm: AsyncMutex::new(LlmSlot::Unloaded),
             stt: AsyncMutex::new(SttSlotState::Unloaded),
             last_dictation: std::sync::Mutex::new(Instant::now()),
+            state_reporter: ArcSwapOption::empty(),
         })
+    }
+
+    /// Install the Tauri handle the Engine uses to emit
+    /// `engine:llm_state_changed`. Called once from `lib.rs` startup after the
+    /// app is built; before that (and in unit tests) the Engine simply skips
+    /// the informational emit.
+    pub fn set_state_reporter(&self, app: AppHandle) {
+        self.state_reporter.store(Some(Arc::new(app)));
+    }
+
+    fn emit_llm_state(&self, loaded: bool, reason: Option<String>) {
+        if let Some(app) = self.state_reporter.load_full() {
+            let _ = app.emit(
+                "engine:llm_state_changed",
+                LlmStateChanged { loaded, reason },
+            );
+        }
     }
 
     pub fn set_policy(&self, policy: ProfilePolicy) {
@@ -121,12 +160,15 @@ impl Engine {
         match loaded {
             Ok(backend) => {
                 let backend = Arc::new(backend);
-                let mut slot = self.llm.lock().await;
-                *slot = LlmSlot::Loaded {
-                    backend: backend.clone(),
-                    last_use: Instant::now(),
-                    loaded_n_threads: n_threads,
-                };
+                {
+                    let mut slot = self.llm.lock().await;
+                    *slot = LlmSlot::Loaded {
+                        backend: backend.clone(),
+                        last_use: Instant::now(),
+                        loaded_n_threads: n_threads,
+                    };
+                }
+                self.emit_llm_state(true, None);
                 Ok(Some(backend))
             }
             Err(e) => {
@@ -153,10 +195,18 @@ impl Engine {
 
     /// Unload the LLM. Idempotent.
     pub async fn unload_llm(&self, reason: UnloadReason) {
-        let mut slot = self.llm.lock().await;
-        if !matches!(&*slot, LlmSlot::Unloaded) {
-            tracing::info!(?reason, "engine: unloading LLM");
-            *slot = LlmSlot::Unloaded;
+        let transitioned = {
+            let mut slot = self.llm.lock().await;
+            if matches!(&*slot, LlmSlot::Unloaded) {
+                false
+            } else {
+                tracing::info!(?reason, "engine: unloading LLM");
+                *slot = LlmSlot::Unloaded;
+                true
+            }
+        };
+        if transitioned {
+            self.emit_llm_state(false, Some(format!("{reason:?}")));
         }
     }
 
@@ -251,20 +301,29 @@ impl Engine {
         }
         let loaded =
             tokio::task::spawn_blocking(move || LlamaBackend::load(path, ctx, n_threads)).await;
-        let mut slot = self.llm.lock().await;
-        match loaded {
-            Ok(Ok(backend)) => {
-                tracing::info!(n_threads, "engine: reloaded LLM for thread-count change");
-                *slot = LlmSlot::Loaded {
-                    backend: Arc::new(backend),
-                    last_use: Instant::now(),
-                    loaded_n_threads: n_threads,
-                };
+        let reloaded = {
+            let mut slot = self.llm.lock().await;
+            match loaded {
+                Ok(Ok(backend)) => {
+                    tracing::info!(n_threads, "engine: reloaded LLM for thread-count change");
+                    *slot = LlmSlot::Loaded {
+                        backend: Arc::new(backend),
+                        last_use: Instant::now(),
+                        loaded_n_threads: n_threads,
+                    };
+                    true
+                }
+                _ => {
+                    tracing::warn!("engine: LLM reload failed; left unloaded");
+                    *slot = LlmSlot::Unloaded;
+                    false
+                }
             }
-            _ => {
-                tracing::warn!("engine: LLM reload failed; left unloaded");
-                *slot = LlmSlot::Unloaded;
-            }
+        };
+        if reloaded {
+            self.emit_llm_state(true, None);
+        } else {
+            self.emit_llm_state(false, Some("ThreadCountReloadFailed".into()));
         }
     }
 
@@ -369,6 +428,25 @@ mod tests {
         assert!(r.is_err());
         // Slot must be back to Unloaded so a retry / auto-recover can run.
         assert_eq!(e.llm_snapshot(), SlotSnapshot::Unloaded);
+    }
+
+    #[test]
+    fn llm_state_changed_serializes() {
+        let j = serde_json::to_value(LlmStateChanged {
+            loaded: false,
+            reason: Some("IdleTimeout".into()),
+        })
+        .unwrap();
+        assert_eq!(
+            j,
+            serde_json::json!({ "loaded": false, "reason": "IdleTimeout" })
+        );
+        let j2 = serde_json::to_value(LlmStateChanged {
+            loaded: true,
+            reason: None,
+        })
+        .unwrap();
+        assert_eq!(j2, serde_json::json!({ "loaded": true, "reason": null }));
     }
 
     #[tokio::test(flavor = "multi_thread")]

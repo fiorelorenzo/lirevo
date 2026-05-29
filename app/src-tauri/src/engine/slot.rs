@@ -17,7 +17,8 @@ use crate::state::SttSlot;
 /// built with, so the lifecycle layer can detect a profile-driven change.
 pub enum LlmSlot {
     Unloaded,
-    // `since` is read by the C2 lifecycle loop (stuck-loading detection).
+    // `since` is reserved for stuck-loading detection (not yet read by the
+    // lifecycle loop); kept so a future watchdog can time out a wedged load.
     Loading {
         #[allow(dead_code)]
         since: Instant,
@@ -34,7 +35,8 @@ pub enum LlmSlot {
 /// lock during a dictation.
 pub enum SttSlotState {
     Unloaded,
-    // `since` is read by the C2 lifecycle loop (stuck-loading detection).
+    // `since` is reserved for stuck-loading detection (not yet read by the
+    // lifecycle loop); kept so a future watchdog can time out a wedged load.
     Loading {
         #[allow(dead_code)]
         since: Instant,

@@ -30,7 +30,9 @@ impl GgufBackend {
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(4096);
-        let inner = InnerBackend::load(path, ctx_size).map_err(map_err)?;
+        // n_threads = 0 → backend auto-detects (num_cpus). The eval harness is
+        // not profile-aware, so it always lets the backend pick the count.
+        let inner = InnerBackend::load(path, ctx_size, 0).map_err(map_err)?;
         Ok(Self {
             id,
             inner: Arc::new(inner),

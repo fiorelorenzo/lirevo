@@ -160,6 +160,18 @@ pub fn run() {
             // for the app process lifetime by the spawned task (the
             // lifecycle_loop await never returns until the channel closes at
             // shutdown).
+            // Give the Engine a handle so its load/unload/reload transitions
+            // emit the informational `engine:llm_state_changed` event. Done
+            // synchronously here (before the spawns below) so it's installed
+            // before the startup `load_models` task can call `ensure_llm`. This
+            // event is separate from `model:state` — an idle-unload does NOT
+            // regress the UI's Ready lifecycle.
+            {
+                let state = app.handle().state::<AppState>();
+                let engine = state.inner.lock().unwrap().engine.clone();
+                engine.set_state_reporter(app.handle().clone());
+            }
+
             let app_handle_for_lifecycle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let engine = {
