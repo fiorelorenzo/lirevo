@@ -900,4 +900,28 @@ mod tests {
             .expect("sender alive");
         assert_eq!(*changes.borrow_and_update(), ProfileName::PowerSaver);
     }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn set_mode_pins_through_async_shell() {
+        let (tx, rx) = broadcast::channel(16);
+        let selector = ProfileSelector::new(rx, ProfileMode::Auto, ProfileName::Balanced);
+
+        // Pin to Performance via the public async-shell API.
+        selector.set_mode(ProfileMode::PinnedSoft(ProfileName::Performance));
+        assert_eq!(
+            selector.current_mode(),
+            ProfileMode::PinnedSoft(ProfileName::Performance)
+        );
+
+        // A benign signal applies the pin (no emergency) → Performance,
+        // regardless of the Balanced start.
+        tx.send(baseline()).unwrap();
+        for _ in 0..50 {
+            if selector.current_profile() == ProfileName::Performance {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(selector.current_profile(), ProfileName::Performance);
+    }
 }
