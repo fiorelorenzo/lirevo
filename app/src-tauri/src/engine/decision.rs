@@ -25,6 +25,10 @@ pub enum UnloadReason {
     LowFreeRam,
     ForegroundHeavy,
     BatteryBelowThreshold,
+    /// The user changed the model selection / ctx size in Settings, so the
+    /// stale backend is unloaded to force a fresh load of the new config.
+    /// Used only as a tracing label — not produced by `lifecycle_decision`.
+    ConfigChanged,
 }
 
 /// An action for the Engine shell to apply. Pure data — the shell does the

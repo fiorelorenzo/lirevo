@@ -28,10 +28,6 @@ pub use crate::engine::decision::Action;
 
 /// What the Engine needs to know to load models. Plain data (not
 /// `tauri::State`) so the Engine is testable.
-// Engine is constructed + unit-tested in isolation here; Phase D wires it into
-// the live app (replaces `AppStateInner`'s model fields). Until then the struct
-// + its methods are only reachable from tests.
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct EngineConfig {
     pub llm_model_path: Option<std::path::PathBuf>,
@@ -40,7 +36,6 @@ pub struct EngineConfig {
     pub keep_warm: bool,
 }
 
-#[allow(dead_code)]
 pub struct Engine {
     config: ArcSwap<EngineConfig>,
     current_policy: ArcSwap<ProfilePolicy>,
@@ -49,7 +44,6 @@ pub struct Engine {
     last_dictation: std::sync::Mutex<Instant>,
 }
 
-#[allow(dead_code)]
 impl Engine {
     #[must_use]
     pub fn new(config: EngineConfig, initial_profile: ProfileName) -> Arc<Self> {
@@ -73,6 +67,11 @@ impl Engine {
 
     pub fn update_config(&self, config: EngineConfig) {
         self.config.store(Arc::new(config));
+    }
+
+    #[must_use]
+    pub fn current_config(&self) -> EngineConfig {
+        (**self.config.load()).clone()
     }
 
     pub fn llm_snapshot(&self) -> SlotSnapshot {
@@ -217,7 +216,11 @@ impl Engine {
             // Real variant carries `audiopipe_name` (see stt::LoadOutcome);
             // the slot stays Unloaded — caller surfaces a "downloading"
             // status and retries once the background fetch finishes.
-            crate::stt::LoadOutcome::Downloading { .. } => {
+            crate::stt::LoadOutcome::Downloading { audiopipe_name } => {
+                tracing::info!(
+                    model = %audiopipe_name,
+                    "engine: STT weights downloading in background; slot stays unloaded"
+                );
                 let mut state = self.stt.lock().await;
                 *state = SttSlotState::Unloaded;
                 Ok(None)

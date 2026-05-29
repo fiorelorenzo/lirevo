@@ -2,14 +2,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tauri::{AppHandle, Emitter, Manager, State};
-use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::{mpsc, oneshot};
 
 use audiopipe::{PartialTranscript, TranscribeOptions};
-use inference_core::{ChatRequest, LlamaBackend};
+use inference_core::ChatRequest;
 
 use crate::state::{ModelState, SttSlot};
-use crate::stt::{self, LoadOutcome};
+use crate::stt;
 use crate::{AppError, AppState};
 
 /// Hard ceilings on Tauri-command inputs from the webview. The renderer is
@@ -37,10 +36,16 @@ pub async fn transcribe(
             MAX_TRANSCRIBE_WAV_BYTES
         )));
     }
-    let stt_slot = {
+    let engine = {
         let inner = state.inner.lock().unwrap();
-        inner.stt.as_ref().ok_or(AppError::SttNotLoaded)?.clone()
+        inner.engine.clone()
     };
+    let stt_slot = engine
+        .ensure_stt()
+        .await
+        .map_err(AppError::Internal)?
+        .ok_or(AppError::SttNotLoaded)?;
+    engine.mark_stt_used();
     let lang_opt = normalize_language(language);
 
     tokio::task::spawn_blocking(move || -> Result<String, AppError> {
@@ -72,26 +77,24 @@ pub async fn clean(
             MAX_CLEAN_TEXT_BYTES
         )));
     }
-    let llama = {
+    let engine = {
         let inner = state.inner.lock().unwrap();
-        inner
-            .llama
-            .as_ref()
-            .ok_or(AppError::LlamaNotLoaded)?
-            .clone()
+        inner.engine.clone()
     };
     let req = ChatRequest {
         system: Some(lirevo_prompts::build_clean_system_prompt(&language)),
         history: vec![],
-        user: text,
+        user: text.clone(),
         temperature: 0.2,
         max_tokens: 2048,
         stop: vec![],
     };
-    let resp = tokio::task::spawn_blocking(move || llama.chat_sync(req))
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))??;
-    Ok(resp.text)
+    match engine.chat(req).await? {
+        Some(resp) => Ok(resp.text),
+        // No cleanup model configured: return the text unchanged so the
+        // command stays usable in STT-only mode.
+        None => Ok(text),
+    }
 }
 
 /// Snapshot of the current model loading state. The frontend needs this at
@@ -105,127 +108,190 @@ pub fn get_model_state(state: State<'_, AppState>) -> Result<ModelState, AppErro
     Ok(state.current_model_state())
 }
 
-/// Load STT (audiopipe) + LLM (llama-cpp) in parallel based on current
-/// settings.
+/// Refresh the Engine config from current settings, eagerly load both
+/// backends, and emit the resulting `ModelState` for the UI.
+///
+/// Since M5.3 the Engine owns the model lifecycle (lazy load +
+/// resource-aware unload). `load_models` is the eager-load entry point used
+/// at startup and after a settings change: it pushes the latest config into
+/// the engine, then drives `ensure_stt` + `ensure_llm` so the UI gets a
+/// Loading→Ready signal up front (rather than only loading on first use).
 ///
 /// Cancellation: a newer load (e.g. user changes settings) increments the
-/// token; stale results are discarded.
+/// token; the stale invocation skips its ModelState emission.
 ///
 /// STT: the catalog id comes from `settings.stt_model_id`, falling back to
-/// [`stt::catalog::default_model_id`]. The loader prefers the HF cache; on
-/// a cache miss it spawns a background download and we surface a
-/// `ModelState::Loading` until the next reload picks the cached weights up.
+/// [`stt::catalog::default_model_id`]. `ensure_stt` prefers the HF cache; on
+/// a cache miss it spawns a background download and returns `None` — we
+/// surface a `ModelState::Loading` until the next reload picks the cached
+/// weights up.
 pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
-    let (stt_model_id, llm_path, ctx_size, token) = {
+    let (engine, stt_model_id, llm_path, ctx_size, keep_warm, token) = {
         let mut inner = state.inner.lock().unwrap();
         inner.current_load_token += 1;
         let token = inner.current_load_token;
+        let stt_model_id = inner
+            .settings
+            .stt_model_id
+            .clone()
+            .unwrap_or_else(|| stt::catalog::default_model_id().to_string());
         (
-            inner
-                .settings
-                .stt_model_id
-                .clone()
-                .unwrap_or_else(|| stt::catalog::default_model_id().to_string()),
+            inner.engine.clone(),
+            stt_model_id,
             inner.settings.llm_model_path.clone(),
             inner.settings.llm_ctx_size,
+            inner.settings.keep_models_warm,
             token,
         )
     };
 
-    if llm_path.is_none() && stt_model_id.is_empty() {
-        state.set_model_state(app, ModelState::Idle);
-        return;
-    }
-
-    state.set_model_state(
-        app,
-        ModelState::Loading {
-            stt: !stt_model_id.is_empty(),
-            llama: llm_path.is_some(),
-        },
-    );
-
-    let stt_handle = if stt_model_id.is_empty() {
-        None
-    } else {
-        let id_for_load = stt_model_id.clone();
-        Some(tokio::task::spawn_blocking(move || stt::load(&id_for_load)))
-    };
     // Runtime existence check: settings migration clears stale paths at
     // startup, but the file can disappear mid-session (model manager remove,
     // user deleted the .gguf manually). Treating a missing file as "not
     // configured" lets the dictation pipeline keep running in STT-only mode
     // instead of bubbling a confusing load error to the UI.
-    let llama_handle = llm_path.and_then(|p| {
-        if !p.exists() {
+    let effective_llm_path = llm_path.and_then(|p| {
+        if p.exists() {
+            Some(p)
+        } else {
             tracing::warn!(
                 path = %p.display(),
                 "configured LLM path is missing on disk; treating as not configured"
             );
-            return None;
+            None
         }
-        // TODO(M5.3 Phase C): pass profile-resolved n_threads via Engine
-        Some(tokio::task::spawn_blocking(move || {
-            LlamaBackend::load(p, ctx_size, 0)
-        }))
     });
 
-    let stt_result = match stt_handle {
-        Some(h) => Some(h.await),
-        None => None,
+    // Push the latest settings into the engine so its lazy/lifecycle paths see
+    // the right config (the catalog default for STT, the existence-checked LLM
+    // path).
+    let stt_id_for_engine = if stt_model_id.is_empty() {
+        None
+    } else {
+        Some(stt_model_id.clone())
     };
-    let llama_result = match llama_handle {
-        Some(h) => Some(h.await),
-        None => None,
+    let new_cfg = crate::engine::EngineConfig {
+        llm_model_path: effective_llm_path.clone(),
+        llm_ctx_size: ctx_size,
+        stt_model_id: stt_id_for_engine,
+        keep_warm,
+    };
+
+    // Settings-change reload: `ensure_llm` / `ensure_stt` short-circuit when a
+    // backend is already Loaded and never compare the loaded model against the
+    // new config — so a model swap from Settings would otherwise keep serving
+    // the stale backend. Diff the engine's current config against the new one
+    // and unload any affected slot so the `ensure_*` calls below reload fresh.
+    //
+    // At startup this is a no-op: the slots are Unloaded (so `unload_*` does
+    // nothing) and `ensure_*` performs the initial load. The configs can differ
+    // even at startup (AppState::new uses the raw settings path, here we
+    // existence-check it and fall STT back to the catalog default), but an
+    // unload against an already-Unloaded slot is harmless.
+    let old_cfg = engine.current_config();
+    let llm_changed = old_cfg.llm_model_path != new_cfg.llm_model_path
+        || old_cfg.llm_ctx_size != new_cfg.llm_ctx_size;
+    let stt_changed = old_cfg.stt_model_id != new_cfg.stt_model_id;
+    engine.update_config(new_cfg.clone());
+    if llm_changed {
+        engine
+            .unload_llm(crate::engine::UnloadReason::ConfigChanged)
+            .await;
+    }
+    if stt_changed {
+        engine
+            .unload_stt(crate::engine::UnloadReason::ConfigChanged)
+            .await;
+    }
+
+    if effective_llm_path.is_none() && stt_model_id.is_empty() {
+        let inner = state.inner.lock().unwrap();
+        if inner.current_load_token == token {
+            drop(inner);
+            state.set_model_state(app, ModelState::Idle);
+        } else {
+            tracing::info!("stale load skipped (token mismatch)");
+        }
+        return;
+    }
+
+    {
+        let inner = state.inner.lock().unwrap();
+        if inner.current_load_token == token {
+            drop(inner);
+            state.set_model_state(
+                app,
+                ModelState::Loading {
+                    stt: !stt_model_id.is_empty(),
+                    llama: effective_llm_path.is_some(),
+                },
+            );
+        }
+    }
+
+    // Drive eager loads through the engine. `ensure_stt` returns Ok(None) when
+    // the weights are still downloading; `ensure_llm` returns Ok(None) when no
+    // path is configured (graceful STT-only mode).
+    //
+    // Eager-vs-lazy deviation (deliberate): the lifecycle design preloads the
+    // LLM only when the profile is Balanced/Performance and on AC. Here we call
+    // `ensure_llm` unconditionally at startup because we need a definitive
+    // Ready/Error `ModelState` for the UI up front, and because eagerly loading
+    // is the only way to detect a broken LLM path (corrupt GGUF, unsupported
+    // arch) so the auto-recover block below can clear it. The energy policy is
+    // still honored after this first load: `lifecycle_loop` idle-unloads the
+    // LLM once the active profile's `llm_idle_unload` window elapses.
+    let stt_outcome = if stt_model_id.is_empty() {
+        Ok(None)
+    } else {
+        engine.ensure_stt().await
+    };
+    let llama_outcome = if effective_llm_path.is_some() {
+        engine.ensure_llm().await
+    } else {
+        Ok(None)
     };
 
     let mut stt_ready = false;
-    let mut llama_ready = false;
     let mut stt_err: Option<String> = None;
+    let mut stt_downloading = false;
+    match stt_outcome {
+        Ok(Some(_)) => stt_ready = true,
+        Ok(None) => {
+            if !stt_model_id.is_empty() {
+                tracing::info!(
+                    model = %stt_model_id,
+                    "STT weights downloading in background; will be ready after the next reload"
+                );
+                stt_downloading = true;
+            }
+        }
+        Err(e) => {
+            tracing::warn!(%e, "STT load failed");
+            stt_err = Some(e);
+        }
+    }
+
+    let mut llama_ready = false;
     let mut llama_err: Option<String> = None;
-    let mut stt_downloading: Option<String> = None;
+    match llama_outcome {
+        Ok(Some(_)) => llama_ready = true,
+        Ok(None) => {}
+        Err(e) => {
+            tracing::warn!(?e, "llama load failed");
+            llama_err = Some(e.to_string());
+        }
+    }
+
+    // Load-token guard: bail before touching settings/engine if a newer
+    // reload started while we were loading. Must precede the auto-recover
+    // block below — otherwise a stale load could wipe a freshly-set good
+    // `llm_model_path` that the newer reload just persisted.
     {
-        let mut inner = state.inner.lock().unwrap();
+        let inner = state.inner.lock().unwrap();
         if inner.current_load_token != token {
             tracing::info!("stale load result discarded (token mismatch)");
             return;
-        }
-        match stt_result {
-            Some(Ok(Ok(LoadOutcome::Ready(handle)))) => {
-                inner.stt = Some(Arc::new(AsyncMutex::new(handle)));
-                stt_ready = true;
-            }
-            Some(Ok(Ok(LoadOutcome::Downloading { audiopipe_name }))) => {
-                tracing::info!(
-                    model = %audiopipe_name,
-                    "STT weights downloading in background; will be ready after the next reload"
-                );
-                stt_downloading = Some(audiopipe_name);
-            }
-            Some(Ok(Err(e))) => {
-                tracing::warn!(?e, "STT load failed");
-                stt_err = Some(e.to_string());
-            }
-            Some(Err(e)) => {
-                tracing::warn!(%e, "STT load join error");
-                stt_err = Some(format!("worker panic: {e}"));
-            }
-            None => {}
-        }
-        match llama_result {
-            Some(Ok(Ok(l))) => {
-                inner.llama = Some(Arc::new(l));
-                llama_ready = true;
-            }
-            Some(Ok(Err(e))) => {
-                tracing::warn!(?e, "llama load failed");
-                llama_err = Some(e.to_string());
-            }
-            Some(Err(e)) => {
-                tracing::warn!(%e, "llama load join error");
-                llama_err = Some(format!("worker panic: {e}"));
-            }
-            None => {}
         }
     }
 
@@ -242,6 +308,20 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
             if let Err(persist_err) = inner.settings.persist(app) {
                 tracing::warn!(?persist_err, "failed to persist cleared llm_model_path");
             }
+            // Keep the engine config in sync so a later lazy ensure_llm does
+            // not re-attempt the broken path.
+            let cfg = crate::engine::EngineConfig {
+                llm_model_path: None,
+                llm_ctx_size: ctx_size,
+                stt_model_id: if stt_model_id.is_empty() {
+                    None
+                } else {
+                    Some(stt_model_id.clone())
+                },
+                keep_warm,
+            };
+            drop(inner);
+            engine.update_config(cfg);
             let _ = app.emit(
                 "toast",
                 crate::commands::toast(
@@ -253,9 +333,9 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
     }
 
     let next = if !stt_ready && !llama_ready {
-        if let Some(name) = stt_downloading.clone() {
+        if stt_downloading {
             ModelState::Loading {
-                stt: !name.is_empty(),
+                stt: true,
                 llama: false,
             }
         } else {
@@ -274,7 +354,7 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
                 },
             }
         }
-    } else if stt_downloading.is_some() {
+    } else if stt_downloading {
         ModelState::Loading {
             stt: true,
             llama: llama_ready,
@@ -285,6 +365,8 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
             llama: llama_ready,
         }
     };
+    // The token guard above already returned early on a stale load, so this
+    // emission is the live reload's to own.
     state.set_model_state(app, next);
 
     // Register the macOS shutdown-safety atexit handler now that GPU
@@ -302,17 +384,10 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
     // and there is nothing to swallow on shutdown.
     crate::register_quit_safety_atexit();
 
-    let (keep_warm, stt_for_warmup, llama_for_warmup) = {
-        let inner = state.inner.lock().unwrap();
-        (
-            inner.settings.keep_models_warm,
-            if stt_ready { inner.stt.clone() } else { None },
-            if llama_ready { inner.llama.clone() } else { None },
-        )
-    };
-    if keep_warm && (stt_for_warmup.is_some() || llama_for_warmup.is_some()) {
-        tokio::task::spawn_blocking(move || {
-            warm_up(stt_for_warmup, llama_for_warmup);
+    if keep_warm && (stt_ready || llama_ready) {
+        let engine_for_warmup = engine.clone();
+        tokio::spawn(async move {
+            warm_up(&engine_for_warmup).await;
         });
     }
 }
@@ -332,39 +407,57 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
 /// can also fire it when the user toggles `keep_models_warm` from off
 /// to on while models are already loaded — without this they'd have
 /// to either trigger a reload or restart the app to see the benefit.
-pub(crate) fn warm_up(stt: Option<SttSlot>, llama: Option<Arc<LlamaBackend>>) {
-    if let Some(slot) = stt {
-        // 1 second of silence at 16 kHz mono — long enough for any of
-        // the audiopipe backends to exercise their full encode/decode
-        // path without producing real text.
-        let silence = vec![0.0_f32; 16_000];
-        let t0 = std::time::Instant::now();
-        let elapsed_ms = || u64::try_from(t0.elapsed().as_millis()).unwrap_or(u64::MAX);
-        let mut guard = slot.blocking_lock();
-        match guard.transcribe(
-            &silence,
-            16_000,
-            TranscribeOptions { language: Some("en".to_string()), word_timestamps: false },
-        ) {
-            Ok(_) => tracing::info!(elapsed_ms = elapsed_ms(), "STT warm-up completed"),
-            Err(e) => tracing::warn!(?e, elapsed_ms = elapsed_ms(), "STT warm-up failed (non-fatal)"),
+///
+/// Drives the warm-up through the Engine: `ensure_stt` (lazy-loads if needed)
+/// for a silent transcribe, and a 1-token `chat` for the LLM. Both are
+/// best-effort — a warm-up failure is not user-visible.
+pub(crate) async fn warm_up(engine: &Arc<crate::engine::Engine>) {
+    match engine.ensure_stt().await {
+        Ok(Some(slot)) => {
+            // 1 second of silence at 16 kHz mono — long enough for any of
+            // the audiopipe backends to exercise their full encode/decode
+            // path without producing real text.
+            let warm = tokio::task::spawn_blocking(move || {
+                let silence = vec![0.0_f32; 16_000];
+                let t0 = std::time::Instant::now();
+                let elapsed_ms = || u64::try_from(t0.elapsed().as_millis()).unwrap_or(u64::MAX);
+                let mut guard = slot.blocking_lock();
+                match guard.transcribe(
+                    &silence,
+                    16_000,
+                    TranscribeOptions {
+                        language: Some("en".to_string()),
+                        word_timestamps: false,
+                    },
+                ) {
+                    Ok(_) => tracing::info!(elapsed_ms = elapsed_ms(), "STT warm-up completed"),
+                    Err(e) => {
+                        tracing::warn!(?e, elapsed_ms = elapsed_ms(), "STT warm-up failed (non-fatal)");
+                    }
+                }
+            })
+            .await;
+            if let Err(e) = warm {
+                tracing::warn!(%e, "STT warm-up join error (non-fatal)");
+            }
         }
+        Ok(None) => {}
+        Err(e) => tracing::warn!(%e, "STT warm-up ensure failed (non-fatal)"),
     }
-    if let Some(l) = llama {
-        let req = ChatRequest {
-            system: None,
-            history: vec![],
-            user: "a".into(),
-            temperature: 0.0,
-            max_tokens: 1,
-            stop: vec![],
-        };
-        let t0 = std::time::Instant::now();
-        let elapsed_ms = || u64::try_from(t0.elapsed().as_millis()).unwrap_or(u64::MAX);
-        match l.chat_sync(req) {
-            Ok(_) => tracing::info!(elapsed_ms = elapsed_ms(), "llama warm-up completed"),
-            Err(e) => tracing::warn!(?e, elapsed_ms = elapsed_ms(), "llama warm-up failed (non-fatal)"),
-        }
+
+    let req = ChatRequest {
+        system: None,
+        history: vec![],
+        user: "a".into(),
+        temperature: 0.0,
+        max_tokens: 1,
+        stop: vec![],
+    };
+    let t0 = std::time::Instant::now();
+    let elapsed_ms = || u64::try_from(t0.elapsed().as_millis()).unwrap_or(u64::MAX);
+    match engine.chat(req).await {
+        Ok(_) => tracing::info!(elapsed_ms = elapsed_ms(), "llama warm-up completed"),
+        Err(e) => tracing::warn!(?e, elapsed_ms = elapsed_ms(), "llama warm-up failed (non-fatal)"),
     }
 }
 

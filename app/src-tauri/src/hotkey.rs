@@ -79,17 +79,24 @@ async fn dictation_loop(app: AppHandle, mut rx: tokio::sync::mpsc::Receiver<Hotk
         tracing::info!(?event, "dictation_loop: received hotkey event");
         let state = app.state::<AppState>();
         match event {
-            HotkeyEvent::Down => handle_down(&app, &state),
+            HotkeyEvent::Down => handle_down(&app, &state).await,
             HotkeyEvent::Up => handle_up(&app, &state),
         }
     }
     tracing::warn!("hotkey event channel closed; dictation loop exiting");
 }
 
-fn handle_down(app: &AppHandle, state: &tauri::State<AppState>) {
+async fn handle_down(app: &AppHandle, state: &tauri::State<'_, AppState>) {
     tracing::info!("handle_down: hotkey pressed");
     let ms = state.current_model_state();
-    let stt_ok = matches!(ms, ModelState::Ready { stt: true, .. });
+    // The engine lazy-unloads STT under memory pressure, so the UI may report
+    // Ready while the slot is currently unloaded; `ensure_stt` below reloads it
+    // on demand. We still gate on a non-error, non-idle state so a genuinely
+    // unconfigured / failed setup short-circuits with a clear toast.
+    let stt_ok = matches!(
+        ms,
+        ModelState::Ready { stt: true, .. } | ModelState::Loading { stt: true, .. }
+    );
     if !stt_ok {
         tracing::warn!(?ms, "handle_down: STT not ready, ignoring");
         let _ = app.emit(
@@ -136,13 +143,26 @@ fn handle_down(app: &AppHandle, state: &tauri::State<AppState>) {
                 }
             });
 
-            // Snapshot what the streaming worker needs (STT slot + dictation
+            // Snapshot what the streaming worker needs (engine + dictation
             // language) before re-acquiring the inner lock to install the
             // recorder + streaming handle.
-            let (stt_slot, language) = {
+            let (engine, language) = {
                 let inner = state.inner.lock().unwrap();
-                (inner.stt.clone(), inner.settings.language.clone())
+                (inner.engine.clone(), inner.settings.language.clone())
             };
+            // Lazy-load the STT slot for this dictation. If it's still
+            // downloading (None) or errors, fall back to the no-streaming path
+            // (run_pipeline will retry via ensure_stt one-shot).
+            let stt_slot = match engine.ensure_stt().await {
+                Ok(slot) => slot,
+                Err(e) => {
+                    tracing::warn!(%e, "handle_down: ensure_stt failed; no streaming session");
+                    None
+                }
+            };
+            if stt_slot.is_some() {
+                engine.mark_stt_used();
+            }
             let streaming = stt_slot.map(|slot| {
                 let lang_opt = if language == "auto" || language.is_empty() {
                     None
@@ -259,22 +279,26 @@ async fn run_pipeline(
 
     // Snapshot what we need; release the lock before any heavy work so we
     // never hold the std::sync::Mutex across an await.
-    let (stt_slot, llama, language, force_pasteboard) = {
+    let (engine, language, force_pasteboard) = {
         let inner = state.inner.lock().unwrap();
         (
-            inner.stt.clone(),
-            inner.llama.clone(),
+            inner.engine.clone(),
             inner.settings.language.clone(),
             inner.settings.force_pasteboard,
         )
     };
 
-    let Some(stt_slot) = stt_slot else {
-        let _ = app.emit(
-            "toast",
-            crate::commands::toast("warn", "Transcription model not loaded"),
-        );
-        return;
+    // Lazy-load the STT slot for the one-shot fallback path. The streaming
+    // worker (if any) already holds its own clone.
+    let stt_slot = match engine.ensure_stt().await {
+        Ok(Some(slot)) => slot,
+        Ok(None) | Err(_) => {
+            let _ = app.emit(
+                "toast",
+                crate::commands::toast("warn", "Transcription model not loaded"),
+            );
+            return;
+        }
     };
 
     let lang_for_stt = if language == "auto" || language.is_empty() {
@@ -327,35 +351,35 @@ async fn run_pipeline(
             }
         },
     };
+    // Transcription done — mark the STT used so the idle-unload timer is
+    // use-relative (not load-relative).
+    engine.mark_stt_used();
     let t1 = t0.elapsed();
 
-    // 2. Clean (graceful degrade if LLM missing or fails).
-    let cleaned = if let Some(llama) = llama {
-        let lang_for_clean = language.clone();
-        let raw_for_clean = raw_text.clone();
-        let r = tokio::task::spawn_blocking(move || {
-            llama.chat_sync(inference_core::ChatRequest {
-                system: Some(lirevo_prompts::build_clean_system_prompt(&lang_for_clean)),
-                history: vec![],
-                user: raw_for_clean,
-                temperature: 0.2,
-                max_tokens: 2048,
-                stop: vec![],
-            })
+    // 2. Clean (graceful degrade if LLM missing or fails). The engine
+    // lazy-loads the LLM on demand; Ok(None) means no cleanup model is
+    // configured (STT-only mode), so we type the raw transcript as-is.
+    let cleaned = match engine
+        .chat(inference_core::ChatRequest {
+            system: Some(lirevo_prompts::build_clean_system_prompt(&language)),
+            history: vec![],
+            user: raw_text.clone(),
+            temperature: 0.2,
+            max_tokens: 2048,
+            stop: vec![],
         })
-        .await;
-        match r {
-            Ok(Ok(resp)) => resp.text,
-            _ => {
-                let _ = app.emit(
-                    "toast",
-                    crate::commands::toast("warn", "Cleanup failed — typed raw transcript"),
-                );
-                raw_text
-            }
+        .await
+    {
+        Ok(Some(resp)) => resp.text,
+        Ok(None) => raw_text,
+        Err(e) => {
+            tracing::warn!(?e, "run_pipeline: cleanup failed; typing raw transcript");
+            let _ = app.emit(
+                "toast",
+                crate::commands::toast("warn", "Cleanup failed — typed raw transcript"),
+            );
+            raw_text
         }
-    } else {
-        raw_text
     };
     let t2 = t0.elapsed();
 
@@ -387,4 +411,9 @@ async fn run_pipeline(
             let _ = app.emit("toast", crate::commands::toast("error", msg));
         }
     }
+
+    // Record the last-dictation time on the engine. Reserved for future
+    // preload / idle-unload refinement — `lifecycle_decision` does not yet
+    // consume `last_dictation` (it takes it as `_last_dictation`).
+    engine.mark_dictation();
 }

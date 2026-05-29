@@ -6,8 +6,6 @@ use thiserror::Error;
 pub enum AppError {
     #[error("STT model not loaded")]
     SttNotLoaded,
-    #[error("LLM model not loaded")]
-    LlamaNotLoaded,
     #[error("Inference error: {0}")]
     Inference(String),
     #[error("Hotkey listener error: {0}")]

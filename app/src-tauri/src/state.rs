@@ -4,7 +4,6 @@ use tokio::sync::Mutex as AsyncMutex;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
-use inference_core::LlamaBackend;
 use audio_capture::Recorder;
 use os_integration::Injector;
 
@@ -30,8 +29,10 @@ pub type SttSlot = Arc<AsyncMutex<SttModelHandle>>;
 
 pub struct AppStateInner {
     pub settings: Settings,
-    pub stt: Option<SttSlot>,
-    pub llama: Option<Arc<LlamaBackend>>,
+    /// Unified model lifecycle owner: lazy-loads + resource-aware-unloads the
+    /// STT and LLM backends. Replaces the old manually-managed `stt` / `llama`
+    /// fields. See `crate::engine`.
+    pub engine: Arc<crate::engine::Engine>,
     pub recorder: Option<Recorder>,
     pub injector: Injector,
     pub current_load_token: u64,
@@ -58,11 +59,23 @@ impl AppState {
         let (recording_state_tx, _) = watch::channel(false);
         let (audio_level_tx, _) = watch::channel(0.0_f32);
 
+        // Build the Engine from the persisted settings. The initial profile is
+        // Balanced; the ProfileSelector overrides the policy once resource
+        // signals start flowing (see lib.rs setup wiring).
+        let engine = crate::engine::Engine::new(
+            crate::engine::EngineConfig {
+                llm_model_path: settings.llm_model_path.clone(),
+                llm_ctx_size: settings.llm_ctx_size,
+                stt_model_id: settings.stt_model_id.clone(),
+                keep_warm: settings.keep_models_warm,
+            },
+            inference_core::profile::ProfileName::Balanced,
+        );
+
         Self {
             inner: Mutex::new(AppStateInner {
                 settings,
-                stt: None,
-                llama: None,
+                engine,
                 recorder: None,
                 injector,
                 current_load_token: 0,

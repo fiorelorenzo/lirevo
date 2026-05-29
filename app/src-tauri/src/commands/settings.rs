@@ -44,15 +44,21 @@ pub async fn update_settings(
         // will warm up at the end of load_models anyway; firing here too
         // would warm a cold (still-loading) handle and then fight the
         // reload's own warm-up on the new handle.
-        let (stt, llama) = {
+        let engine = {
             let inner = state.inner.lock().unwrap();
-            (inner.stt.clone(), inner.llama.clone())
-        };
-        if stt.is_some() || llama.is_some() {
-            tokio::task::spawn_blocking(move || {
-                crate::commands::inference::warm_up(stt, llama);
+            // Keep the engine's keep_warm flag in sync so the lifecycle loop's
+            // preload/unload heuristics respect the new setting.
+            inner.engine.update_config(crate::engine::EngineConfig {
+                llm_model_path: inner.settings.llm_model_path.clone(),
+                llm_ctx_size: inner.settings.llm_ctx_size,
+                stt_model_id: inner.settings.stt_model_id.clone(),
+                keep_warm: inner.settings.keep_models_warm,
             });
-        }
+            inner.engine.clone()
+        };
+        tokio::spawn(async move {
+            crate::commands::inference::warm_up(&engine).await;
+        });
     }
     if before.hotkey != after.hotkey {
         crate::hotkey::reinstall(&app, after.hotkey)?;

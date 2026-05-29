@@ -153,11 +153,73 @@ pub fn run() {
                 tracing::warn!(?e, "overlay window install failed");
             }
 
-            // Kick off model loading in the background. With no paths configured
-            // this returns immediately after transitioning to ModelState::Idle.
-            // load_models itself calls `register_quit_safety_atexit` on completion
-            // so the macOS shutdown-abort short-circuit (see below) works for
-            // both the initial load and any subsequent reloads from Settings.
+            // Spawn the resource monitor, profile selector, and engine
+            // lifecycle loop. The selector pushes profile decisions into the
+            // engine's policy (PUSH via subscribe_changes); the engine consumes
+            // raw signals for unload/preload. monitor + selector are kept alive
+            // for the app process lifetime by the spawned task (the
+            // lifecycle_loop await never returns until the channel closes at
+            // shutdown).
+            let app_handle_for_lifecycle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let engine = {
+                    let state = app_handle_for_lifecycle.state::<AppState>();
+                    let inner = state.inner.lock().unwrap();
+                    inner.engine.clone()
+                };
+
+                match resource_monitor::ResourceMonitor::spawn().await {
+                    Ok(monitor) => {
+                        let selector = inference_core::profile::ProfileSelector::new(
+                            monitor.subscribe(),
+                            inference_core::profile::ProfileMode::Auto,
+                            inference_core::profile::ProfileName::Balanced,
+                        );
+                        // Feed selector decisions into the engine policy (push).
+                        let engine_for_policy = engine.clone();
+                        // `selector` is moved into this task; the task lives as
+                        // long as the watch channel (i.e. as long as the
+                        // selector itself) so this keeps the selector alive.
+                        let mut changes = selector.subscribe_changes();
+                        tauri::async_runtime::spawn(async move {
+                            let _selector = selector; // keep alive for the task
+                            loop {
+                                let profile = *changes.borrow_and_update();
+                                engine_for_policy.set_policy(
+                                    inference_core::profile::policy_for(profile),
+                                );
+                                if changes.changed().await.is_err() {
+                                    break;
+                                }
+                            }
+                        });
+                        // Engine reacts to raw signals for unload/preload. The
+                        // trailing `drop(monitor)` is load-bearing: it extends
+                        // `monitor`'s lifetime across the await. Dropping the
+                        // ResourceMonitor aborts its tick task AND closes the
+                        // broadcast sender, so if NLL dropped it right after
+                        // `subscribe()` the signal stream would die before the
+                        // loop ever ran.
+                        let signals = monitor.subscribe();
+                        engine.lifecycle_loop(signals).await;
+                        drop(monitor);
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            ?e,
+                            "resource monitor unavailable; engine runs without auto-unload"
+                        );
+                    }
+                }
+            });
+
+            // Initial model load for the UI's ModelState (Loading→Ready) +
+            // warm-up + preload. With no paths configured this returns after
+            // transitioning to ModelState::Idle. load_models refreshes the
+            // engine config + ensures the slots; it also calls
+            // `register_quit_safety_atexit` on completion so the macOS
+            // shutdown-abort short-circuit (see below) works for both the
+            // initial load and any subsequent reloads from Settings.
             let app_handle_for_load = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let state = app_handle_for_load.state::<AppState>();
