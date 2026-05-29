@@ -1572,6 +1572,7 @@ dependencies = [
  "llama-cpp-2",
  "num_cpus",
  "ort",
+ "resource-monitor",
  "rmp-serde",
  "serde",
  "serde_json",

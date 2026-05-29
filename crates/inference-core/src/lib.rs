@@ -16,6 +16,7 @@ pub mod audio;
 pub mod backend;
 pub mod catalog;
 pub mod llama;
+pub mod profile;
 pub mod server;
 pub mod stt;
 pub mod stub_llm;
