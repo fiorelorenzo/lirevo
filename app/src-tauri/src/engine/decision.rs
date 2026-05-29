@@ -3,8 +3,6 @@
 //! no I/O — `now` and all timestamps are injected so this is
 //! deterministically testable without real models.
 
-#![allow(dead_code)] // consumed by the Engine shell in Phase C
-
 use std::time::{Duration, Instant};
 
 use inference_core::profile::{NThreads, ProfilePolicy};

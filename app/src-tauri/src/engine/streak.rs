@@ -2,8 +2,6 @@
 //! CPU). Pure — `now` is injected. The Engine updates it per signal and
 //! passes the streak to `lifecycle_decision`.
 
-#![allow(dead_code)] // consumed by the Engine shell in Phase C
-
 use std::time::{Duration, Instant};
 
 use resource_monitor::Signals;

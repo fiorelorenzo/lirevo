@@ -22,9 +22,8 @@ use crate::engine::slot::{LlmSlot, SlotSnapshot, SttSlotState};
 use crate::state::SttSlot;
 
 pub use crate::engine::decision::UnloadReason;
-// `Action` is consumed by `apply_action` in C2 (lifecycle_loop); re-exported
-// now so the public surface is in one place.
-#[allow(unused_imports)]
+// `Action` is consumed by `apply_action` (lifecycle_loop); re-exported here so
+// the public surface is in one place.
 pub use crate::engine::decision::Action;
 
 /// What the Engine needs to know to load models. Plain data (not
@@ -233,6 +232,108 @@ impl Engine {
             }
         }
     }
+
+    async fn reload_llm_for_threads(self: &Arc<Self>, n_threads: i32) {
+        // Only reload if currently loaded and idle. Unload then lazy-load
+        // happens on next use; for an eager swap we reload immediately.
+        let path = self.config.load().llm_model_path.clone();
+        let ctx = self.config.load().llm_ctx_size;
+        let Some(path) = path else { return };
+        {
+            let mut slot = self.llm.lock().await;
+            if matches!(&*slot, LlmSlot::Unloaded | LlmSlot::Loading { .. }) {
+                return;
+            }
+            *slot = LlmSlot::Loading { since: Instant::now() };
+        }
+        let loaded =
+            tokio::task::spawn_blocking(move || LlamaBackend::load(path, ctx, n_threads)).await;
+        let mut slot = self.llm.lock().await;
+        match loaded {
+            Ok(Ok(backend)) => {
+                tracing::info!(n_threads, "engine: reloaded LLM for thread-count change");
+                *slot = LlmSlot::Loaded {
+                    backend: Arc::new(backend),
+                    last_use: Instant::now(),
+                    loaded_n_threads: n_threads,
+                };
+            }
+            _ => {
+                tracing::warn!("engine: LLM reload failed; left unloaded");
+                *slot = LlmSlot::Unloaded;
+            }
+        }
+    }
+
+    async fn preload_llm(self: &Arc<Self>) {
+        // Best-effort: ignore errors (next chat will retry / surface).
+        let _ = self.ensure_llm().await;
+    }
+
+    async fn apply_action(self: &Arc<Self>, action: Action) {
+        match action {
+            Action::UnloadLlm(r) => self.unload_llm(r).await,
+            Action::UnloadStt(r) => {
+                self.unload_stt(r).await;
+            }
+            Action::ReloadLlmForThreads { n_threads } => {
+                self.reload_llm_for_threads(n_threads).await;
+            }
+            Action::PreloadLlm => self.preload_llm().await,
+        }
+    }
+
+    /// Background lifecycle loop: ticks every 5s and reacts to signals.
+    /// Spawn this once on Engine construction (Phase D wires it).
+    ///
+    /// Action application is best-effort and re-evaluated every tick: because
+    /// `reload_llm_for_threads`/`preload_llm`/`ensure_llm` drop the slot lock
+    /// during their `spawn_blocking` load, an unload issued concurrently can
+    /// be silently overwritten by an in-flight load. That is acceptable for
+    /// v0.6 — the next tick re-runs the decision and re-issues the unload if
+    /// the condition still holds (no epoch/generation guard needed).
+    pub async fn lifecycle_loop(
+        self: Arc<Self>,
+        mut signals: tokio::sync::broadcast::Receiver<resource_monitor::Signals>,
+    ) {
+        use crate::engine::streak::ForegroundHeavyStreak;
+        let mut streak = ForegroundHeavyStreak::new();
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(5));
+        // Keep the latest signals for tick-driven checks.
+        let mut latest: Option<resource_monitor::Signals> = None;
+
+        loop {
+            let sig = tokio::select! {
+                _ = ticker.tick() => latest.clone(),
+                r = signals.recv() => match r {
+                    Ok(s) => { latest = Some(s.clone()); Some(s) }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                },
+            };
+            let Some(sig) = sig else { continue };
+
+            let now = Instant::now();
+            let fg_streak = streak.observe(&sig, now);
+            let policy = self.current_policy();
+            let llm = self.llm_snapshot();
+            let stt = self.stt_snapshot();
+            let last_dictation = *self.last_dictation.lock().expect("last_dictation");
+
+            let actions = crate::engine::decision::lifecycle_decision(
+                llm,
+                stt,
+                &sig,
+                &policy,
+                now,
+                last_dictation,
+                fg_streak,
+            );
+            for action in actions {
+                self.apply_action(action).await;
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -272,5 +373,40 @@ mod tests {
         let e = Engine::new(cfg(None), ProfileName::Balanced);
         e.unload_llm(UnloadReason::IdleTimeout).await; // no-op, no panic
         assert_eq!(e.llm_snapshot(), SlotSnapshot::Unloaded);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn lifecycle_loop_preloads_then_pressure_unloads() {
+        use resource_monitor::{MemoryPressure, Signals, ThermalState};
+        use std::time::SystemTime;
+        // No model path → preload + load are no-ops (ensure_llm returns
+        // None), so this test exercises the loop plumbing + action dispatch
+        // without needing a GGUF. We assert it doesn't panic and exits on
+        // channel close.
+        let (tx, rx) = tokio::sync::broadcast::channel(16);
+        let e = Engine::new(cfg(None), ProfileName::Balanced);
+        let handle = tokio::spawn(e.clone().lifecycle_loop(rx));
+
+        let sig = Signals {
+            ts: SystemTime::UNIX_EPOCH,
+            battery_pct: None,
+            on_ac: true,
+            power_saver_user_pref: false,
+            thermal: ThermalState::Nominal,
+            mem_pressure: MemoryPressure::Critical,
+            mem_free_pct: 5,
+            mem_free_mb: 500,
+            cpu_used_pct: 5,
+            foreground: None,
+        };
+        tx.send(sig).unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // Dropping the sender closes the channel → loop breaks → task ends.
+        drop(tx);
+        tokio::time::timeout(std::time::Duration::from_secs(2), handle)
+            .await
+            .expect("loop exits on channel close")
+            .expect("no panic");
     }
 }
