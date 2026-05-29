@@ -194,6 +194,47 @@ pub fn score(s: &Signals) -> i32 {
     total
 }
 
+/// Map a score to a profile band. See spec §4 "Profile bands".
+#[must_use]
+pub fn band_for_score(score: i32) -> ProfileName {
+    if score < 25 {
+        ProfileName::Performance
+    } else if score < 65 {
+        ProfileName::Balanced
+    } else {
+        ProfileName::PowerSaver
+    }
+}
+
+/// Why an emergency forced `PowerSaver`. Surfaced to the UI (toast) by the
+/// M5.3+ wiring; carried here so the Decider can report it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum EmergencyReason {
+    LowPowerMode,
+    ThermalCritical,
+    MemoryCritical,
+    BatteryCritical,
+}
+
+/// If any emergency trigger is active, return the highest-priority reason
+/// (checked in the order: low-power-mode, thermal, memory, battery). Any
+/// `Some(_)` forces `PowerSaver` regardless of scoring or pinned mode.
+/// `battery_pct == None` never triggers the battery case.
+#[must_use]
+pub fn emergency_target(s: &Signals) -> Option<EmergencyReason> {
+    if s.power_saver_user_pref {
+        Some(EmergencyReason::LowPowerMode)
+    } else if s.thermal == ThermalState::Critical {
+        Some(EmergencyReason::ThermalCritical)
+    } else if s.mem_pressure == MemoryPressure::Critical {
+        Some(EmergencyReason::MemoryCritical)
+    } else if matches!(s.battery_pct, Some(b) if b < 5) {
+        Some(EmergencyReason::BatteryCritical)
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -343,5 +384,58 @@ mod tests {
             mem_resident_mb: 200,
         });
         assert_eq!(score(&s), -20);
+    }
+
+    #[test]
+    fn band_boundaries() {
+        assert_eq!(band_for_score(0), ProfileName::Performance);
+        assert_eq!(band_for_score(24), ProfileName::Performance);
+        assert_eq!(band_for_score(25), ProfileName::Balanced);
+        assert_eq!(band_for_score(64), ProfileName::Balanced);
+        assert_eq!(band_for_score(65), ProfileName::PowerSaver);
+        assert_eq!(band_for_score(130), ProfileName::PowerSaver);
+        assert_eq!(band_for_score(-20), ProfileName::Performance);
+    }
+
+    #[test]
+    fn emergency_low_power_mode() {
+        let mut s = baseline();
+        s.power_saver_user_pref = true;
+        assert_eq!(emergency_target(&s), Some(EmergencyReason::LowPowerMode));
+    }
+
+    #[test]
+    fn emergency_thermal_critical() {
+        let mut s = baseline();
+        s.thermal = ThermalState::Critical;
+        assert_eq!(emergency_target(&s), Some(EmergencyReason::ThermalCritical));
+    }
+
+    #[test]
+    fn emergency_memory_critical() {
+        let mut s = baseline();
+        s.mem_pressure = MemoryPressure::Critical;
+        assert_eq!(emergency_target(&s), Some(EmergencyReason::MemoryCritical));
+    }
+
+    #[test]
+    fn emergency_battery_critical() {
+        let mut s = baseline();
+        s.on_ac = false;
+        s.battery_pct = Some(3);
+        assert_eq!(emergency_target(&s), Some(EmergencyReason::BatteryCritical));
+    }
+
+    #[test]
+    fn emergency_battery_none_never_triggers() {
+        let mut s = baseline();
+        s.on_ac = false;
+        s.battery_pct = None;
+        assert_eq!(emergency_target(&s), None);
+    }
+
+    #[test]
+    fn emergency_none_on_baseline() {
+        assert_eq!(emergency_target(&baseline()), None);
     }
 }
