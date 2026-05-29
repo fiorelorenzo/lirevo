@@ -14,6 +14,7 @@
 
 use std::time::Duration;
 
+use resource_monitor::{MemoryPressure, Signals, ThermalState};
 use serde::Serialize;
 
 /// The three energy profiles. Ordered conceptually from least to most
@@ -123,6 +124,76 @@ pub fn policy_for(name: ProfileName) -> ProfilePolicy {
     }
 }
 
+/// Bundle ids of apps known to be sustained-heavy CPU consumers. Not
+/// exhaustive — the `cpu > 50` generic branch in `score` catches anything
+/// missed. Exact-match; version-suffixed bundle ids fall through to the
+/// generic branch.
+const KNOWN_HEAVY_APPS: &[&str] = &[
+    "com.blackmagic-design.DaVinciResolve",
+    "com.adobe.PremierePro",
+    "com.apple.FinalCut",
+    "org.blenderfoundation.blender",
+    "net.maxon.cinema4d",
+    "com.apple.logic10",
+    "com.apple.dt.Xcode",
+];
+
+fn is_heavy_app(bundle_id: &str) -> bool {
+    KNOWN_HEAVY_APPS.contains(&bundle_id)
+}
+
+/// Additive resource-pressure score. Higher = more pressure = bias toward
+/// `PowerSaver`. Typical range 0..130 (can go to -20 when on AC and idle).
+/// Pure: no clock, no I/O. See spec §4 "Scoring".
+#[must_use]
+pub fn score(s: &Signals) -> i32 {
+    let mut total = 0;
+
+    // Power.
+    if s.on_ac {
+        total -= 20;
+    } else if let Some(b) = s.battery_pct {
+        if b < 20 {
+            total += 40;
+        } else if b < 50 {
+            // (50 - b) * 0.6, integer round-half-up.
+            total += (i32::from(50 - b) * 6 + 5) / 10;
+        }
+    }
+
+    // Thermal.
+    total += match s.thermal {
+        ThermalState::Nominal => 0,
+        ThermalState::Fair => 15,
+        ThermalState::Serious => 40,
+        ThermalState::Critical => 80,
+    };
+
+    // Memory. The +50 case (Critical pressure OR very low free) wins over
+    // the +30 Warning case.
+    if s.mem_pressure == MemoryPressure::Critical || s.mem_free_pct < 15 {
+        total += 50;
+    } else if s.mem_pressure == MemoryPressure::Warning && s.mem_free_pct < 30 {
+        total += 30;
+    }
+
+    // CPU.
+    if s.cpu_used_pct > 70 {
+        total += i32::from(s.cpu_used_pct - 70) / 2;
+    }
+
+    // Foreground app.
+    if let Some(fg) = &s.foreground {
+        if fg.cpu_used_pct > 30 && is_heavy_app(&fg.bundle_id) {
+            total += 25;
+        } else if fg.cpu_used_pct > 50 {
+            total += 15;
+        }
+    }
+
+    total
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -156,5 +227,121 @@ mod tests {
         assert_eq!(policy_for(ProfileName::PowerSaver).name, ProfileName::PowerSaver);
         assert_eq!(policy_for(ProfileName::Balanced).name, ProfileName::Balanced);
         assert_eq!(policy_for(ProfileName::Performance).name, ProfileName::Performance);
+    }
+
+    use resource_monitor::ForegroundApp;
+    use std::time::SystemTime;
+
+    /// A `Signals` with the conservative "nothing wrong" baseline:
+    /// on AC, nominal thermal, normal memory, idle CPU, no foreground.
+    fn baseline() -> Signals {
+        Signals {
+            ts: SystemTime::UNIX_EPOCH,
+            battery_pct: None,
+            on_ac: true,
+            power_saver_user_pref: false,
+            thermal: ThermalState::Nominal,
+            mem_pressure: MemoryPressure::Normal,
+            mem_free_pct: 100,
+            mem_free_mb: 16_000,
+            cpu_used_pct: 0,
+            foreground: None,
+        }
+    }
+
+    #[test]
+    fn score_baseline_on_ac_is_negative_20() {
+        assert_eq!(score(&baseline()), -20);
+    }
+
+    #[test]
+    fn score_battery_below_20() {
+        let mut s = baseline();
+        s.on_ac = false;
+        s.battery_pct = Some(15);
+        assert_eq!(score(&s), 40);
+    }
+
+    #[test]
+    fn score_battery_smooth_range() {
+        let mut s = baseline();
+        s.on_ac = false;
+        s.battery_pct = Some(30);
+        assert_eq!(score(&s), 12);
+    }
+
+    #[test]
+    fn score_battery_above_50_is_zero() {
+        let mut s = baseline();
+        s.on_ac = false;
+        s.battery_pct = Some(80);
+        assert_eq!(score(&s), 0);
+    }
+
+    #[test]
+    fn score_thermal_levels() {
+        let mut s = baseline();
+        s.thermal = ThermalState::Fair;
+        assert_eq!(score(&s), -20 + 15);
+        s.thermal = ThermalState::Serious;
+        assert_eq!(score(&s), -20 + 40);
+        s.thermal = ThermalState::Critical;
+        assert_eq!(score(&s), -20 + 80);
+    }
+
+    #[test]
+    fn score_memory_pressure() {
+        let mut s = baseline();
+        s.mem_pressure = MemoryPressure::Warning;
+        s.mem_free_pct = 25;
+        assert_eq!(score(&s), -20 + 30);
+
+        s.mem_pressure = MemoryPressure::Critical;
+        s.mem_free_pct = 25;
+        assert_eq!(score(&s), -20 + 50);
+
+        s.mem_pressure = MemoryPressure::Normal;
+        s.mem_free_pct = 10;
+        assert_eq!(score(&s), -20 + 50);
+    }
+
+    #[test]
+    fn score_cpu_above_70() {
+        let mut s = baseline();
+        s.cpu_used_pct = 90;
+        assert_eq!(score(&s), -20 + 10);
+    }
+
+    #[test]
+    fn score_foreground_heavy_app() {
+        let mut s = baseline();
+        s.foreground = Some(ForegroundApp {
+            bundle_id: "com.apple.dt.Xcode".into(),
+            cpu_used_pct: 40,
+            mem_resident_mb: 2000,
+        });
+        assert_eq!(score(&s), -20 + 25);
+    }
+
+    #[test]
+    fn score_foreground_generic_high_cpu() {
+        let mut s = baseline();
+        s.foreground = Some(ForegroundApp {
+            bundle_id: "com.apple.TextEdit".into(),
+            cpu_used_pct: 60,
+            mem_resident_mb: 200,
+        });
+        assert_eq!(score(&s), -20 + 15);
+    }
+
+    #[test]
+    fn score_foreground_low_cpu_is_zero() {
+        let mut s = baseline();
+        s.foreground = Some(ForegroundApp {
+            bundle_id: "com.apple.TextEdit".into(),
+            cpu_used_pct: 5,
+            mem_resident_mb: 200,
+        });
+        assert_eq!(score(&s), -20);
     }
 }
