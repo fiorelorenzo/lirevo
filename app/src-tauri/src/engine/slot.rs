@@ -6,6 +6,8 @@
 //! count) so the lifecycle logic stays clock-injectable and testable
 //! without real models.
 
+#![allow(dead_code)] // consumed by the Engine shell in Phase C
+
 use std::sync::Arc;
 use std::time::Instant;
 

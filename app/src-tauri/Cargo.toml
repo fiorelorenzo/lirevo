@@ -41,9 +41,11 @@ sys-locale = "0.3"
 hound = "3"
 
 inference-core    = { path = "../../crates/inference-core" }
+resource-monitor  = { path = "../../crates/resource-monitor" }
 audio-capture     = { path = "../../crates/audio-capture" }
 os-integration    = { path = "../../crates/os-integration" }
 lirevo-prompts    = { path = "../../crates/lirevo-prompts" }
+num_cpus          = "1"
 
 # M4: STT migration to audiopipe. Pinned on our fork (fiorelorenzo/audiopipe)
 # so we can ship streaming on the fork independently of the upstream PR cadence.
