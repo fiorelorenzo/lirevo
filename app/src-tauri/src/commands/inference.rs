@@ -164,7 +164,10 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
             );
             return None;
         }
-        Some(tokio::task::spawn_blocking(move || LlamaBackend::load(p, ctx_size)))
+        // TODO(M5.3 Phase C): pass profile-resolved n_threads via Engine
+        Some(tokio::task::spawn_blocking(move || {
+            LlamaBackend::load(p, ctx_size, 0)
+        }))
     });
 
     let stt_result = match stt_handle {

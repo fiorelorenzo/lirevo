@@ -178,7 +178,16 @@ impl LlamaBackend {
         })
     }
 
-    pub fn load(model_path: PathBuf, ctx_size: u32) -> Result<Self, LlmError> {
+    pub fn load(model_path: PathBuf, ctx_size: u32, n_threads: i32) -> Result<Self, LlmError> {
+        // llama-cpp-2's load_from_file panics (not Err) on a missing file, so
+        // guard here to surface it as a recoverable error instead.
+        if !model_path.exists() {
+            return Err(LlmError::Llama(format!(
+                "model file does not exist: {}",
+                model_path.display()
+            )));
+        }
+
         let backend = global_backend()?;
 
         // API deviation (v0.1.146): with_n_gpu_layers takes u32 (not i32).
@@ -190,7 +199,11 @@ impl LlamaBackend {
             .map_err(|e| LlmError::Llama(format!("load model: {e}")))?;
         let model = Arc::new(model);
 
-        let n_threads = i32::try_from(num_cpus::get()).unwrap_or(1);
+        let n_threads = if n_threads >= 1 {
+            n_threads
+        } else {
+            i32::try_from(num_cpus::get()).unwrap_or(1)
+        };
         let ctx_params = LlamaContextParams::default()
             .with_n_ctx(std::num::NonZeroU32::new(ctx_size))
             .with_n_threads(n_threads)
@@ -281,5 +294,18 @@ impl LlmBackend for LlamaBackend {
             loaded: true,
             ctx_size: Some(self.ctx_size),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn load_signature_takes_n_threads() {
+        // Compile-time contract: load takes (PathBuf, u32 ctx, i32 n_threads).
+        // A missing model path errors, but the signature is what we assert.
+        let r = LlamaBackend::load(std::path::PathBuf::from("/nonexistent.gguf"), 4096, 4);
+        assert!(r.is_err());
     }
 }

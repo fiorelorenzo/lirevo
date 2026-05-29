@@ -76,7 +76,8 @@ fn load_llm_backend() -> Option<LlmBackendHandle> {
                 .ok()
                 .and_then(|s| s.parse::<u32>().ok())
                 .unwrap_or(4096);
-            match llama::LlamaBackend::load(model_path, ctx_size) {
+            // 0 = "all cores" (dev CLI; not the shipped lifecycle path).
+            match llama::LlamaBackend::load(model_path, ctx_size, 0) {
                 Ok(b) => Some(Arc::new(b) as LlmBackendHandle),
                 Err(e) => {
                     tracing::error!(error = ?e, "failed to load LlamaBackend; LLM disabled");
