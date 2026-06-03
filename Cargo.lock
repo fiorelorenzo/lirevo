@@ -179,7 +179,7 @@ dependencies = [
 [[package]]
 name = "audiopipe"
 version = "0.2.0"
-source = "git+https://github.com/fiorelorenzo/audiopipe?rev=ae35e13d89866a1f844ca267863b5df0cfaee755#ae35e13d89866a1f844ca267863b5df0cfaee755"
+source = "git+https://github.com/fiorelorenzo/audiopipe?rev=3538b172b436fdd7ec07672e72195c5e3f8a0c1f#3538b172b436fdd7ec07672e72195c5e3f8a0c1f"
 dependencies = [
  "half",
  "hf-hub",
@@ -2821,7 +2821,7 @@ dependencies = [
 [[package]]
 name = "qwen3-asr-sys"
 version = "0.1.0"
-source = "git+https://github.com/fiorelorenzo/audiopipe?rev=ae35e13d89866a1f844ca267863b5df0cfaee755#ae35e13d89866a1f844ca267863b5df0cfaee755"
+source = "git+https://github.com/fiorelorenzo/audiopipe?rev=3538b172b436fdd7ec07672e72195c5e3f8a0c1f#3538b172b436fdd7ec07672e72195c5e3f8a0c1f"
 dependencies = [
  "cc",
  "cmake",

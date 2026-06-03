@@ -6,7 +6,10 @@
 //!      MLX-accelerated inference; that's the routing concern of
 //!      [`audiopipe_name_for_platform`], not the catalog id itself. The MLX
 //!      variant loads its 0.6B weights in bf16 (~1.2 GB resident; fp32 was
-//!      ~2.4 GB).
+//!      ~2.4 GB). The download itself is a pre-converted bf16 model (~1.25 GB,
+//!      half the upstream fp32 file): `lib.rs` points audiopipe at it via the
+//!      `AUDIOPIPE_PARAKEET_MLX_REPO` env var. Transcripts are bit-identical
+//!      since inference runs bf16 either way.
 //!   2. `qwen3-asr-0.6b-ggml` — opt-in, 30 languages, broad coverage.
 //!   3. `whisper-large-v3-turbo` — fallback, 99 langs. **Requires the
 //!      `whisper` Cargo feature on `audiopipe`**, which is OFF in the M4
@@ -96,7 +99,9 @@ const WHISPER_LANGUAGES: &[&str] = &["multilingual-99"];
 const PARAKEET_V3: Metadata = Metadata {
     id: "parakeet-tdt-0.6b-v3",
     display_name: "Parakeet TDT v3",
-    size_bytes: 600_000_000,
+    // Download is the pre-converted bf16 model (~1.25 GB), half the upstream
+    // fp32 file; see the bf16 routing note in this file's module docs.
+    size_bytes: 1_254_000_000,
     language_coverage: LanguageCoverage::European25,
     summary: "25 European languages. Lowest latency.",
     license: "CC-BY-4.0",
