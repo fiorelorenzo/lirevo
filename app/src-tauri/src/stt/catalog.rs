@@ -1,10 +1,12 @@
 //! Hardcoded catalog of STT models supported by the M4 audiopipe pipeline.
 //!
 //! Three entries, matching the M4 spec §3:
-//!   1. `parakeet-tdt-0.6b-v3` — default, 25 EU languages, ~600 MB.
+//!   1. `parakeet-tdt-0.6b-v3` — default, 25 EU languages.
 //!      On Apple Silicon the loader silently prefers the `-mlx` variant for
 //!      MLX-accelerated inference; that's the routing concern of
-//!      [`audiopipe_name_for_platform`], not the catalog id itself.
+//!      [`audiopipe_name_for_platform`], not the catalog id itself. The MLX
+//!      variant loads its 0.6B weights in bf16 (~1.2 GB resident; fp32 was
+//!      ~2.4 GB).
 //!   2. `qwen3-asr-0.6b-ggml` — opt-in, 30 languages, broad coverage.
 //!   3. `whisper-large-v3-turbo` — fallback, 99 langs. **Requires the
 //!      `whisper` Cargo feature on `audiopipe`**, which is OFF in the M4
