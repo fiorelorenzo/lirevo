@@ -337,6 +337,7 @@ pub fn run() {
             commands::models::get_stt_catalog,
             commands::models::models_list_local,
             commands::models::models_download,
+            commands::models::stt_download,
             commands::models::models_cancel_download,
             commands::models::models_delete,
             commands::inference::transcribe,
