@@ -31,6 +31,18 @@ pub async fn complete_wizard(
         tracing::warn!(?e, "hotkey reinstall after wizard failed");
     }
     use tauri::Manager;
+    // Onboarding is done and the wizard downloaded both models, so eager-load
+    // them from the cache now. `load_models` early-returns while onboarding is
+    // incomplete (the wizard owns downloads), so this is the first real load —
+    // it makes home ready to dictate immediately instead of lazily on the first
+    // hotkey press.
+    {
+        let app2 = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let state = app2.state::<AppState>();
+            crate::commands::inference::load_models(&app2, state).await;
+        });
+    }
     if let Some(w) = app.get_webview_window("wizard") {
         let _ = w.close();
     }
