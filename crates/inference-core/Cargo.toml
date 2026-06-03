@@ -24,7 +24,7 @@ hound = "3"
 # M4: STT goes through audiopipe (same git pin as the Tauri host crate).
 # Feature set matches `app/src-tauri/Cargo.toml`; with whisper-rs gone, the
 # `whisper` feature on audiopipe can stay enabled here too.
-audiopipe = { git = "https://github.com/fiorelorenzo/audiopipe", rev = "07388df945ed6d826125d44cf63a525aadac1a42", default-features = false, features = [
+audiopipe = { git = "https://github.com/fiorelorenzo/audiopipe", rev = "75ea39f9b6cf58d94f05baf8581e2b062d02db73", default-features = false, features = [
     "parakeet",
     "parakeet-mlx",
     "qwen3-asr-ggml",
@@ -36,7 +36,7 @@ audiopipe = { git = "https://github.com/fiorelorenzo/audiopipe", rev = "07388df9
 # `std` feature it relies on and `download-binaries` needed for linking.
 # Re-enable both here so the workspace resolves the same feature set the
 # Tauri host uses.
-ort = { version = "=2.0.0-rc.10", default-features = false, features = ["std", "ndarray", "half", "download-binaries"] }
+ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "half", "download-binaries", "tls-rustls"] }
 llama-cpp-2 = { version = "0.1", features = ["metal"] }
 num_cpus = "1"
 

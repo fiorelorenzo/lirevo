@@ -48,9 +48,9 @@ impl Embedder {
 
         let session = build_session(&model_path)?;
         let needs_token_type_ids = session
-            .inputs
+            .inputs()
             .iter()
-            .any(|i| i.name == "token_type_ids");
+            .any(|i| i.name() == "token_type_ids");
         let output_name = pick_output_name(&session)?;
         let tokenizer =
             Tokenizer::from_file(&tok_path).map_err(|e| anyhow::anyhow!("tokenizer load: {e}"))?;
@@ -83,20 +83,35 @@ impl Embedder {
         let mask_t = Array2::from_shape_vec((1, n), mask.clone())?;
         let type_ids_t = Array2::from_shape_vec((1, n), type_ids)?;
 
+        // Build tensors up front: rc.12's `TensorRef`/run errors are not
+        // `Send + Sync`, so map them through Display before `?`.
+        let ids_ref = TensorRef::from_array_view(&ids_t)
+            .map_err(|e| anyhow::anyhow!("input_ids tensor: {e}"))?;
+        let mask_ref = TensorRef::from_array_view(&mask_t)
+            .map_err(|e| anyhow::anyhow!("attention_mask tensor: {e}"))?;
+
         let outputs = if self.needs_token_type_ids {
-            self.session.run(ort::inputs![
-                "input_ids" => TensorRef::from_array_view(&ids_t)?,
-                "attention_mask" => TensorRef::from_array_view(&mask_t)?,
-                "token_type_ids" => TensorRef::from_array_view(&type_ids_t)?,
-            ])?
+            let type_ref = TensorRef::from_array_view(&type_ids_t)
+                .map_err(|e| anyhow::anyhow!("token_type_ids tensor: {e}"))?;
+            self.session
+                .run(ort::inputs![
+                    "input_ids" => ids_ref,
+                    "attention_mask" => mask_ref,
+                    "token_type_ids" => type_ref,
+                ])
+                .map_err(|e| anyhow::anyhow!("session run: {e}"))?
         } else {
-            self.session.run(ort::inputs![
-                "input_ids" => TensorRef::from_array_view(&ids_t)?,
-                "attention_mask" => TensorRef::from_array_view(&mask_t)?,
-            ])?
+            self.session
+                .run(ort::inputs![
+                    "input_ids" => ids_ref,
+                    "attention_mask" => mask_ref,
+                ])
+                .map_err(|e| anyhow::anyhow!("session run: {e}"))?
         };
 
-        let (shape, data) = outputs[self.output_name.as_str()].try_extract_tensor::<f32>()?;
+        let (shape, data) = outputs[self.output_name.as_str()]
+            .try_extract_tensor::<f32>()
+            .map_err(|e| anyhow::anyhow!("extract output tensor: {e}"))?;
         let dims: &[i64] = shape;
         if dims.len() != 3 || dims[0] != 1 || usize::try_from(dims[1]).ok() != Some(n) {
             bail!("unexpected output shape: {dims:?} (expected [1, {n}, hidden])");
@@ -147,17 +162,23 @@ pub fn cosine(a: &[f32], b: &[f32]) -> f64 {
 #[cfg(target_os = "macos")]
 fn build_session(model_path: &Path) -> Result<Session> {
     use ort::execution_providers::CoreMLExecutionProvider;
-    // `SessionBuilder` config methods return `Error<SessionBuilder>` (carrying
-    // the builder for recovery); convert to `ort::Error<()>` so `?` can lift it
-    // into `anyhow::Error` (which requires `Send + Sync`).
-    let builder = Session::builder()?
-        .with_execution_providers([CoreMLExecutionProvider::default().build()])?;
-    Ok(builder.commit_from_file(model_path)?)
+    // `ort` rc.12 error types carry the recovered object (e.g.
+    // `Error<SessionBuilder>`) and are not `Send + Sync`, so `?` can't lift
+    // them into `anyhow::Error`. Map each through Display first.
+    Session::builder()
+        .map_err(|e| anyhow::anyhow!("session builder: {e}"))?
+        .with_execution_providers([CoreMLExecutionProvider::default().build()])
+        .map_err(|e| anyhow::anyhow!("set execution providers: {e}"))?
+        .commit_from_file(model_path)
+        .map_err(|e| anyhow::anyhow!("commit session: {e}"))
 }
 
 #[cfg(not(target_os = "macos"))]
 fn build_session(model_path: &Path) -> Result<Session> {
-    Ok(Session::builder()?.commit_from_file(model_path)?)
+    Session::builder()
+        .map_err(|e| anyhow::anyhow!("session builder: {e}"))?
+        .commit_from_file(model_path)
+        .map_err(|e| anyhow::anyhow!("commit session: {e}"))
 }
 
 fn pick_output_name(session: &Session) -> Result<String> {
@@ -166,19 +187,19 @@ fn pick_output_name(session: &Session) -> Result<String> {
     // ONNX export changes conventions.
     let preferred = ["last_hidden_state", "sentence_embedding", "output"];
     for name in preferred {
-        if session.outputs.iter().any(|o| o.name == name) {
+        if session.outputs().iter().any(|o| o.name() == name) {
             return Ok(name.to_string());
         }
     }
     let first = session
-        .outputs
+        .outputs()
         .first()
         .ok_or_else(|| anyhow::anyhow!("model has no outputs"))?;
     tracing::warn!(
-        output = %first.name,
+        output = %first.name(),
         "no known embedding output name; using first output"
     );
-    Ok(first.name.clone())
+    Ok(first.name().to_string())
 }
 
 fn ensure_file(cache_dir: &Path, name: &str, url: &str, expected_sha: &str) -> Result<PathBuf> {

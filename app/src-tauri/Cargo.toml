@@ -55,7 +55,7 @@ num_cpus          = "1"
 # Phase-2 (T8) re-enabled the `whisper` feature now that `whisper-rs` was
 # dropped from `inference-core` — both packages link the native `whisper`
 # library, so they couldn't coexist before.
-audiopipe = { git = "https://github.com/fiorelorenzo/audiopipe", rev = "07388df945ed6d826125d44cf63a525aadac1a42", default-features = false, features = [
+audiopipe = { git = "https://github.com/fiorelorenzo/audiopipe", rev = "75ea39f9b6cf58d94f05baf8581e2b062d02db73", default-features = false, features = [
     "parakeet",
     # `parakeet-mlx` re-enabled 2026-05-26. The earlier Xcode 26 / SDK 26
     # Metal Toolchain build break (program-scope `MTL_CONST constexpr`,
@@ -76,7 +76,7 @@ audiopipe = { git = "https://github.com/fiorelorenzo/audiopipe", rev = "07388df9
 # with the deliberately-loud "add_ort_library_path_or_enable_feature_…"
 # placeholder lib name). Cargo unifies features across the graph, so
 # re-enabling both here lets audiopipe build + link without forking it.
-ort = { version = "=2.0.0-rc.10", default-features = false, features = ["std", "ndarray", "half", "download-binaries"] }
+ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "half", "download-binaries", "tls-rustls"] }
 
 [features]
 default = ["audiopipe-whisper", "audiopipe-mlx"]
