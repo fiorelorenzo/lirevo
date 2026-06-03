@@ -239,20 +239,95 @@ fn poll_vm_once(state: &Arc<SharedState>) {
     // SAFETY: read of an immutable extern static initialized before main.
     let page_size_bytes = unsafe { vm_page_size } as u64;
 
-    let free_pages = u64::from(vm.free_count) + u64::from(vm.speculative_count);
-    let active_pages = u64::from(vm.active_count);
-    let inactive_pages = u64::from(vm.inactive_count);
-    let wire_pages = u64::from(vm.wire_count);
-    let total_pages = free_pages + active_pages + inactive_pages + wire_pages;
-
-    if total_pages == 0 {
+    let Some((free_mb, free_pct)) = available_mem(
+        u64::from(vm.free_count),
+        u64::from(vm.speculative_count),
+        u64::from(vm.inactive_count),
+        u64::from(vm.active_count),
+        u64::from(vm.wire_count),
+        page_size_bytes,
+    ) else {
         return;
-    }
-
-    // u32 caps at ~4 PiB worth of MB, way above any realistic RAM total,
-    // so the `as u32` cast is safe.
-    let free_mb = u32::try_from(free_pages * page_size_bytes / 1_048_576).unwrap_or(u32::MAX);
-    let free_pct = u8::try_from(((free_pages * 100) / total_pages).min(100)).unwrap_or(u8::MAX);
+    };
     state.set_mem_free_mb(free_mb);
     state.set_mem_free_pct(free_pct);
+}
+
+/// Compute available memory `(MB, percent)` from raw VM page counts. Pure, so
+/// it is unit-testable without a live `host_statistics64` read.
+///
+/// "Available" deliberately counts `inactive` pages alongside `free` and
+/// `speculative`: inactive pages are reclaimable on demand (file cache, idle
+/// anonymous memory), so the kernel hands them back the moment a process needs
+/// RAM. Excluding them — as a naive free-only count does — badly under-reports
+/// headroom (e.g. ~185 MB "free" while ~2.4 GB sits reclaimable in inactive),
+/// which would trip memory-pressure unloads when there is in fact plenty of
+/// room. Returns `None` only for a degenerate all-zero read.
+fn available_mem(
+    free: u64,
+    speculative: u64,
+    inactive: u64,
+    active: u64,
+    wire: u64,
+    page_size: u64,
+) -> Option<(u32, u8)> {
+    let available = free + speculative + inactive;
+    let total = available + active + wire;
+    if total == 0 {
+        return None;
+    }
+    // u32 caps at ~4 PiB worth of MB, way above any realistic RAM total,
+    // so the cast is safe.
+    let mb = u32::try_from(available * page_size / 1_048_576).unwrap_or(u32::MAX);
+    let pct = u8::try_from(((available * 100) / total).min(100)).unwrap_or(u8::MAX);
+    Some((mb, pct))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::available_mem;
+
+    const PAGE_16K: u64 = 16_384;
+
+    #[test]
+    fn available_counts_inactive_as_reclaimable() {
+        // free+spec = 100 pages, inactive = 1000 pages (reclaimable).
+        // A free-only count would report ~1.5 MiB; available must include the
+        // inactive pages.
+        let (mb, pct) = available_mem(80, 20, 1000, 500, 400, PAGE_16K).unwrap();
+        // available = 80 + 20 + 1000 = 1100 pages.
+        assert_eq!(mb, u32::try_from(1100 * PAGE_16K / 1_048_576).unwrap());
+        // available 1100 of total (1100 + 500 + 400 = 2000) = 55%.
+        assert_eq!(pct, 55);
+    }
+
+    #[test]
+    fn available_dominated_by_inactive_clears_low_ram_threshold() {
+        // Reproduces the smoke-test machine: 185 MB free+spec but 2.4 GB
+        // inactive. Available must land well above the 2048 MB unload mark
+        // so the lifecycle decision does not thrash.
+        let free_spec_pages = 185 * 1_048_576 / PAGE_16K; // ~185 MB
+        let inactive_pages = 2400 * 1_048_576 / PAGE_16K; // ~2.4 GB
+        let (mb, _pct) = available_mem(
+            free_spec_pages,
+            0,
+            inactive_pages,
+            100_000,
+            100_000,
+            PAGE_16K,
+        )
+        .unwrap();
+        assert!(
+            mb > 2048,
+            "available {mb} MB should exceed the 2048 MB unload threshold"
+        );
+    }
+
+    #[test]
+    fn available_pct_capped_and_zero_read_is_none() {
+        assert_eq!(available_mem(0, 0, 0, 0, 0, PAGE_16K), None);
+        // All free → 100%, never overflowing the u8.
+        let (_mb, pct) = available_mem(1000, 0, 0, 0, 0, PAGE_16K).unwrap();
+        assert_eq!(pct, 100);
+    }
 }

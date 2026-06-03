@@ -12,6 +12,12 @@ use crate::engine::slot::SlotSnapshot;
 
 /// Free RAM below this (MB) forces an LLM unload regardless of profile.
 const LOW_FREE_RAM_MB: u32 = 2048;
+/// Opportunistic preload only fires when free RAM is comfortably above the
+/// unload mark. The 1 GiB gap is hysteresis: without it a memory-constrained
+/// machine unloads on `LowFreeRam` and then immediately preloads on the next
+/// tick, thrashing the model every cycle. Preload needs real headroom; unload
+/// reacts to genuine pressure.
+const PRELOAD_MIN_FREE_RAM_MB: u32 = LOW_FREE_RAM_MB + 1024;
 /// A loaded-but-idle model is only unloaded for foreground-heavy pressure
 /// if it has been idle at least this long (avoid yanking mid-use).
 const FOREGROUND_IDLE_GRACE: Duration = Duration::from_secs(5);
@@ -136,10 +142,13 @@ pub fn lifecycle_decision(
     }
 
     // 7. Startup / opportunistic pre-load: LLM unloaded, profile is
-    // Balanced|Performance, on AC. PowerSaver and on-battery start cold.
+    // Balanced|Performance, on AC, with real RAM headroom. PowerSaver and
+    // on-battery start cold; a memory-constrained machine also stays cold so
+    // it never fights the `LowFreeRam` unload above (hysteresis).
     if actions.is_empty()
         && matches!(llm, SlotSnapshot::Unloaded)
         && signals.on_ac
+        && signals.mem_free_mb >= PRELOAD_MIN_FREE_RAM_MB
         && preload_profile(policy)
     {
         actions.push(Action::PreloadLlm);
@@ -340,6 +349,47 @@ mod tests {
             Duration::ZERO,
         );
         assert!(actions.contains(&Action::PreloadLlm));
+    }
+
+    #[test]
+    fn no_preload_when_free_ram_below_hysteresis() {
+        // Regression: the thrash loop. On a memory-constrained machine the
+        // LLM is unloaded for LowFreeRam, then must NOT be preloaded back on
+        // the next tick — even though it is Unloaded, on AC, and Balanced.
+        let t0 = Instant::now();
+        let mut sig = signals_ok();
+        sig.mem_free_mb = 1500; // below LOW_FREE_RAM_MB
+        let actions = lifecycle_decision(
+            SlotSnapshot::Unloaded,
+            SlotSnapshot::Unloaded,
+            &sig,
+            &BALANCED,
+            t0,
+            t0,
+            Duration::ZERO,
+        );
+        assert!(!actions.contains(&Action::PreloadLlm));
+    }
+
+    #[test]
+    fn no_preload_in_hysteresis_dead_band() {
+        // Free RAM between the unload mark (2048) and the preload mark: a
+        // loaded model would survive (no LowFreeRam unload) but an unloaded
+        // one must not be eagerly reloaded, so the system never flaps at the
+        // boundary.
+        let t0 = Instant::now();
+        let mut sig = signals_ok();
+        sig.mem_free_mb = LOW_FREE_RAM_MB + 256; // 2304: above unload, below preload
+        let actions = lifecycle_decision(
+            SlotSnapshot::Unloaded,
+            SlotSnapshot::Unloaded,
+            &sig,
+            &PERFORMANCE,
+            t0,
+            t0,
+            Duration::ZERO,
+        );
+        assert!(!actions.contains(&Action::PreloadLlm));
     }
 
     #[test]
