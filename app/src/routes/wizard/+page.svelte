@@ -4,14 +4,10 @@
   import { Button } from '$lib/components/ui/button';
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import StepIndicator from '$lib/components/StepIndicator.svelte';
-  import Welcome from '$lib/components/wizard/Welcome.svelte';
-  import Accessibility from '$lib/components/wizard/Accessibility.svelte';
-  import Microphone from '$lib/components/wizard/Microphone.svelte';
-  import Models from '$lib/components/wizard/Models.svelte';
   import Language from '$lib/components/wizard/Language.svelte';
-  import BackgroundMode from '$lib/components/wizard/BackgroundMode.svelte';
-  import Cleanup from '$lib/components/wizard/Cleanup.svelte';
-  import Hotkey from '$lib/components/wizard/Hotkey.svelte';
+  import Downloads from '$lib/components/wizard/Downloads.svelte';
+  import Permissions from '$lib/components/wizard/Permissions.svelte';
+  import General from '$lib/components/wizard/General.svelte';
   import { lda } from '$lib/tauri';
   import { withErrorToast } from '$lib/stores/toasts';
   import { t } from '$lib/i18n';
@@ -24,7 +20,7 @@
   let direction = $state<'forward' | 'backward'>('forward');
   let skipPromptOpen = $state(false);
 
-  const STEPS = 8;
+  const STEPS = 4;
 
   // One bindable next-state per step. Each step component mutates its slot
   // via `$bindable`; the wizard footer reads the slot matching the active
@@ -78,14 +74,10 @@
         out:fly={{ x: direction === 'forward' ? -40 : 40, duration: 300, easing: quintOut }}
         class="absolute inset-0 px-8 py-6 overflow-y-auto"
       >
-        {#if step === 0}<Welcome onnext={next} bind:nextState={stepStates[0]} />
-        {:else if step === 1}<Accessibility onnext={next} bind:nextState={stepStates[1]} />
-        {:else if step === 2}<Microphone onnext={next} bind:nextState={stepStates[2]} />
-        {:else if step === 3}<Models onnext={next} bind:nextState={stepStates[3]} />
-        {:else if step === 4}<Language onnext={next} bind:nextState={stepStates[4]} />
-        {:else if step === 5}<Cleanup onnext={next} bind:nextState={stepStates[5]} />
-        {:else if step === 6}<BackgroundMode onnext={next} bind:nextState={stepStates[6]} />
-        {:else if step === 7}<Hotkey onfinish={finish} bind:nextState={stepStates[7]} />
+        {#if step === 0}<Language onnext={next} bind:nextState={stepStates[0]} />
+        {:else if step === 1}<Downloads onnext={next} bind:nextState={stepStates[1]} />
+        {:else if step === 2}<Permissions onnext={next} bind:nextState={stepStates[2]} />
+        {:else if step === 3}<General onfinish={finish} bind:nextState={stepStates[3]} />
         {/if}
       </div>
     {/key}
