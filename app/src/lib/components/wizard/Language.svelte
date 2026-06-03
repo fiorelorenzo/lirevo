@@ -51,6 +51,19 @@
 
   let selected = $state<string>(initialLanguage());
 
+  // `initialLanguage()` runs at init, before the settings store resolves (it
+  // holds the device-derived dictation language, e.g. it-IT -> "it"), so on a
+  // fresh boot it falls back to English. Re-apply the real default once
+  // `$settings` is available. The one-shot flag (also set on a user pick) keeps
+  // this from clobbering a manual choice.
+  let pickerInitialized = $state(false);
+  $effect(() => {
+    if (!pickerInitialized && $settings) {
+      selected = initialLanguage();
+      pickerInitialized = true;
+    }
+  });
+
   onMount(async () => {
     const result = await withErrorToast(t('settings.models.error.refresh'), () =>
       lda.modelsCatalog(),
@@ -59,7 +72,10 @@
   });
 
   function onSelectChange(v: string | undefined) {
-    if (v) selected = v;
+    if (v) {
+      selected = v;
+      pickerInitialized = true;
+    }
   }
 
   async function continueNext() {
