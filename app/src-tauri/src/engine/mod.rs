@@ -260,6 +260,7 @@ impl Engine {
                 *state = SttSlotState::Loaded {
                     slot: slot.clone(),
                     last_use: Instant::now(),
+                    precision: self.current_policy().stt_precision,
                 };
                 Ok(Some(slot))
             }
