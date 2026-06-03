@@ -49,7 +49,8 @@ export const STT_MODELS: SttModelEntry[] = [
   {
     id: 'parakeet-tdt-0.6b-v3',
     displayName: 'Parakeet TDT v3',
-    sizeBytes: 600_000_000,
+    // bf16 download (~1.25 GB), half the upstream fp32 file. Mirrors catalog.rs.
+    sizeBytes: 1_254_000_000,
     languageCoverage: 'european_25',
     summary: '25 European languages. Lowest latency.',
     license: 'CC-BY-4.0',
