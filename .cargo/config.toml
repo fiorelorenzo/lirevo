@@ -1,0 +1,16 @@
+# macOS deployment target for all cargo builds in this repo (both the root
+# workspace and the `app/src-tauri` workspace, which cargo reaches via the
+# ancestor config search).
+#
+# Why this is load-bearing: rust's default deployment target for
+# `aarch64-apple-darwin` is macOS 11.0. That value flows into the C/C++/Metal
+# builds of native deps (notably `mlx-sys`, which compiles MLX's Metal
+# kernels). Targeting macOS 11 caps `__METAL_VERSION__` to 230 (Metal 2.3),
+# which lacks `simd_shuffle_and_fill_up` (a Metal 3.1 intrinsic) and uses
+# stricter program-scope rules, so MLX 0.25.1's kernels fail to compile in the
+# release `--target aarch64-apple-darwin` build (the DMG / CI build-mac path).
+# Pinning the deployment target to macOS 14 selects Metal 3.1 (native bf16),
+# which compiles cleanly. Keep this in sync with
+# `app/src-tauri/tauri.conf.json` -> bundle.macOS.minimumSystemVersion.
+[env]
+MACOSX_DEPLOYMENT_TARGET = "14.0"

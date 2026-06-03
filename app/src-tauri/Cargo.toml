@@ -57,13 +57,15 @@ num_cpus          = "1"
 # library, so they couldn't coexist before.
 audiopipe = { git = "https://github.com/fiorelorenzo/audiopipe", rev = "75ea39f9b6cf58d94f05baf8581e2b062d02db73", default-features = false, features = [
     "parakeet",
-    # `parakeet-mlx` re-enabled 2026-05-26. The earlier Xcode 26 / SDK 26
-    # Metal Toolchain build break (program-scope `MTL_CONST constexpr`,
-    # `simd_shuffle_and_fill_up` bf16 ambiguity) self-resolved via a
-    # Metal Toolchain point release (32023.<earlier> → 32023.864).
-    # Verified by diagnostic run; see rust-ml-contrib/benchmarks/mlx/
-    # pre-pr-xcode-26-fix.md commit d9013b7. If the bug returns, the
-    # workaround is to drop this feature again.
+    # `parakeet-mlx` pulls in mlx-sys, which compiles MLX 0.25.1's Metal
+    # kernels. Those need Metal 3.1 (macOS 14+): rust's default macOS 11
+    # deployment target for `aarch64-apple-darwin` caps Metal at 2.3, where
+    # `simd_shuffle_and_fill_up` is missing and program-scope `constexpr` is
+    # rejected, so the release `--target aarch64-apple-darwin` build (DMG /
+    # CI build-mac) fails to compile the kernels. The repo pins
+    # MACOSX_DEPLOYMENT_TARGET=14.0 (see `../../.cargo/config.toml` and
+    # `tauri.conf.json` `minimumSystemVersion`) so the build selects Metal
+    # 3.1 and the kernels compile. See rust-ml-contrib notes M5.2.
     "parakeet-mlx",
     "qwen3-asr-ggml",
     "whisper",
@@ -86,10 +88,10 @@ default = ["audiopipe-whisper", "audiopipe-mlx"]
 # `audiopipe`'s own feature flag) makes the gating switchable per build
 # target if a future Linux/Windows lane wants to disable Whisper.
 audiopipe-whisper = []
-# Mirror flag for `audiopipe`'s `parakeet-mlx` feature (currently OFF
-# upstream because mlx-sys 0.2 doesn't build on Xcode 17). When re-enabled,
-# the catalog silently upgrades parakeet-tdt-0.6b-v3 to the -mlx variant on
-# Apple Silicon. Off by default so debug + release stay buildable.
+# Mirror flag for `audiopipe`'s `parakeet-mlx` feature. When enabled, the
+# catalog silently upgrades parakeet-tdt-0.6b-v3 to the -mlx variant on
+# Apple Silicon. Requires macOS 14+ at build and run time (Metal 3.1); see
+# the MACOSX_DEPLOYMENT_TARGET note on the `audiopipe` dependency above.
 audiopipe-mlx = []
 # In-process STT mock. Pulls in `stt::mock::MockModel` and lets the loader
 # honour `LIREVO_DEV_USE_MOCK_STT=1`. Debug-only by design — release builds

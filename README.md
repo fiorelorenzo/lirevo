@@ -55,7 +55,7 @@ Cross-platform discipline (see [AGENTS.md](AGENTS.md)): macOS-only today, but pl
 
 ### Requirements
 
-- macOS on Apple Silicon
+- macOS 14 (Sonoma) or later, on Apple Silicon (the MLX-accelerated STT path compiles against Metal 3.1)
 - Rust 1.85 (managed automatically via `rust-toolchain.toml`)
 - Node 22 (`.nvmrc`)
 - `just` (`brew install just`)

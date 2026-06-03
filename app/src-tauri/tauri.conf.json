@@ -30,7 +30,7 @@
     "shortDescription": "Lirevo — local AI scribe and agent",
     "longDescription": "Local, private AI scribe that learns your writing style. Push-to-talk dictation + future personal agent. Runs fully on-device.",
     "macOS": {
-      "minimumSystemVersion": "11.0",
+      "minimumSystemVersion": "14.0",
       "entitlements": "entitlements.plist",
       "frameworks": []
     }
