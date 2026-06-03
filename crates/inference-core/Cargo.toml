@@ -24,7 +24,7 @@ hound = "3"
 # M4: STT goes through audiopipe (same git pin as the Tauri host crate).
 # Feature set matches `app/src-tauri/Cargo.toml`; with whisper-rs gone, the
 # `whisper` feature on audiopipe can stay enabled here too.
-audiopipe = { git = "https://github.com/fiorelorenzo/audiopipe", rev = "75ea39f9b6cf58d94f05baf8581e2b062d02db73", default-features = false, features = [
+audiopipe = { git = "https://github.com/fiorelorenzo/audiopipe", rev = "ee230f5563ef40ce30c8c33bff50a2d30a2d4f05", default-features = false, features = [
     "parakeet",
     "parakeet-mlx",
     "qwen3-asr-ggml",
