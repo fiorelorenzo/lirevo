@@ -5,7 +5,7 @@
 
 use std::time::{Duration, Instant};
 
-use inference_core::profile::{NThreads, ProfilePolicy};
+use inference_core::profile::{NThreads, ProfilePolicy, SttPrecision};
 use resource_monitor::{MemoryPressure, Signals};
 
 use crate::engine::slot::SlotSnapshot;
@@ -45,6 +45,8 @@ pub enum Action {
     UnloadStt(UnloadReason),
     /// Reload the LLM with a new context thread count (profile changed).
     ReloadLlmForThreads { n_threads: i32 },
+    /// Reload the STT model at a new weight precision (profile changed).
+    ReloadSttForPrecision { precision: SttPrecision },
     /// Proactively load the LLM (startup pre-load heuristic).
     PreloadLlm,
 }
@@ -139,6 +141,11 @@ pub fn lifecycle_decision(
                 actions.push(Action::ReloadLlmForThreads { n_threads: desired });
             }
         }
+        if let SlotSnapshot::Loaded { loaded_stt_precision: Some(loaded), .. } = stt {
+            if loaded != policy.stt_precision {
+                actions.push(Action::ReloadSttForPrecision { precision: policy.stt_precision });
+            }
+        }
     }
 
     // 7. Startup / opportunistic pre-load: LLM unloaded, profile is
@@ -199,6 +206,7 @@ mod tests {
         let llm = SlotSnapshot::Loaded {
             last_use: t0,
             loaded_n_threads: Some(n_threads_count(POWER_SAVER.n_threads)),
+            loaded_stt_precision: None,
         };
         let actions = lifecycle_decision(
             llm,
@@ -218,6 +226,7 @@ mod tests {
         let llm = SlotSnapshot::Loaded {
             last_use: t0,
             loaded_n_threads: Some(n_threads_count(BALANCED.n_threads)),
+            loaded_stt_precision: None,
         };
         // BALANCED llm_idle_unload = 120s; only 30s elapsed.
         let actions = lifecycle_decision(
@@ -237,8 +246,12 @@ mod tests {
         let t0 = Instant::now();
         let mut sig = signals_ok();
         sig.mem_pressure = MemoryPressure::Critical;
-        let llm = SlotSnapshot::Loaded { last_use: t0, loaded_n_threads: Some(8) };
-        let stt = SlotSnapshot::Loaded { last_use: t0, loaded_n_threads: None };
+        let llm = SlotSnapshot::Loaded { last_use: t0, loaded_n_threads: Some(8), loaded_stt_precision: None };
+        let stt = SlotSnapshot::Loaded {
+            last_use: t0,
+            loaded_n_threads: None,
+            loaded_stt_precision: Some(inference_core::profile::SttPrecision::Bf16),
+        };
         let actions = lifecycle_decision(llm, stt, &sig, &BALANCED, t0, t0, Duration::ZERO);
         assert!(actions.contains(&Action::UnloadLlm(UnloadReason::MemPressureCritical)));
         assert!(actions.contains(&Action::UnloadStt(UnloadReason::MemPressureCritical)));
@@ -249,7 +262,7 @@ mod tests {
         let t0 = Instant::now();
         let mut sig = signals_ok();
         sig.mem_free_mb = 1500; // < 2048
-        let llm = SlotSnapshot::Loaded { last_use: t0, loaded_n_threads: Some(8) };
+        let llm = SlotSnapshot::Loaded { last_use: t0, loaded_n_threads: Some(8), loaded_stt_precision: None };
         let actions = lifecycle_decision(llm, SlotSnapshot::Unloaded, &sig, &BALANCED, t0, t0, Duration::ZERO);
         assert!(actions.contains(&Action::UnloadLlm(UnloadReason::LowFreeRam)));
     }
@@ -258,7 +271,7 @@ mod tests {
     fn foreground_heavy_unloads_idle_llm() {
         let t0 = Instant::now();
         // Heavy streak > 30s, llm idle > 5s grace.
-        let llm = SlotSnapshot::Loaded { last_use: t0, loaded_n_threads: Some(8) };
+        let llm = SlotSnapshot::Loaded { last_use: t0, loaded_n_threads: Some(8), loaded_stt_precision: None };
         let actions = lifecycle_decision(
             llm,
             SlotSnapshot::Unloaded,
@@ -274,7 +287,11 @@ mod tests {
     #[test]
     fn foreground_heavy_skips_recently_used_llm() {
         let t0 = Instant::now();
-        let llm = SlotSnapshot::Loaded { last_use: t0 + Duration::from_secs(8), loaded_n_threads: Some(8) };
+        let llm = SlotSnapshot::Loaded {
+            last_use: t0 + Duration::from_secs(8),
+            loaded_n_threads: Some(8),
+            loaded_stt_precision: None,
+        };
         // now only 2s after last_use → within 5s grace → no unload.
         let actions = lifecycle_decision(
             llm,
@@ -294,7 +311,7 @@ mod tests {
         let mut sig = signals_ok();
         sig.on_ac = false;
         sig.battery_pct = Some(15); // BALANCED unload_below_battery_pct = 20
-        let llm = SlotSnapshot::Loaded { last_use: t0, loaded_n_threads: Some(8) };
+        let llm = SlotSnapshot::Loaded { last_use: t0, loaded_n_threads: Some(8), loaded_stt_precision: None };
         let actions = lifecycle_decision(llm, SlotSnapshot::Unloaded, &sig, &BALANCED, t0, t0, Duration::ZERO);
         assert!(actions.contains(&Action::UnloadLlm(UnloadReason::BatteryBelowThreshold)));
     }
@@ -305,7 +322,7 @@ mod tests {
         let mut sig = signals_ok();
         sig.on_ac = true;
         sig.battery_pct = Some(5);
-        let llm = SlotSnapshot::Loaded { last_use: t0, loaded_n_threads: Some(8) };
+        let llm = SlotSnapshot::Loaded { last_use: t0, loaded_n_threads: Some(8), loaded_stt_precision: None };
         let actions = lifecycle_decision(llm, SlotSnapshot::Unloaded, &sig, &BALANCED, t0, t0, Duration::ZERO);
         assert!(!actions.contains(&Action::UnloadLlm(UnloadReason::BatteryBelowThreshold)));
     }
@@ -317,6 +334,7 @@ mod tests {
         let llm = SlotSnapshot::Loaded {
             last_use: t0,
             loaded_n_threads: Some(n_threads_count(POWER_SAVER.n_threads)),
+            loaded_stt_precision: None,
         };
         // Idle (last dictation long ago, not under pressure).
         let actions = lifecycle_decision(
@@ -334,6 +352,48 @@ mod tests {
                 n_threads: n_threads_count(PERFORMANCE.n_threads),
             }));
         }
+    }
+
+    #[test]
+    fn reload_stt_when_precision_changed() {
+        let t0 = Instant::now();
+        let stt = SlotSnapshot::Loaded {
+            last_use: t0,
+            loaded_n_threads: None,
+            loaded_stt_precision: Some(inference_core::profile::SttPrecision::Int8),
+        };
+        let actions = lifecycle_decision(
+            SlotSnapshot::Unloaded,
+            stt,
+            &signals_ok(),
+            &BALANCED,
+            t0 + Duration::from_secs(1),
+            t0,
+            Duration::ZERO,
+        );
+        assert!(actions.contains(&Action::ReloadSttForPrecision {
+            precision: inference_core::profile::SttPrecision::Bf16,
+        }));
+    }
+
+    #[test]
+    fn no_reload_stt_when_precision_matches() {
+        let t0 = Instant::now();
+        let stt = SlotSnapshot::Loaded {
+            last_use: t0,
+            loaded_n_threads: None,
+            loaded_stt_precision: Some(inference_core::profile::SttPrecision::Bf16),
+        };
+        let actions = lifecycle_decision(
+            SlotSnapshot::Unloaded,
+            stt,
+            &signals_ok(),
+            &BALANCED,
+            t0 + Duration::from_secs(1),
+            t0,
+            Duration::ZERO,
+        );
+        assert!(!actions.iter().any(|a| matches!(a, Action::ReloadSttForPrecision { .. })));
     }
 
     #[test]

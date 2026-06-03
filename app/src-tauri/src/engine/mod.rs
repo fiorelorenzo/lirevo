@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use arc_swap::{ArcSwap, ArcSwapOption};
-use inference_core::profile::{policy_for, ProfileName, ProfilePolicy};
+use inference_core::profile::{policy_for, ProfileName, ProfilePolicy, SttPrecision};
 use inference_core::{ChatRequest, ChatResponse, LlamaBackend, LlmError};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
@@ -248,7 +248,8 @@ impl Engine {
             *state = SttSlotState::Loading { since: Instant::now() };
         }
 
-        let outcome = tokio::task::spawn_blocking(move || crate::stt::load(&id))
+        let precision = self.current_policy().stt_precision;
+        let outcome = tokio::task::spawn_blocking(move || crate::stt::load(&id, precision))
             .await
             .map_err(|e| format!("stt load join: {e}"))?
             .map_err(|e| e.to_string())?;
@@ -260,6 +261,7 @@ impl Engine {
                 *state = SttSlotState::Loaded {
                     slot: slot.clone(),
                     last_use: Instant::now(),
+                    precision,
                 };
                 Ok(Some(slot))
             }
@@ -327,6 +329,25 @@ impl Engine {
         }
     }
 
+    async fn reload_stt_for_precision(self: &Arc<Self>, precision: SttPrecision) {
+        // Reload only if currently loaded and NOT in use (the streaming worker
+        // holds the slot lock during a dictation). Drop, then lazy-reload at the
+        // new precision on the next ensure_stt.
+        {
+            let state = self.stt.lock().await;
+            match &*state {
+                SttSlotState::Loaded { slot, .. } if slot.try_lock().is_ok() => {}
+                _ => return,
+            }
+        }
+        {
+            let mut state = self.stt.lock().await;
+            *state = SttSlotState::Unloaded;
+        }
+        tracing::info!(?precision, "engine: STT precision changed; reloading on next use");
+        let _ = self.ensure_stt().await;
+    }
+
     async fn preload_llm(self: &Arc<Self>) {
         // Best-effort: ignore errors (next chat will retry / surface).
         let _ = self.ensure_llm().await;
@@ -342,6 +363,9 @@ impl Engine {
                 self.reload_llm_for_threads(n_threads).await;
             }
             Action::PreloadLlm => self.preload_llm().await,
+            Action::ReloadSttForPrecision { precision } => {
+                self.reload_stt_for_precision(precision).await;
+            }
         }
     }
 

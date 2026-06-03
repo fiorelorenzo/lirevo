@@ -90,7 +90,10 @@ impl SttModelHandle {
 /// * Unknown catalog ids are rejected with [`AppError::Internal`] rather
 ///   than silently falling back to the default — a stale settings id means
 ///   the UI is desynced from the catalog and the user deserves to know.
-pub fn load(catalog_id: &str) -> Result<LoadOutcome, AppError> {
+pub fn load(
+    catalog_id: &str,
+    precision: inference_core::profile::SttPrecision,
+) -> Result<LoadOutcome, AppError> {
     if cfg!(debug_assertions) && std::env::var(ENV_USE_MOCK_STT).is_ok() {
         #[cfg(any(test, feature = "test-stt"))]
         {
@@ -130,7 +133,11 @@ pub fn load(catalog_id: &str) -> Result<LoadOutcome, AppError> {
     }
 
     let audiopipe_name = catalog::audiopipe_name_for_platform(catalog_id).to_string();
-    match audiopipe::Model::from_pretrained_cache_only(&audiopipe_name) {
+    let ap_precision = match precision {
+        inference_core::profile::SttPrecision::Bf16 => audiopipe::ParakeetPrecision::Bf16,
+        inference_core::profile::SttPrecision::Int8 => audiopipe::ParakeetPrecision::Int8,
+    };
+    match audiopipe::Model::from_pretrained_cache_only_with_precision(&audiopipe_name, ap_precision) {
         Ok(model) => Ok(LoadOutcome::Ready(SttModelHandle::Real(model))),
         Err(e) if e.is_model_not_cached() => {
             tracing::info!(
