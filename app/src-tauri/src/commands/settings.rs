@@ -24,7 +24,14 @@ pub async fn update_settings(
     };
 
     // Side effects (no lock held).
-    if Settings::env_affecting_diff(&before, &after) {
+    //
+    // Skip the reload path during onboarding: the wizard owns model download +
+    // selection and shows its own progress, so its settings writes (sttModelId
+    // on the language step, llmModelPath when the cleanup download finishes)
+    // must not flash a "Reloading models" toast or kick `load_models` (which
+    // early-returns until onboarding completes anyway). `complete_wizard` does
+    // the first real load once onboarding is done.
+    if Settings::env_affecting_diff(&before, &after) && after.onboarding_complete {
         state.set_model_state(&app, ModelState::Reloading { reason: "settings changed".into() });
         let _ = app.emit("toast", toast("info", "Reloading models..."));
         let app2 = app.clone();
