@@ -343,6 +343,9 @@ impl Engine {
                 self.reload_llm_for_threads(n_threads).await;
             }
             Action::PreloadLlm => self.preload_llm().await,
+            // TODO(B4+B5): wire STT precision reload. Temporary stub so the
+            // decision-layer task compiles; replaced by the next task.
+            Action::ReloadSttForPrecision { .. } => {}
         }
     }
 

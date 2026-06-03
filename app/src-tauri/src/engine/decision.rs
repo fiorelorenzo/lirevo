@@ -5,7 +5,7 @@
 
 use std::time::{Duration, Instant};
 
-use inference_core::profile::{NThreads, ProfilePolicy};
+use inference_core::profile::{NThreads, ProfilePolicy, SttPrecision};
 use resource_monitor::{MemoryPressure, Signals};
 
 use crate::engine::slot::SlotSnapshot;
@@ -45,6 +45,8 @@ pub enum Action {
     UnloadStt(UnloadReason),
     /// Reload the LLM with a new context thread count (profile changed).
     ReloadLlmForThreads { n_threads: i32 },
+    /// Reload the STT model at a new weight precision (profile changed).
+    ReloadSttForPrecision { precision: SttPrecision },
     /// Proactively load the LLM (startup pre-load heuristic).
     PreloadLlm,
 }
@@ -137,6 +139,11 @@ pub fn lifecycle_decision(
             let desired = resolve_n_threads(policy.n_threads);
             if desired != loaded {
                 actions.push(Action::ReloadLlmForThreads { n_threads: desired });
+            }
+        }
+        if let SlotSnapshot::Loaded { loaded_stt_precision: Some(loaded), .. } = stt {
+            if loaded != policy.stt_precision {
+                actions.push(Action::ReloadSttForPrecision { precision: policy.stt_precision });
             }
         }
     }
@@ -345,6 +352,48 @@ mod tests {
                 n_threads: n_threads_count(PERFORMANCE.n_threads),
             }));
         }
+    }
+
+    #[test]
+    fn reload_stt_when_precision_changed() {
+        let t0 = Instant::now();
+        let stt = SlotSnapshot::Loaded {
+            last_use: t0,
+            loaded_n_threads: None,
+            loaded_stt_precision: Some(inference_core::profile::SttPrecision::Int8),
+        };
+        let actions = lifecycle_decision(
+            SlotSnapshot::Unloaded,
+            stt,
+            &signals_ok(),
+            &BALANCED,
+            t0 + Duration::from_secs(1),
+            t0,
+            Duration::ZERO,
+        );
+        assert!(actions.contains(&Action::ReloadSttForPrecision {
+            precision: inference_core::profile::SttPrecision::Bf16,
+        }));
+    }
+
+    #[test]
+    fn no_reload_stt_when_precision_matches() {
+        let t0 = Instant::now();
+        let stt = SlotSnapshot::Loaded {
+            last_use: t0,
+            loaded_n_threads: None,
+            loaded_stt_precision: Some(inference_core::profile::SttPrecision::Bf16),
+        };
+        let actions = lifecycle_decision(
+            SlotSnapshot::Unloaded,
+            stt,
+            &signals_ok(),
+            &BALANCED,
+            t0 + Duration::from_secs(1),
+            t0,
+            Duration::ZERO,
+        );
+        assert!(!actions.iter().any(|a| matches!(a, Action::ReloadSttForPrecision { .. })));
     }
 
     #[test]
