@@ -3,11 +3,10 @@
   import { Button } from '$lib/components/ui/button';
   import { Progress } from '$lib/components/ui/progress';
   import { Check, Loader2, AlertCircle, Mic, Sparkles } from '@lucide/svelte';
-  import { findModel } from '$lib/models/catalog';
   import { settings, updateSettings } from '$lib/stores/settings.svelte';
   import { wizardDownloadSelection } from '$lib/stores/wizardDownloads';
   import { progressFor } from '$lib/stores/downloads';
-  import { lda, type CatalogEntry, type LocalModel, type DownloadProgress } from '$lib/tauri';
+  import { lda, type LocalModel, type DownloadProgress } from '$lib/tauri';
   import { withErrorToast } from '$lib/stores/toasts';
   import { t } from '$lib/i18n';
   import { defaultStepState, type WizardStepState } from './step-state';
@@ -21,7 +20,6 @@
     nextState = $bindable(defaultStepState()),
   }: Props = $props();
 
-  let catalog = $state<CatalogEntry[]>([]);
   let local = $state<LocalModel[]>([]);
 
   // STT id comes from settings (Language step persisted it); LLM id from the
@@ -34,11 +32,6 @@
   let sttProgress = $derived(sttId ? progressFor(sttId) : null);
   let llmProgress = $derived(llmId ? progressFor(llmId) : null);
 
-  let sttName = $derived(sttId ? (findModel(sttId)?.displayName ?? sttId) : '');
-  let llmName = $derived(
-    llmId ? (catalog.find((c) => c.id === llmId)?.displayName ?? llmId) : '',
-  );
-
   async function refreshLocal() {
     try {
       local = await lda.modelsListLocal();
@@ -48,10 +41,6 @@
   }
 
   onMount(async () => {
-    const result = await withErrorToast(t('settings.models.error.refresh'), () =>
-      lda.modelsCatalog(),
-    );
-    if (result !== null) catalog = result;
     await refreshLocal();
   });
 
@@ -111,7 +100,6 @@
 
 {#snippet card(
   role: string,
-  name: string,
   Icon: typeof Mic,
   progress: DownloadProgress | null | undefined,
   retry: () => void,
@@ -119,12 +107,11 @@
   <div class="w-full rounded-xl border border-border bg-surface p-4 text-left space-y-3">
     <div class="flex items-center justify-between gap-3">
       <div class="flex items-center gap-3 min-w-0">
-        <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-muted-foreground shrink-0">
-          <Icon class="h-4 w-4" />
+        <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-muted text-muted-foreground shrink-0">
+          <Icon class="h-5 w-5" />
         </div>
         <div class="min-w-0">
-          <div class="text-xs uppercase tracking-wide text-muted-foreground">{role}</div>
-          <div class="font-medium truncate">{name}</div>
+          <div class="font-medium truncate">{role}</div>
         </div>
       </div>
 
@@ -185,9 +172,9 @@
   </div>
 
   <div class="space-y-3 animate-in fade-in duration-500 delay-200">
-    {@render card(t('wizard.downloads.dictation_label'), sttName, Mic, $sttProgress, retrySTT)}
+    {@render card(t('wizard.downloads.dictation_label'), Mic, $sttProgress, retrySTT)}
     {#if llmId}
-      {@render card(t('wizard.downloads.cleanup_label'), llmName, Sparkles, $llmProgress, retryLLM)}
+      {@render card(t('wizard.downloads.cleanup_label'), Sparkles, $llmProgress, retryLLM)}
     {/if}
   </div>
 
