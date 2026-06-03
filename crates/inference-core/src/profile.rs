@@ -49,6 +49,15 @@ pub enum NThreads {
     AllPCores,
 }
 
+/// STT weight precision per profile. `Int8` is reserved (dormant in v0.6;
+/// audiopipe currently falls back to bf16). Resource-aware precision rides the
+/// profile, parallel to `n_threads` for the LLM.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum SttPrecision {
+    Bf16,
+    Int8,
+}
+
 /// How aggressively the (future) continuous-learning worker runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum LearningPace {
@@ -83,6 +92,9 @@ pub struct ProfilePolicy {
     /// Below this battery percentage (on battery), the Engine unloads the
     /// LLM aggressively. `0` = never; `100` = always.
     pub unload_below_battery_pct: u8,
+
+    // STT weight precision.
+    pub stt_precision: SttPrecision,
 }
 
 pub const POWER_SAVER: ProfilePolicy = ProfilePolicy {
@@ -93,6 +105,7 @@ pub const POWER_SAVER: ProfilePolicy = ProfilePolicy {
     batch_size: 1,
     learning_pace: LearningPace::Slow,
     unload_below_battery_pct: 50,
+    stt_precision: SttPrecision::Bf16,
 };
 
 pub const BALANCED: ProfilePolicy = ProfilePolicy {
@@ -103,6 +116,7 @@ pub const BALANCED: ProfilePolicy = ProfilePolicy {
     batch_size: 4,
     learning_pace: LearningPace::Normal,
     unload_below_battery_pct: 20,
+    stt_precision: SttPrecision::Bf16,
 };
 
 pub const PERFORMANCE: ProfilePolicy = ProfilePolicy {
@@ -113,6 +127,7 @@ pub const PERFORMANCE: ProfilePolicy = ProfilePolicy {
     batch_size: 8,
     learning_pace: LearningPace::Aggressive,
     unload_below_battery_pct: 0,
+    stt_precision: SttPrecision::Bf16,
 };
 
 /// The `ProfilePolicy` for a given profile.
@@ -509,6 +524,13 @@ mod tests {
         assert_eq!(PERFORMANCE.batch_size, 8);
         assert_eq!(PERFORMANCE.learning_pace, LearningPace::Aggressive);
         assert_eq!(PERFORMANCE.unload_below_battery_pct, 0);
+    }
+
+    #[test]
+    fn all_profiles_default_to_bf16_stt() {
+        for p in [POWER_SAVER, BALANCED, PERFORMANCE] {
+            assert_eq!(p.stt_precision, SttPrecision::Bf16);
+        }
     }
 
     #[test]
