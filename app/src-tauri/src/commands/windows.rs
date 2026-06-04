@@ -85,9 +85,9 @@ pub fn open_window_internal_with_query(
     // Note: wizard is NOT always_on_top — the user must be able to switch to
     // System Settings to grant permissions, so it can't trap focus.
     let (w, h, resizable) = match route {
-        "home" => (720u32, 520u32, true),
-        "wizard" => (760, 620, false),
-        "settings" => (820, 600, true),
+        "home" => (800u32, 600u32, true),
+        "wizard" => (860, 720, false),
+        "settings" => (900, 680, true),
         _ => return Err(AppError::Internal(format!("unknown route: {route}"))),
     };
     // SvelteKit with adapter-static: routes are paths like /settings, /wizard, etc.
