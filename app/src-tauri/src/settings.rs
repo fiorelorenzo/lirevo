@@ -65,6 +65,12 @@ pub struct Settings {
     /// `true`.
     #[serde(default = "default_true")]
     pub keep_models_warm: bool,
+    /// Keep a local history of dictations on this device. Gates whether the
+    /// dictation pipeline persists transcripts to the on-device history store
+    /// (the capture itself lands in a later change). Defaults to `true` so
+    /// existing installs upgrading without the key opt in by default.
+    #[serde(default = "default_true")]
+    pub record_history: bool,
     pub ui_language: String,
     pub onboarding_complete: bool,
     pub app_version: String,
@@ -91,6 +97,7 @@ impl Default for Settings {
             launch_minimized: false,
             stay_running_on_window_close: true,
             keep_models_warm: true,
+            record_history: true,
             ui_language: "en".into(),
             onboarding_complete: false,
             app_version: env!("CARGO_PKG_VERSION").to_string(),
@@ -281,6 +288,7 @@ mod tests {
         assert!(s.keep_models_warm);
         assert!(s.stay_running_on_window_close);
         assert!(!s.launch_minimized);
+        assert!(s.record_history);
     }
 
     #[test]
@@ -308,6 +316,7 @@ mod tests {
         assert!(s.keep_models_warm);
         assert!(s.stay_running_on_window_close);
         assert!(!s.launch_minimized);
+        assert!(s.record_history);
     }
 
     #[test]

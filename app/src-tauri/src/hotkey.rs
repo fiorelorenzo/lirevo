@@ -277,16 +277,23 @@ async fn run_pipeline(
     let t0 = std::time::Instant::now();
     let state = app.state::<AppState>();
 
+    // Audio duration (16 kHz mono) captured before STT consumes `samples`.
+    let audio_ms = (samples.len() as i64) * 1000 / 16_000;
+
     // Snapshot what we need; release the lock before any heavy work so we
     // never hold the std::sync::Mutex across an await.
-    let (engine, language, force_pasteboard) = {
+    let (engine, language, force_pasteboard, record_history) = {
         let inner = state.inner.lock().unwrap();
         (
             inner.engine.clone(),
             inner.settings.language.clone(),
             inner.settings.force_pasteboard,
+            inner.settings.record_history,
         )
     };
+    // `Db` is internally synchronized and lives outside `inner`'s mutex; clone
+    // the Arc so it can move into the history-insert task at the end.
+    let db_arc = state.db.clone();
 
     // Lazy-load the STT slot for the one-shot fallback path. The streaming
     // worker (if any) already holds its own clone.
@@ -356,9 +363,34 @@ async fn run_pipeline(
     engine.mark_stt_used();
     let t1 = t0.elapsed();
 
+    // Model ids for the history row, derived from the engine's live config.
+    // `stt_model` falls back to the default catalog id when unset (matching
+    // `ensure_stt`); `llm_model` is the LLM file's basename, or `None` in
+    // STT-only mode.
+    let cfg = engine.current_config();
+    let stt_model = cfg
+        .stt_model_id
+        .clone()
+        .unwrap_or_else(|| crate::stt::catalog::default_model_id().to_string());
+    let llm_model: Option<String> = cfg.llm_model_path.as_ref().and_then(|p| {
+        p.file_stem()
+            .and_then(|s| s.to_str())
+            .map(std::string::ToString::to_string)
+    });
+
     // 2. Clean (graceful degrade if LLM missing or fails). The engine
     // lazy-loads the LLM on demand; Ok(None) means no cleanup model is
     // configured (STT-only mode), so we type the raw transcript as-is.
+    //
+    // The match also records the cleanup outcome for the history row:
+    //   - Applied: cleanup ran (LLM configured), no error, clean stage timed.
+    //   - Skipped: STT-only mode, no LLM, no clean stage timing.
+    //   - Failed:  cleanup attempted (LLM configured) but errored; the failed
+    //     attempt still consumed wall time, so the clean stage is timed.
+    let mut cleanup_status = crate::db::history::CLEANUP_APPLIED;
+    let mut cleanup_error: Option<String> = None;
+    // Whether the clean stage ran (Applied or Failed) vs was skipped.
+    let mut cleanup_ran = true;
     let cleaned = match engine
         .chat(inference_core::ChatRequest {
             system: Some(lirevo_prompts::build_clean_system_prompt(&language)),
@@ -371,17 +403,29 @@ async fn run_pipeline(
         .await
     {
         Ok(Some(resp)) => resp.text,
-        Ok(None) => raw_text,
+        Ok(None) => {
+            cleanup_status = crate::db::history::CLEANUP_SKIPPED;
+            cleanup_ran = false;
+            raw_text.clone()
+        }
         Err(e) => {
             tracing::warn!(?e, "run_pipeline: cleanup failed; typing raw transcript");
+            cleanup_status = crate::db::history::CLEANUP_FAILED;
+            cleanup_error = Some(e.to_string());
             let _ = app.emit(
                 "toast",
                 crate::commands::toast("warn", "Cleanup failed — typed raw transcript"),
             );
-            raw_text
+            raw_text.clone()
         }
     };
     let t2 = t0.elapsed();
+    // Timed for Applied + Failed; None for Skipped (STT-only).
+    let clean_ms: Option<i64> = if cleanup_ran {
+        Some((t2 - t1).as_millis() as i64)
+    } else {
+        None
+    };
 
     // 3. Inject (graceful degrade to clipboard).
     let injector = if force_pasteboard {
@@ -400,6 +444,63 @@ async fn run_pipeline(
                 method = ?method,
                 "dictation complete"
             );
+
+            // Record this successful dictation. Best-effort: a DB failure must
+            // never disrupt the dictation flow (we've already typed the text).
+            if record_history {
+                let (target_app, target_bundle) = os_integration::frontmost_app()
+                    .map(|a| (a.name, a.bundle_id))
+                    .unwrap_or((None, None));
+                let created_at = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as i64)
+                    .unwrap_or(0);
+                let entry = crate::db::history::NewDictation {
+                    created_at,
+                    language: Some(language.clone()),
+                    stt_model,
+                    audio_ms: Some(audio_ms),
+                    raw_text: raw_text.clone(),
+                    stt_ms: t1.as_millis() as i64,
+                    llm_model,
+                    cleaned_text: cleaned.clone(),
+                    clean_ms,
+                    cleanup_status: cleanup_status.to_string(),
+                    cleanup_error,
+                    inject_method: format!("{method:?}").to_lowercase(),
+                    inject_ms: Some((t3 - t2).as_millis() as i64),
+                    total_ms: t3.as_millis() as i64,
+                    target_app,
+                    target_bundle,
+                };
+                let db = db_arc.clone();
+                let app2 = app.clone();
+                tokio::task::spawn_blocking(move || {
+                    match crate::db::history::insert(&db, &entry) {
+                        Ok(id) => {
+                            let mut preview: String =
+                                entry.cleaned_text.chars().take(120).collect();
+                            if entry.cleaned_text.chars().count() > 120 {
+                                preview.push('…');
+                            }
+                            let summary = crate::db::history::DictationSummary {
+                                id,
+                                created_at: entry.created_at,
+                                preview,
+                                stt_model: entry.stt_model.clone(),
+                                llm_model: entry.llm_model.clone(),
+                                target_app: entry.target_app.clone(),
+                                total_ms: entry.total_ms,
+                                cleanup_status: entry.cleanup_status.clone(),
+                            };
+                            let _ = app2.emit("dictation:saved", &summary);
+                        }
+                        Err(e) => {
+                            tracing::warn!(?e, "failed to save dictation history (non-fatal)");
+                        }
+                    }
+                });
+            }
         }
         Err(e) => {
             let copied = os_integration::clipboard::set_text(&cleaned);

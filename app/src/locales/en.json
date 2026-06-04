@@ -171,6 +171,8 @@
       "stay_running_on_window_close_helper": "Hide the window instead of quitting when you close it. The hotkey keeps working; reopen from the tray.",
       "keep_models_warm": "Keep models warm",
       "keep_models_warm_helper": "Run a tiny warm-up inference after loading so the first dictation isn't delayed by one-time GPU and cache initialization.",
+      "record_history": "Record dictation history",
+      "record_history_helper": "Keep a local history of your dictations on this device.",
       "microphone": {
         "section": "Microphone check",
         "section_helper": "Test your selected input device — useful when switching headsets or after macOS audio changes.",

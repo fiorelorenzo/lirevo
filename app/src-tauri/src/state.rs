@@ -43,13 +43,18 @@ pub struct AppStateInner {
 
 pub struct AppState {
     pub inner: Mutex<AppStateInner>,
+    /// Generic local SQLite DB (dictation history, future features). Held as an
+    /// `Arc<Db>` OUTSIDE `inner`'s mutex: `Db` has its own internal connection
+    /// mutex, so a command can hit the DB without contending on the per-request
+    /// `AppStateInner` lock.
+    pub db: Arc<crate::db::Db>,
     pub model_state_tx: watch::Sender<ModelState>,
     pub recording_state_tx: watch::Sender<bool>,
     pub audio_level_tx: watch::Sender<f32>,
 }
 
 impl AppState {
-    pub fn new(settings: Settings) -> Self {
+    pub fn new(settings: Settings, db: Arc<crate::db::Db>) -> Self {
         let injector = if settings.force_pasteboard {
             Injector::with_force_pasteboard(true)
         } else {
@@ -81,10 +86,17 @@ impl AppState {
                 current_load_token: 0,
                 streaming: None,
             }),
+            db,
             model_state_tx,
             recording_state_tx,
             audio_level_tx,
         }
+    }
+
+    /// The app's local SQLite DB. `Db` is internally synchronized, so callers
+    /// don't need to lock `inner` to use it.
+    pub fn db(&self) -> &crate::db::Db {
+        &self.db
     }
 
     pub fn set_model_state(&self, app: &AppHandle, s: ModelState) {

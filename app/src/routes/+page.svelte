@@ -1,13 +1,17 @@
 <script lang="ts">
-  import { Settings, AlertTriangle } from '@lucide/svelte';
+  import { Settings, AlertTriangle, Trash2 } from '@lucide/svelte';
   import { settings } from '$lib/stores/settings.svelte';
   import { modelState } from '$lib/stores/modelState';
   import { permissionsState } from '$lib/stores/permissions';
+  import { dictationHistory } from '$lib/stores/dictationHistory';
   import { t } from '$lib/i18n';
   import { navigate } from '$lib/router';
-  import KeyChip from '$lib/components/KeyChip.svelte';
   import Logo from '$lib/components/Logo.svelte';
+  import Spinner from '$lib/components/Spinner.svelte';
+  import HistoryEmpty from '$lib/components/home/HistoryEmpty.svelte';
+  import HistoryList from '$lib/components/home/HistoryList.svelte';
   import { Button } from '$lib/components/ui/button';
+  import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import { lda } from '$lib/tauri';
   import { withErrorToast } from '$lib/stores/toasts';
 
@@ -61,6 +65,20 @@
   let microphoneNeverAsked = $derived($permissionsState.microphone === 'not_determined');
   let hasPermissionIssue = $derived(missingAccessibility || missingMicrophone);
 
+  let onboardingIncomplete = $derived($settings != null && !$settings.onboardingComplete);
+  let modelsErrored = $derived(
+    $modelState.kind === 'error' || ($modelState.kind === 'ready' && !($modelState as any).stt),
+  );
+  let modelsLoading = $derived(
+    $modelState.kind === 'loading' || $modelState.kind === 'reloading',
+  );
+  let modelsNotLoaded = $derived(
+    $modelState.kind === 'idle' || ($modelState.kind === 'ready' && !canDictate),
+  );
+
+  let hotkeyGlyph = $derived($settings ? HOTKEY_GLYPH[$settings.hotkey] : undefined);
+  let hotkeyLabel = $derived($settings ? (HOTKEY_LABEL[$settings.hotkey] ?? '') : '');
+
   async function grantMicrophone() {
     await withErrorToast(t('home.error.grant_microphone'), () => lda.promptMicrophone());
   }
@@ -74,18 +92,132 @@
       lda.openSystemSettingsMicrophone(),
     );
   }
+
+  // --- History ----------------------------------------------------------
+  let items = $derived($dictationHistory.items);
+  let hasMore = $derived($dictationHistory.hasMore);
+  let historyLoading = $derived($dictationHistory.loading);
+
+  let selectedId = $state<number | null>(null);
+  let clearOpen = $state(false);
+  let clearing = $state(false);
+
+  $effect(() => {
+    void dictationHistory.load();
+  });
+
+  function toggleSelect(id: number) {
+    selectedId = selectedId === id ? null : id;
+  }
+
+  async function deleteOne(id: number) {
+    if (selectedId === id) selectedId = null;
+    await withErrorToast('Could not delete dictation', () => dictationHistory.removeOne(id));
+  }
+
+  async function confirmClear() {
+    clearing = true;
+    try {
+      await withErrorToast('Could not clear history', () => dictationHistory.clearAll());
+      selectedId = null;
+      clearOpen = false;
+    } finally {
+      clearing = false;
+    }
+  }
 </script>
 
-<div class="h-full flex flex-col p-8 relative">
-  <!-- Ambient glow behind hero -->
-  <div class="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_center,oklch(0.58_0.21_257/0.06),transparent_60%)]"></div>
+<div class="h-full flex flex-col">
+  <!--
+    Compact status header. Always shows the Settings link; the left side
+    reflects readiness (ready hero collapsed to a slim row) or the active
+    loading / error / onboarding / permission state in compact form.
+  -->
+  <header
+    data-tauri-drag-region
+    class="relative flex items-center justify-between gap-3 border-b border-border/60 px-5 py-3 backdrop-blur-md"
+  >
+    <div class="flex min-w-0 items-center gap-3 pointer-events-none">
+      {#if onboardingIncomplete}
+        <Logo size={28} />
+        <div class="min-w-0">
+          <p class="truncate text-sm font-medium">{t('home.setup_incomplete_title')}</p>
+          <p class="truncate text-xs text-muted-foreground">{t('home.setup_incomplete_body')}</p>
+        </div>
+      {:else if modelsErrored}
+        <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-destructive/10">
+          <AlertTriangle class="h-4 w-4 text-destructive" />
+        </div>
+        <div class="min-w-0">
+          <p class="truncate text-sm font-medium">{t('home.sidecar_down_title')}</p>
+          {#if $modelState.kind === 'error' && ($modelState as any).reason}
+            <p class="truncate font-mono text-xs text-muted-foreground">
+              {($modelState as any).reason}
+            </p>
+          {/if}
+        </div>
+      {:else if modelsLoading}
+        <Logo size={28} loading />
+        <p class="truncate text-sm text-muted-foreground animate-pulse">
+          {$modelState.kind === 'reloading'
+            ? (($modelState as any).reason ?? t('home.loading'))
+            : t('home.loading')}
+        </p>
+      {:else if modelsNotLoaded}
+        <Logo size={28} />
+        <p class="truncate text-sm font-medium">{t('home.models_not_loaded_title')}</p>
+      {:else if canDictate && $settings}
+        <span class="relative inline-flex h-2 w-2 shrink-0">
+          <span class="absolute inset-0 rounded-full bg-success/60 animate-ping"></span>
+          <span class="relative inline-flex h-full w-full rounded-full bg-success"></span>
+        </span>
+        <p class="truncate text-sm font-medium">{t('home.title')}</p>
+        {#if hotkeyGlyph}
+          <span class="rounded-md border border-border bg-surface px-1.5 py-0.5 font-mono text-xs">
+            {hotkeyGlyph}{hotkeyLabel ? ` ${hotkeyLabel}` : ''}
+          </span>
+        {/if}
+      {/if}
+    </div>
+
+    <div class="flex shrink-0 items-center gap-1">
+      {#if onboardingIncomplete}
+        <Button size="sm" onclick={() => navigate('wizard')}>{t('home.rerun_wizard')}</Button>
+      {:else if modelsErrored}
+        <Button size="sm" onclick={() => navigate('settings')}>{t('home.retry')}</Button>
+        <Button size="sm" variant="outline" onclick={() => navigate('wizard')}>
+          {t('home.rerun_wizard')}
+        </Button>
+      {:else if modelsNotLoaded}
+        <Button size="sm" onclick={() => navigate('settings')}>{t('home.open_settings')}</Button>
+      {/if}
+
+      {#if items.length > 0}
+        <button
+          onclick={() => (clearOpen = true)}
+          class="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+        >
+          <Trash2 class="h-3.5 w-3.5" />
+          Clear
+        </button>
+      {/if}
+      <button
+        onclick={() => navigate('settings')}
+        aria-label={t('home.settings')}
+        class="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+      >
+        <Settings class="h-3.5 w-3.5" />
+        {t('home.settings')}
+      </button>
+    </div>
+  </header>
 
   {#if hasPermissionIssue}
-    <div class="relative rounded-xl border border-warning/40 bg-warning/10 p-4 mb-4 flex items-start gap-3">
-      <AlertTriangle class="h-5 w-5 text-warning shrink-0 mt-0.5" />
-      <div class="flex-1 min-w-0">
+    <div class="relative flex items-start gap-3 border-b border-warning/40 bg-warning/10 px-5 py-3">
+      <AlertTriangle class="mt-0.5 h-5 w-5 shrink-0 text-warning" />
+      <div class="min-w-0 flex-1">
         <p class="text-sm font-medium">Permissions missing</p>
-        <p class="text-xs text-muted-foreground mt-1">
+        <p class="mt-1 text-xs text-muted-foreground">
           {#if missingAccessibility && missingMicrophone}
             macOS Accessibility (needed for the hotkey + text injection) and Microphone are both missing. Grant them below.
           {:else if missingAccessibility}
@@ -96,7 +228,7 @@
             macOS Microphone access is blocked. Dictation won't capture any audio until it's granted.
           {/if}
         </p>
-        <div class="flex flex-wrap gap-2 mt-3">
+        <div class="mt-3 flex flex-wrap gap-2">
           {#if missingAccessibility}
             <Button size="sm" variant="outline" onclick={openAccessibilitySettings}>
               Open Accessibility settings
@@ -118,119 +250,63 @@
     </div>
   {/if}
 
-  <div class="flex-1 flex flex-col items-center justify-center gap-6 relative">
-    {#if $settings && !$settings.onboardingComplete}
-      <Logo size={80} />
-      <div class="text-center max-w-sm">
-        <div data-tauri-drag-region class="pointer-events-none">
-          <h1 class="text-2xl font-semibold mb-2">{t('home.setup_incomplete_title')}</h1>
-          <p class="text-sm text-muted-foreground mb-6">{t('home.setup_incomplete_body')}</p>
+  <!-- History area -->
+  <div class="relative flex flex-1 flex-col overflow-y-auto">
+    {#if items.length === 0}
+      {#if historyLoading}
+        <div class="flex flex-1 items-center justify-center">
+          <Spinner size="lg" label="Loading history" />
         </div>
-        <Button onclick={() => navigate('wizard')}>{t('home.rerun_wizard')}</Button>
-      </div>
-    {:else if $modelState.kind === 'error' || ($modelState.kind === 'ready' && !($modelState as any).stt)}
-      <div class="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center">
-        <AlertTriangle class="h-7 w-7 text-destructive" />
-      </div>
-      <div class="text-center max-w-sm">
-        <h1 class="text-xl font-semibold mb-2">{t('home.sidecar_down_title')}</h1>
-        {#if $modelState.kind === 'error' && ($modelState as any).reason}
-          <p class="text-xs text-muted-foreground mb-6 font-mono break-words">
-            {($modelState as any).reason}
-          </p>
-        {:else}
-          <p class="text-sm text-muted-foreground mb-6">{t('home.sidecar_down_body')}</p>
-        {/if}
-        <div class="flex items-center justify-center gap-2">
-          <Button onclick={() => navigate('settings')}>{t('home.retry')}</Button>
-          <Button variant="outline" onclick={() => navigate('wizard')}>{t('home.rerun_wizard')}</Button>
-        </div>
-      </div>
-    {:else if $modelState.kind === 'loading' || $modelState.kind === 'reloading'}
-      <Logo size={72} loading />
-      <p class="text-sm text-muted-foreground animate-pulse">
-        {$modelState.kind === 'reloading'
-          ? (($modelState as any).reason ?? t('home.loading'))
-          : t('home.loading')}
-      </p>
-    {:else if $modelState.kind === 'idle' || ($modelState.kind === 'ready' && !canDictate)}
-      <Logo size={64} />
-      <div class="text-center max-w-sm">
-        <h1 class="text-xl font-semibold mb-2">{t('home.models_not_loaded_title')}</h1>
-        <p class="text-sm text-muted-foreground mb-6">{t('home.models_not_loaded_body')}</p>
-        <Button onclick={() => navigate('settings')}>{t('home.open_settings')}</Button>
-      </div>
-    {:else if canDictate && $settings}
-      <div data-tauri-drag-region class="text-center space-y-2 pointer-events-none">
-        <h1 class="text-3xl font-semibold tracking-tight">{t('home.title')}</h1>
-        <p class="text-sm text-muted-foreground">{t('home.ready_hint')}</p>
-      </div>
-      <div class="relative">
-        <!-- Soft halo behind the key chip — subtle elevation cue without a hard shadow. -->
-        <div class="absolute -inset-8 rounded-[32px] bg-primary/[0.04] blur-2xl pointer-events-none"></div>
-        <KeyChip
-          label={HOTKEY_LABEL[$settings.hotkey] || ''}
-          glyph={HOTKEY_GLYPH[$settings.hotkey]}
-          size="lg"
-          selected
+      {:else}
+        <HistoryEmpty hotkeyGlyph={canDictate ? hotkeyGlyph : undefined} {hotkeyLabel} />
+      {/if}
+    {:else}
+      <div class="flex flex-col gap-3 p-5">
+        <HistoryList
+          {items}
+          {selectedId}
+          onSelect={toggleSelect}
+          onDelete={deleteOne}
         />
+
+        {#if hasMore}
+          <div class="flex justify-center pt-1">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={historyLoading}
+              onclick={() => dictationHistory.loadMore()}
+            >
+              {#if historyLoading}
+                <Spinner size="sm" label="Loading" />
+              {:else}
+                Load more
+              {/if}
+            </Button>
+          </div>
+        {/if}
       </div>
     {/if}
   </div>
-
-  <!--
-    Status / settings bar. Hairline-divided footer modeled on Linear/Raycast.
-    Shows the model state with two small dots on the left + Settings link on
-    the right. Only rendered with content when the canDictate hero is up;
-    other branches (loading, error, idle, onboarding) hide the model status
-    and just keep the Settings link.
-  -->
-  <footer class="relative -mx-8 -mb-8 mt-4 px-6 py-3 border-t border-border/60 backdrop-blur-md flex items-center justify-between text-xs">
-    <div class="flex items-center gap-4">
-      {#if $modelState.kind === 'ready' && canDictate}
-        {@const sttReady = ($modelState as any).stt === true}
-        {@const llmReady = ($modelState as any).llama === true}
-        {@const cleanupConfigured = $settings?.llmModelPath != null}
-        <span class="flex items-center gap-1.5">
-          <span class="relative inline-flex h-1.5 w-1.5">
-            {#if sttReady}
-              <span class="absolute inset-0 rounded-full bg-success/60 animate-ping"></span>
-              <span class="relative inline-flex h-full w-full rounded-full bg-success"></span>
-            {:else}
-              <span class="inline-flex h-full w-full rounded-full bg-muted-foreground/30"></span>
-            {/if}
-          </span>
-          <span class={sttReady ? 'text-foreground' : 'text-muted-foreground'}>
-            {t('home.status_speech')}
-          </span>
-        </span>
-        {#if cleanupConfigured}
-          <span class="text-border" aria-hidden="true">·</span>
-          <span
-            class="flex items-center gap-1.5"
-            title={llmReady ? '' : t('home.status_cleanup_loading')}
-          >
-            <span class="relative inline-flex h-1.5 w-1.5">
-              {#if llmReady}
-                <span class="absolute inset-0 rounded-full bg-success/60 animate-ping"></span>
-                <span class="relative inline-flex h-full w-full rounded-full bg-success"></span>
-              {:else}
-                <span class="inline-flex h-full w-full rounded-full bg-muted-foreground/30"></span>
-              {/if}
-            </span>
-            <span class={llmReady ? 'text-foreground' : 'text-muted-foreground'}>
-              {llmReady ? t('home.status_cleanup') : t('home.status_cleanup_loading')}
-            </span>
-          </span>
-        {/if}
-      {/if}
-    </div>
-    <button
-      onclick={() => navigate('settings')}
-      class="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors px-2 py-1 -my-1 rounded-md hover:bg-muted/60"
-    >
-      <Settings class="h-3.5 w-3.5" />
-      {t('home.settings')}
-    </button>
-  </footer>
 </div>
+
+<AlertDialog.Root bind:open={clearOpen}>
+  <AlertDialog.Content>
+    <AlertDialog.Header>
+      <AlertDialog.Title>Clear dictation history?</AlertDialog.Title>
+      <AlertDialog.Description>
+        This permanently deletes every saved dictation from this device. This can't be undone.
+      </AlertDialog.Description>
+    </AlertDialog.Header>
+    <AlertDialog.Footer>
+      <AlertDialog.Action variant="destructive" disabled={clearing} onclick={confirmClear}>
+        {#if clearing}
+          <Spinner size="sm" label="Clearing" />
+        {:else}
+          Clear history
+        {/if}
+      </AlertDialog.Action>
+      <AlertDialog.Cancel variant="default" disabled={clearing}>Cancel</AlertDialog.Cancel>
+    </AlertDialog.Footer>
+  </AlertDialog.Content>
+</AlertDialog.Root>

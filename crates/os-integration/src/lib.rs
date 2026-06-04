@@ -12,6 +12,8 @@
 #![allow(clippy::missing_errors_doc, clippy::missing_panics_doc)]
 
 #[cfg(target_os = "macos")]
+mod frontmost;
+#[cfg(target_os = "macos")]
 mod permissions;
 #[cfg(target_os = "macos")]
 mod hotkey;
@@ -47,3 +49,26 @@ pub use stub::{
 
 pub mod audio_cue;
 pub mod overlay;
+
+/// A focused application identified by its localized name and bundle id.
+/// Either field may be `None` if macOS doesn't report it (e.g. a process
+/// without an `Info.plist`).
+#[derive(Debug, Clone)]
+pub struct FrontmostApp {
+    pub name: Option<String>,
+    pub bundle_id: Option<String>,
+}
+
+/// The frontmost (focused) application, queried right after injection so it is
+/// still the dictation target. `None` if it can't be determined.
+#[must_use]
+pub fn frontmost_app() -> Option<FrontmostApp> {
+    #[cfg(target_os = "macos")]
+    {
+        frontmost::frontmost_app()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}

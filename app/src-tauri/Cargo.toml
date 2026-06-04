@@ -39,6 +39,8 @@ arc-swap = "1"
 once_cell = "1"
 sys-locale = "0.3"
 hound = "3"
+rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite_migration = "1.3"
 
 inference-core    = { path = "../../crates/inference-core" }
 resource-monitor  = { path = "../../crates/resource-monitor" }
