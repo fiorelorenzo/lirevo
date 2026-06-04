@@ -10,6 +10,14 @@
     onDelete: (id: number) => void;
   }
   let { items, selectedId, onSelect, onDelete }: Props = $props();
+
+  // Tick so relative times age live ("just now" -> "1m" -> "2h") instead of
+  // freezing at whatever they were when the row first rendered.
+  let now = $state(Date.now());
+  $effect(() => {
+    const t = setInterval(() => (now = Date.now()), 30_000);
+    return () => clearInterval(t);
+  });
 </script>
 
 <ul class="flex flex-col gap-1.5">
@@ -34,7 +42,7 @@
             {item.preview || '(empty)'}
           </span>
           <span class="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-            <span class="tabular-nums">{formatRelative(item.createdAt)}</span>
+            <span class="tabular-nums">{formatRelative(item.createdAt, now)}</span>
             <span class="text-border" aria-hidden="true">·</span>
             <span
               class="rounded-full border border-border/60 bg-muted/40 px-1.5 py-0.5 font-medium"
