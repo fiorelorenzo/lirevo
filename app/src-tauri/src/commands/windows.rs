@@ -43,8 +43,12 @@ pub async fn complete_wizard(
             crate::commands::inference::load_models(&app2, state).await;
         });
     }
+    // Destroy (not close) a separate wizard window: `close` would be caught by
+    // the menu-bar keep-alive handler and merely hide it. When the wizard was
+    // reached via client-side nav this is a no-op (the window is "home"); the
+    // frontend then routes that window back to home after this command.
     if let Some(w) = app.get_webview_window("wizard") {
-        let _ = w.close();
+        let _ = w.destroy();
     }
     open_window_internal(&app, "home")?;
     Ok(())
