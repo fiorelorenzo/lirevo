@@ -132,11 +132,7 @@
       "title": "How should it run?",
       "body": "lda is built to live in the menu bar — these settings decide how present it should be.",
       "launch_at_login": "Launch at login",
-      "launch_at_login_helper": "Start lda automatically when you sign in to your Mac. The hotkey is live as soon as the app is up.",
-      "launch_minimized": "Start hidden",
-      "launch_minimized_helper": "Skip opening a window at startup; the menu bar icon is the only entry point until you click it.",
-      "stay_running_on_window_close": "Stay in the menu bar when window closes",
-      "stay_running_on_window_close_helper": "Closing the window hides it instead of quitting. The hotkey keeps working; reopen from the menu bar."
+      "launch_at_login_helper": "Start lda automatically when you sign in to your Mac. The hotkey is live as soon as the app is up."
     },
     "hotkey": {
       "title": "Choose your hotkey",
@@ -165,10 +161,6 @@
       "force_pasteboard_helper": "Skip Accessibility text injection; paste via clipboard instead.",
       "paste_delay_ms": "Paste delay",
       "launch_at_login": "Launch at login",
-      "launch_minimized": "Launch minimized",
-      "launch_minimized_helper": "Start without opening a window. The tray icon stays the only entry point until you click it. Combine with launch at login for a background-only experience.",
-      "stay_running_on_window_close": "Stay running on window close",
-      "stay_running_on_window_close_helper": "Hide the window instead of quitting when you close it. The hotkey keeps working; reopen from the tray.",
       "record_history": "Record dictation history",
       "record_history_helper": "Keep a local history of your dictations on this device.",
       "energy": "Energy",

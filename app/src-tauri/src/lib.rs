@@ -81,7 +81,10 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            None,
+            // Login auto-launch passes this flag so the app starts silently in
+            // the tray; a manual launch (no flag) shows a window. This is what
+            // replaced the old `launch_minimized` setting.
+            Some(vec!["--minimized"]),
         ))
         .setup(|app| {
             // Logging first so subsequent code can log.
@@ -89,6 +92,12 @@ pub fn run() {
                 Ok(guard) => { let _ = LOGGING_GUARD.set(guard); }
                 Err(e) => eprintln!("[lda] failed to init logging: {e}"),
             }
+
+            // Menu-bar / agent app: never show a Dock icon. `LSUIElement` in
+            // Info.plist declares this, but tao forces the Regular activation
+            // policy at launch and overrides it — set Accessory explicitly.
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
             // Settings + AppState.
             let settings = Settings::load(app.handle())?;
@@ -140,19 +149,13 @@ pub fn run() {
                 );
             }
 
-            // Open initial window: wizard if first-run, home otherwise.
-            // Exception: when `launch_minimized` is on AND onboarding is
-            // already complete, skip opening a window — the user opted into
-            // a background-only experience and the tray icon is the entry
-            // point. Wizard always opens regardless of the setting because
-            // hiding the wizard on first run would leave the user with no
-            // way to configure the app.
-            let launch_minimized = {
-                let state = app.state::<AppState>();
-                let inner = state.inner.lock().unwrap();
-                inner.settings.launch_minimized
-            };
-            let should_open_window = !(onboarding_complete && launch_minimized);
+            // Open the initial window: wizard on first run, home otherwise.
+            // A login auto-launch starts silently in the tray (the autostart
+            // LaunchAgent passes `--minimized`); a manual launch always opens a
+            // window. The wizard always opens on first run regardless, since
+            // hiding it would leave the user no way to configure the app.
+            let autostarted = std::env::args().any(|a| a == "--minimized");
+            let should_open_window = !(onboarding_complete && autostarted);
             if should_open_window {
                 let route = if onboarding_complete { "home" } else { "wizard" };
                 if let Err(e) = commands::windows::open_window_internal(app.handle(), route) {
@@ -160,7 +163,7 @@ pub fn run() {
                 }
             } else {
                 tracing::info!(
-                    "launch_minimized: skipping initial window — tray icon is the only entry point"
+                    "launched at login — starting silently in the tray (no initial window)"
                 );
             }
 
@@ -420,11 +423,11 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
-            // Intercept window close: when `stay_running_on_window_close` is
-            // on (default), hide the window instead of letting Tauri destroy
-            // it. Lets the user re-open instantly from the tray without
-            // re-creating the webview. Skipped for the overlay (which has
-            // its own show/hide lifecycle driven by recording state).
+            // Intercept window close: hide the window instead of letting Tauri
+            // destroy it, so the menu-bar app keeps running and the user can
+            // re-open instantly from the tray without re-creating the webview.
+            // Quit is via the tray menu. Skipped for the overlay (its own
+            // show/hide lifecycle driven by recording state).
             if let tauri::RunEvent::WindowEvent {
                 label,
                 event: tauri::WindowEvent::CloseRequested { api, .. },
@@ -432,18 +435,27 @@ pub fn run() {
             } = &event
             {
                 if label != "overlay" {
-                    let stay_running = app
-                        .try_state::<AppState>()
-                        .map(|s| s.inner.lock().unwrap().settings.stay_running_on_window_close)
-                        .unwrap_or(true);
-                    if stay_running {
-                        api.prevent_close();
-                        if let Some(w) = app.get_webview_window(label) {
-                            let _ = w.hide();
-                        }
-                        return;
+                    api.prevent_close();
+                    if let Some(w) = app.get_webview_window(label) {
+                        let _ = w.hide();
                     }
+                    return;
                 }
+            }
+
+            // Reopen (Finder / Launchpad / Spotlight while already running):
+            // with no Dock icon, this is how the user re-summons the UI — show
+            // the home window (or the wizard if onboarding isn't finished).
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = &event {
+                let route = app.try_state::<AppState>().map_or("home", |s| {
+                    if s.inner.lock().unwrap().settings.onboarding_complete {
+                        "home"
+                    } else {
+                        "wizard"
+                    }
+                });
+                let _ = commands::windows::open_window_internal(app, route);
             }
             // Flip the macOS shutdown flag so the SIGABRT handler installed
             // in setup() converts ggml-metal's teardown abort into

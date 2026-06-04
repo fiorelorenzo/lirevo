@@ -352,30 +352,6 @@
             </div>
             <div class="p-4 flex items-center justify-between gap-4">
               <div class="min-w-0">
-                <Label>{t('settings.general.launch_minimized')}</Label>
-                <p class="text-xs text-muted-foreground mt-1">
-                  {t('settings.general.launch_minimized_helper')}
-                </p>
-              </div>
-              <Switch
-                checked={$settings.launchMinimized}
-                onCheckedChange={(v) => updateSettings({ launchMinimized: v })}
-              />
-            </div>
-            <div class="p-4 flex items-center justify-between gap-4">
-              <div class="min-w-0">
-                <Label>{t('settings.general.stay_running_on_window_close')}</Label>
-                <p class="text-xs text-muted-foreground mt-1">
-                  {t('settings.general.stay_running_on_window_close_helper')}
-                </p>
-              </div>
-              <Switch
-                checked={$settings.stayRunningOnWindowClose}
-                onCheckedChange={(v) => updateSettings({ stayRunningOnWindowClose: v })}
-              />
-            </div>
-            <div class="p-4 flex items-center justify-between gap-4">
-              <div class="min-w-0">
                 <Label>{t('settings.general.record_history')}</Label>
                 <p class="text-xs text-muted-foreground mt-1">
                   {t('settings.general.record_history_helper')}
