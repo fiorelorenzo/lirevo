@@ -31,6 +31,18 @@ pub async fn complete_wizard(
         tracing::warn!(?e, "hotkey reinstall after wizard failed");
     }
     use tauri::Manager;
+    // Onboarding is done and the wizard downloaded both models, so eager-load
+    // them from the cache now. `load_models` early-returns while onboarding is
+    // incomplete (the wizard owns downloads), so this is the first real load —
+    // it makes home ready to dictate immediately instead of lazily on the first
+    // hotkey press.
+    {
+        let app2 = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let state = app2.state::<AppState>();
+            crate::commands::inference::load_models(&app2, state).await;
+        });
+    }
     if let Some(w) = app.get_webview_window("wizard") {
         let _ = w.close();
     }
@@ -73,9 +85,9 @@ pub fn open_window_internal_with_query(
     // Note: wizard is NOT always_on_top — the user must be able to switch to
     // System Settings to grant permissions, so it can't trap focus.
     let (w, h, resizable) = match route {
-        "home" => (720u32, 520u32, true),
-        "wizard" => (760, 620, false),
-        "settings" => (820, 600, true),
+        "home" => (800u32, 600u32, true),
+        "wizard" => (860, 720, false),
+        "settings" => (900, 680, true),
         _ => return Err(AppError::Internal(format!("unknown route: {route}"))),
     };
     // SvelteKit with adapter-static: routes are paths like /settings, /wizard, etc.

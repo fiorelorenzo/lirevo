@@ -126,6 +126,7 @@ export const lda = {
   modelsCatalog: () => invoke<CatalogEntry[]>('models_catalog'),
   modelsListLocal: () => invoke<LocalModel[]>('models_list_local'),
   modelsDownload: (id: string) => invoke<void>('models_download', { id }),
+  sttDownload: (id: string) => invoke<void>('stt_download', { id }),
   modelsCancelDownload: (id: string) => invoke<void>('models_cancel_download', { id }),
   modelsDelete: (id: string) => invoke<void>('models_delete', { id }),
   getModelState: () => invoke<ModelState>('get_model_state'),

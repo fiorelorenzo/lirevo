@@ -122,8 +122,10 @@
     {#if $settings && !$settings.onboardingComplete}
       <Logo size={80} />
       <div class="text-center max-w-sm">
-        <h1 class="text-2xl font-semibold mb-2">{t('home.setup_incomplete_title')}</h1>
-        <p class="text-sm text-muted-foreground mb-6">{t('home.setup_incomplete_body')}</p>
+        <div data-tauri-drag-region class="pointer-events-none">
+          <h1 class="text-2xl font-semibold mb-2">{t('home.setup_incomplete_title')}</h1>
+          <p class="text-sm text-muted-foreground mb-6">{t('home.setup_incomplete_body')}</p>
+        </div>
         <Button onclick={() => navigate('wizard')}>{t('home.rerun_wizard')}</Button>
       </div>
     {:else if $modelState.kind === 'error' || ($modelState.kind === 'ready' && !($modelState as any).stt)}
@@ -159,7 +161,7 @@
         <Button onclick={() => navigate('settings')}>{t('home.open_settings')}</Button>
       </div>
     {:else if canDictate && $settings}
-      <div class="text-center space-y-2">
+      <div data-tauri-drag-region class="text-center space-y-2 pointer-events-none">
         <h1 class="text-3xl font-semibold tracking-tight">{t('home.title')}</h1>
         <p class="text-sm text-muted-foreground">{t('home.ready_hint')}</p>
       </div>

@@ -126,7 +126,7 @@ pub fn get_model_state(state: State<'_, AppState>) -> Result<ModelState, AppErro
 /// surface a `ModelState::Loading` until the next reload picks the cached
 /// weights up.
 pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
-    let (engine, stt_model_id, llm_path, ctx_size, keep_warm, token) = {
+    let (engine, stt_model_id, llm_path, ctx_size, keep_warm, onboarding_complete, token) = {
         let mut inner = state.inner.lock().unwrap();
         inner.current_load_token += 1;
         let token = inner.current_load_token;
@@ -141,9 +141,24 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
             inner.settings.llm_model_path.clone(),
             inner.settings.llm_ctx_size,
             inner.settings.keep_models_warm,
+            inner.settings.onboarding_complete,
             token,
         )
     };
+
+    // During onboarding the wizard owns model download + selection: it triggers
+    // both downloads explicitly and shows real progress. Skip the eager
+    // load/download here so we don't race the wizard's downloads on a fresh
+    // cache (a second, progress-less download would fight hf_hub's blob lock).
+    // The first post-onboarding launch loads from the now-populated cache.
+    if !onboarding_complete {
+        let inner = state.inner.lock().unwrap();
+        if inner.current_load_token == token {
+            drop(inner);
+            state.set_model_state(app, ModelState::Idle);
+        }
+        return;
+    }
 
     // Runtime existence check: settings migration clears stale paths at
     // startup, but the file can disappear mid-session (model manager remove,

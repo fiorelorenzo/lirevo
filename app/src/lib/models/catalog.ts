@@ -94,6 +94,81 @@ export function findModel(id: string): SttModelEntry | undefined {
   return STT_MODELS.find((m) => m.id === id);
 }
 
+/** Catalog id of the fast, default European STT model. */
+export const PARAKEET_MODEL_ID = 'parakeet-tdt-0.6b-v3';
+/** Catalog id of the broad-coverage STT fallback. */
+export const WHISPER_MODEL_ID = 'whisper-large-v3-turbo';
+
+const PARAKEET_LANGUAGE_SET = new Set(PARAKEET_LANGUAGES);
+
+/**
+ * Resolve the STT model the wizard should download for a given language
+ * code: Parakeet (fast, low latency) when the language is among its 25
+ * European tongues, otherwise Whisper for its 99-language breadth. The
+ * wizard never surfaces this choice — the language picker drives it.
+ */
+export function modelForLanguage(code: string): string {
+  return PARAKEET_LANGUAGE_SET.has(code) ? PARAKEET_MODEL_ID : WHISPER_MODEL_ID;
+}
+
+/**
+ * ISO 639-1/2 display names for the wizard language picker. Kept inline:
+ * the universe is the small union of Parakeet + curated Whisper, and a
+ * runtime locale-display dependency would dwarf the strings themselves.
+ */
+const LANGUAGE_NAMES: Record<string, string> = {
+  ar: 'Arabic',
+  bg: 'Bulgarian',
+  cs: 'Czech',
+  da: 'Danish',
+  de: 'German',
+  el: 'Greek',
+  en: 'English',
+  es: 'Spanish',
+  et: 'Estonian',
+  fa: 'Persian',
+  fi: 'Finnish',
+  fr: 'French',
+  he: 'Hebrew',
+  hi: 'Hindi',
+  hr: 'Croatian',
+  hu: 'Hungarian',
+  id: 'Indonesian',
+  it: 'Italian',
+  ja: 'Japanese',
+  ko: 'Korean',
+  lt: 'Lithuanian',
+  lv: 'Latvian',
+  ms: 'Malay',
+  mt: 'Maltese',
+  nl: 'Dutch',
+  no: 'Norwegian',
+  pl: 'Polish',
+  pt: 'Portuguese',
+  ro: 'Romanian',
+  ru: 'Russian',
+  sk: 'Slovak',
+  sl: 'Slovenian',
+  sv: 'Swedish',
+  sw: 'Swahili',
+  th: 'Thai',
+  tr: 'Turkish',
+  uk: 'Ukrainian',
+  vi: 'Vietnamese',
+  zh: 'Chinese',
+};
+
+export function languageLabel(code: string): string {
+  return LANGUAGE_NAMES[code] ?? code.toUpperCase();
+}
+
+export interface WizardLanguage {
+  code: string;
+  label: string;
+}
+// `WIZARD_LANGUAGES` itself is built below `WHISPER_CURATED_LANGUAGES` to
+// avoid a temporal-dead-zone reference at module init.
+
 /**
  * Curated Whisper language subset shown in the wizard's language step when
  * the user picks the Whisper model. The full Whisper list is ~99 entries —
@@ -131,6 +206,18 @@ export function languagesForModel(id: string): string[] {
   }
   return [...m.languages];
 }
+
+/**
+ * Languages offered in the simplified wizard's language step: the union of
+ * Parakeet's 25 European languages and the curated Whisper subset,
+ * de-duped and sorted by display name. Picking any of these resolves to a
+ * concrete STT model via {@link modelForLanguage}.
+ */
+export const WIZARD_LANGUAGES: WizardLanguage[] = Array.from(
+  new Set([...PARAKEET_LANGUAGES, ...WHISPER_CURATED_LANGUAGES]),
+)
+  .map((code) => ({ code, label: languageLabel(code) }))
+  .sort((a, b) => a.label.localeCompare(b.label));
 
 // ---------- Dev-only parity check ----------
 

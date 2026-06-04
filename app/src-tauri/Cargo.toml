@@ -55,7 +55,7 @@ num_cpus          = "1"
 # Phase-2 (T8) re-enabled the `whisper` feature now that `whisper-rs` was
 # dropped from `inference-core` — both packages link the native `whisper`
 # library, so they couldn't coexist before.
-audiopipe = { git = "https://github.com/fiorelorenzo/audiopipe", rev = "3538b172b436fdd7ec07672e72195c5e3f8a0c1f", default-features = false, features = [
+audiopipe = { git = "https://github.com/fiorelorenzo/audiopipe", rev = "5fb8a00e34fc6712806cc0e7955cda709f7af39a", default-features = false, features = [
     "parakeet",
     # `parakeet-mlx` pulls in mlx-sys, which compiles MLX 0.25.1's Metal
     # kernels. Those need Metal 3.1 (macOS 14+): rust's default macOS 11

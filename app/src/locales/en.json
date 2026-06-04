@@ -83,10 +83,38 @@
     },
     "language": {
       "title": "Pick your dictation language",
-      "body": "Pin a language to lock the decoder, or leave Auto-detect on (recommended).",
+      "body": "We'll set up the right on-device model for the language you dictate in. You can change it any time from Settings.",
+      "picker_label": "Dictation language",
       "auto_label": "Auto-detect (recommended)",
       "model_label": "Model",
       "reset_notice": "Language reset because the new model doesn't support it."
+    },
+    "downloads": {
+      "title": "Downloading your models",
+      "body": "We're fetching the on-device models for dictation and cleanup. This runs once — they're cached for next time.",
+      "dictation_label": "Dictation model",
+      "cleanup_label": "Cleanup model",
+      "downloading": "Downloading…",
+      "complete": "Ready",
+      "error": "Download failed",
+      "retry": "Retry"
+    },
+    "permissions": {
+      "title": "Grant permissions",
+      "body": "Lirevo needs two macOS permissions: the microphone to hear you, and Accessibility to type into the focused app.",
+      "microphone_label": "Microphone",
+      "microphone_helper": "Captures your dictation on-device; audio is discarded after each transcription.",
+      "accessibility_label": "Accessibility",
+      "accessibility_helper": "Listens for your hotkey and types the result into the focused app.",
+      "grant": "Grant",
+      "open_settings": "Open System Settings",
+      "granted": "Granted",
+      "denied": "Not granted yet"
+    },
+    "general": {
+      "title": "Finish setup",
+      "body": "Pick your push-to-talk key and decide how Lirevo lives on your Mac.",
+      "hotkey_label": "Push-to-talk key"
     },
     "cleanup": {
       "title": "Cleanup model (optional)",
