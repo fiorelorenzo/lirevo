@@ -34,6 +34,18 @@ impl Db {
         })
     }
 
+    /// Open the file DB, falling back to an in-memory DB (logged) if that fails,
+    /// so a broken/locked file never prevents the app from starting.
+    pub fn open_or_memory(path: &Path) -> Self {
+        match Self::open(path) {
+            Ok(db) => db,
+            Err(e) => {
+                tracing::error!(?e, "failed to open data.db; using in-memory history (not persisted)");
+                Self::memory().expect("in-memory DB must open")
+            }
+        }
+    }
+
     /// In-memory DB (migrated). Used by the startup fallback and tests.
     pub fn memory() -> rusqlite::Result<Self> {
         let mut conn = Connection::open_in_memory()?;

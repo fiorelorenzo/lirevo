@@ -96,7 +96,12 @@ pub fn run() {
             // Apply the persisted paste delay before any pasteboard inject
             // could run — the injector reads it from env on every paste.
             commands::settings::apply_paste_delay(settings.paste_delay_ms);
-            let app_state = AppState::new(settings);
+            // Open the local DB once at startup. A broken/locked file falls back
+            // to an in-memory DB (logged) so history never blocks app launch.
+            let data_dir = app.path().app_data_dir()?;
+            std::fs::create_dir_all(&data_dir).ok();
+            let db = std::sync::Arc::new(crate::db::Db::open_or_memory(&data_dir.join("data.db")));
+            let app_state = AppState::new(settings, db);
             app.manage(app_state);
 
             crate::models::init_active_downloads();
@@ -361,6 +366,10 @@ pub fn run() {
             commands::windows::complete_wizard,
             commands::dialog::pick_file,
             commands::updater::check_for_updates,
+            commands::history::history_list,
+            commands::history::history_get,
+            commands::history::history_delete,
+            commands::history::history_clear,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
