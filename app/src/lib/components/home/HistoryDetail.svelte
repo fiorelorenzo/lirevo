@@ -48,7 +48,7 @@
   let cleanupFailed = $derived(detail?.cleanupStatus === 'failed');
 </script>
 
-<div class="rounded-lg border border-border/60 bg-surface/60 p-4">
+<div>
   {#if loading}
     <div class="flex items-center justify-center py-6">
       <Spinner size="sm" label="Loading transcript" />

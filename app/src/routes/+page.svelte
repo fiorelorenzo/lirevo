@@ -10,7 +10,6 @@
   import Spinner from '$lib/components/Spinner.svelte';
   import HistoryEmpty from '$lib/components/home/HistoryEmpty.svelte';
   import HistoryList from '$lib/components/home/HistoryList.svelte';
-  import HistoryDetail from '$lib/components/home/HistoryDetail.svelte';
   import { Button } from '$lib/components/ui/button';
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import { lda } from '$lib/tauri';
@@ -263,21 +262,12 @@
       {/if}
     {:else}
       <div class="flex flex-col gap-3 p-5">
-        {#each items as item (item.id)}
-          <div class="flex flex-col gap-1.5">
-            <HistoryList
-              items={[item]}
-              {selectedId}
-              onSelect={toggleSelect}
-              onDelete={deleteOne}
-            />
-            {#if selectedId === item.id}
-              <div class="pl-1">
-                <HistoryDetail id={item.id} />
-              </div>
-            {/if}
-          </div>
-        {/each}
+        <HistoryList
+          {items}
+          {selectedId}
+          onSelect={toggleSelect}
+          onDelete={deleteOne}
+        />
 
         {#if hasMore}
           <div class="flex justify-center pt-1">

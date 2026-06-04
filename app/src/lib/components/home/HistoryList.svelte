@@ -1,7 +1,10 @@
 <script lang="ts">
+  import { slide } from 'svelte/transition';
+  import { quintOut } from 'svelte/easing';
   import { Trash2, AppWindow, ChevronDown } from '@lucide/svelte';
   import type { DictationSummary } from '$lib/tauri';
   import { formatRelative, formatMs } from './format';
+  import HistoryDetail from './HistoryDetail.svelte';
 
   interface Props {
     items: DictationSummary[];
@@ -26,12 +29,16 @@
     <li>
       <div
         class={[
-          'group relative flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors',
-          isSelected
-            ? 'border-primary/40 bg-primary/[0.06]'
-            : 'border-border/60 bg-surface hover:bg-accent/30',
+          'overflow-hidden rounded-lg border transition-colors',
+          isSelected ? 'border-primary/40 bg-primary/[0.04]' : 'border-border/60 bg-surface',
         ].join(' ')}
       >
+        <div
+          class={[
+            'group relative flex items-center gap-3 px-3 py-2.5 text-left transition-colors',
+            isSelected ? '' : 'hover:bg-accent/30',
+          ].join(' ')}
+        >
         <button
           type="button"
           onclick={() => onSelect(item.id)}
@@ -80,6 +87,16 @@
             isSelected ? 'rotate-180' : '',
           ].join(' ')}
         />
+        </div>
+
+        {#if isSelected}
+          <div
+            transition:slide={{ duration: 220, easing: quintOut }}
+            class="border-t border-border/60 px-3 py-3"
+          >
+            <HistoryDetail id={item.id} />
+          </div>
+        {/if}
       </div>
     </li>
   {/each}
