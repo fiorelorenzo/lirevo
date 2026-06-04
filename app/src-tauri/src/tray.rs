@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 use once_cell::sync::Lazy;
@@ -22,6 +23,9 @@ const ICON_READY_PERFORMANCE:  &[u8] = include_bytes!("../icons/tray/tray-ready-
 const ICON_RECORDING1:         &[u8] = include_bytes!("../icons/tray/tray-recording-1.png");
 const ICON_RECORDING2:         &[u8] = include_bytes!("../icons/tray/tray-recording-2.png");
 const ICON_ERROR:              &[u8] = include_bytes!("../icons/tray/tray-error.png");
+// Shown (in place of the Ready icon) when Accessibility or Microphone is
+// missing — the waveform with a dot badge. Dictation can't work without both.
+const ICON_ATTENTION:          &[u8] = include_bytes!("../icons/tray/tray-attention.png");
 
 /// Ready-state tray icon whose waveform amplitude encodes the active energy
 /// profile (PowerSaver = low, Balanced = medium, Performance = tall).
@@ -34,6 +38,22 @@ fn ready_icon_for(profile: ProfileName) -> &'static [u8] {
 }
 
 static TRAY: Lazy<Mutex<Option<TrayIcon>>> = Lazy::new(|| Mutex::new(None));
+
+/// Whether Accessibility AND Microphone are currently granted. Kept fresh by a
+/// background poller in `install` so the tray reflects missing permissions even
+/// with no window open (the frontend `permissionsState` store only polls while
+/// a window is visible). Defaults to `true` so the tray doesn't flash an
+/// attention badge before the first check runs.
+static PERMISSIONS_OK: AtomicBool = AtomicBool::new(true);
+
+/// Both permissions dictation needs end to end: Accessibility (global hotkey +
+/// text injection) and Microphone (audio capture). Missing either means the
+/// tray shows its attention badge.
+fn check_perms_ok() -> bool {
+    use os_integration::PermissionStatus::Granted;
+    os_integration::check_accessibility() == Granted
+        && os_integration::check_microphone() == Granted
+}
 
 pub fn install(app: &AppHandle) -> Result<(), AppError> {
     let icon = Image::from_bytes(ICON_LOADING)
@@ -75,6 +95,23 @@ pub fn install(app: &AppHandle) -> Result<(), AppError> {
         }
     });
 
+    // Background permission monitor. A menu-bar app must reflect missing
+    // Accessibility/Microphone even with no window open, so the tray can't
+    // rely on the frontend's `permissionsState` poll. Re-check every 3s and
+    // refresh the tray when the granted-ness flips (TCC checks are cheap).
+    let app3 = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(3));
+        loop {
+            tick.tick().await;
+            let ok = check_perms_ok();
+            // swap returns the previous value; refresh only on a real change.
+            if PERMISSIONS_OK.swap(ok, Ordering::Relaxed) != ok {
+                refresh(&app3);
+            }
+        }
+    });
+
     Ok(())
 }
 
@@ -106,8 +143,16 @@ pub fn refresh(app: &AppHandle) {
 }
 
 fn update_for_state(app: &AppHandle, model: &ModelState, recording: bool) -> Result<(), AppError> {
+    // Missing Accessibility/Microphone takes over the resting (Ready) icon: the
+    // app looks Ready but can't actually dictate. Recording implies both are
+    // granted, so it never collides with the attention state.
+    let needs_permission = !recording
+        && !PERMISSIONS_OK.load(Ordering::Relaxed)
+        && matches!(model, ModelState::Ready { .. });
     let bytes: &[u8] = if recording {
         ICON_RECORDING1
+    } else if needs_permission {
+        ICON_ATTENTION
     } else {
         match model {
             ModelState::Ready { .. } => {
@@ -126,7 +171,11 @@ fn update_for_state(app: &AppHandle, model: &ModelState, recording: bool) -> Res
     };
     let icon = Image::from_bytes(bytes)
         .map_err(|e| AppError::Internal(format!("tray icon: {e}")))?;
-    let label = state_label(model);
+    let label = if needs_permission {
+        "Permissions needed".to_string()
+    } else {
+        state_label(model)
+    };
     let menu = build_menu(app, recording, &label)?;
     if let Some(tray) = TRAY.lock().unwrap().as_ref() {
         let _ = tray.set_icon(Some(icon));

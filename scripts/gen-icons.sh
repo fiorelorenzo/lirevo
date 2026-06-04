@@ -106,5 +106,9 @@ tray_png tray-loading.png "<g opacity=\"0.45\">$(bars 4:2.5 11:6 18:9 25:6 32:2.
 # Error: a clean exclamation glyph.
 tray_png tray-error.png "<rect x=\"16\" y=\"6\" width=\"4\" height=\"15\" rx=\"2\" fill=\"#000\"/><circle cx=\"18\" cy=\"26\" r=\"2.4\" fill=\"#000\"/>"
 
+# Attention: shown when Accessibility/Microphone permission is missing — the
+# Balanced waveform plus a dot badge at the top-right corner.
+tray_png tray-attention.png "<g>$(bars 4:2.5 11:6 18:9 25:6 32:2.5)</g><circle cx=\"31\" cy=\"7\" r=\"4\" fill=\"#000\"/>"
+
 echo "==> Done. Generated icons:"
 ls -la *.png *.icns *.ico tray/*.png 2>/dev/null | awk '{print "  " $NF}'
