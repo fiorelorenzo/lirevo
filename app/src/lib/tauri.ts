@@ -24,6 +24,7 @@ export interface Settings {
   launchMinimized: boolean;
   stayRunningOnWindowClose: boolean;
   keepModelsWarm: boolean;
+  recordHistory: boolean;
   uiLanguage: string;
   onboardingComplete: boolean;
   appVersion: string;

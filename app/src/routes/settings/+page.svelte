@@ -362,6 +362,18 @@
                 onCheckedChange={(v) => updateSettings({ keepModelsWarm: v })}
               />
             </div>
+            <div class="p-4 flex items-center justify-between gap-4">
+              <div class="min-w-0">
+                <Label>{t('settings.general.record_history')}</Label>
+                <p class="text-xs text-muted-foreground mt-1">
+                  {t('settings.general.record_history_helper')}
+                </p>
+              </div>
+              <Switch
+                checked={$settings.recordHistory}
+                onCheckedChange={(v) => updateSettings({ recordHistory: v })}
+              />
+            </div>
           </div>
         </section>
       </div>
