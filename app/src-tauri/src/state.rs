@@ -48,6 +48,13 @@ pub struct AppState {
     /// mutex, so a command can hit the DB without contending on the per-request
     /// `AppStateInner` lock.
     pub db: Arc<crate::db::Db>,
+    /// Energy-profile selector. Installed lazily from the `setup()` async task
+    /// once `ResourceMonitor::spawn()` has produced a signal stream (the
+    /// selector needs `monitor.subscribe()`), so it's `None` for the brief
+    /// window before that task runs — and stays `None` if the monitor failed
+    /// to spawn. Held in an `ArcSwapOption` so the profile commands read it
+    /// lock-free without contending on the per-request `inner` mutex.
+    profile_selector: arc_swap::ArcSwapOption<inference_core::profile::ProfileSelector>,
     pub model_state_tx: watch::Sender<ModelState>,
     pub recording_state_tx: watch::Sender<bool>,
     pub audio_level_tx: watch::Sender<f32>,
@@ -72,7 +79,6 @@ impl AppState {
                 llm_model_path: settings.llm_model_path.clone(),
                 llm_ctx_size: settings.llm_ctx_size,
                 stt_model_id: settings.stt_model_id.clone(),
-                keep_warm: settings.keep_models_warm,
             },
             inference_core::profile::ProfileName::Balanced,
         );
@@ -87,6 +93,7 @@ impl AppState {
                 streaming: None,
             }),
             db,
+            profile_selector: arc_swap::ArcSwapOption::empty(),
             model_state_tx,
             recording_state_tx,
             audio_level_tx,
@@ -97,6 +104,22 @@ impl AppState {
     /// don't need to lock `inner` to use it.
     pub fn db(&self) -> &crate::db::Db {
         &self.db
+    }
+
+    /// Install the energy-profile selector. Called once from the `setup()`
+    /// async task after the resource monitor's signal stream exists.
+    pub fn set_profile_selector(
+        &self,
+        selector: Arc<inference_core::profile::ProfileSelector>,
+    ) {
+        self.profile_selector.store(Some(selector));
+    }
+
+    /// The energy-profile selector, if it has been installed yet. `None` only
+    /// during the brief startup window before the `setup()` async task runs,
+    /// or permanently if the resource monitor failed to spawn.
+    pub fn profile_selector(&self) -> Option<Arc<inference_core::profile::ProfileSelector>> {
+        self.profile_selector.load_full()
     }
 
     pub fn set_model_state(&self, app: &AppHandle, s: ModelState) {

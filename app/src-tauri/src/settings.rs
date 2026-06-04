@@ -58,19 +58,18 @@ pub struct Settings {
     /// convention for menu-bar-first apps. Defaults to `true`.
     #[serde(default = "default_true")]
     pub stay_running_on_window_close: bool,
-    /// After load_models succeeds, run a single tiny warm-up inference on
-    /// each loaded backend so the first real dictation doesn't pay the
-    /// one-time GPU-kernel-compile + KV-cache-allocate cost. Trades a few
-    /// hundred ms at startup for snappier first hotkey press. Defaults to
-    /// `true`.
-    #[serde(default = "default_true")]
-    pub keep_models_warm: bool,
     /// Keep a local history of dictations on this device. Gates whether the
     /// dictation pipeline persists transcripts to the on-device history store
     /// (the capture itself lands in a later change). Defaults to `true` so
     /// existing installs upgrading without the key opt in by default.
     #[serde(default = "default_true")]
     pub record_history: bool,
+    /// Energy-profile selection mode. `"auto"` lets the [`ProfileSelector`]
+    /// decide; `"power_saver"` / `"balanced"` / `"performance"` pin a profile.
+    /// Parsed by `inference_core::profile::mode_from_str`. Defaults to
+    /// `"auto"`.
+    #[serde(default = "default_profile_mode")]
+    pub profile_mode: String,
     pub ui_language: String,
     pub onboarding_complete: bool,
     pub app_version: String,
@@ -96,8 +95,8 @@ impl Default for Settings {
             launch_at_login: false,
             launch_minimized: false,
             stay_running_on_window_close: true,
-            keep_models_warm: true,
             record_history: true,
+            profile_mode: default_profile_mode(),
             ui_language: "en".into(),
             onboarding_complete: false,
             app_version: env!("CARGO_PKG_VERSION").to_string(),
@@ -107,6 +106,8 @@ impl Default for Settings {
 }
 
 fn default_true() -> bool { true }
+
+fn default_profile_mode() -> String { "auto".into() }
 
 /// Default dictation language derived from the OS locale (e.g. `it-IT` →
 /// `it`). Whisper auto-detect on very short utterances often hallucinates
@@ -283,19 +284,19 @@ mod tests {
         assert_eq!(s.paste_delay_ms, 120);
         assert!(!s.onboarding_complete);
         assert!(!s.force_pasteboard);
-        // Background-mode defaults: warm + stay-on-close ON, launch-minimized OFF
+        // Background-mode defaults: stay-on-close ON, launch-minimized OFF
         // so first-run still sees the wizard.
-        assert!(s.keep_models_warm);
         assert!(s.stay_running_on_window_close);
         assert!(!s.launch_minimized);
         assert!(s.record_history);
+        assert_eq!(s.profile_mode, "auto");
     }
 
     #[test]
     fn legacy_settings_without_new_fields_get_correct_defaults() {
         // Simulates a v1 settings.json from before this change: missing the
-        // three new fields. Serde defaults must populate them so the user
-        // doesn't lose the keep-warm / stay-running behaviors on upgrade.
+        // new fields. Serde defaults must populate them so the user doesn't
+        // lose the stay-running / history behaviors on upgrade.
         let legacy = json!({
             "whisperModelPath": null,
             "llmModelPath": null,
@@ -313,10 +314,10 @@ mod tests {
             "schemaVersion": 1,
         });
         let s: Settings = serde_json::from_value(legacy).unwrap();
-        assert!(s.keep_models_warm);
         assert!(s.stay_running_on_window_close);
         assert!(!s.launch_minimized);
         assert!(s.record_history);
+        assert_eq!(s.profile_mode, "auto");
     }
 
     #[test]

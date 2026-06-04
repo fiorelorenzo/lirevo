@@ -7,6 +7,7 @@ pub mod windows;
 pub mod dialog;
 pub mod updater;
 pub mod history;
+pub mod profile;
 
 #[derive(Clone, serde::Serialize)]
 pub struct Toast {

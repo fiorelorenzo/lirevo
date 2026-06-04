@@ -14,7 +14,7 @@ pub use error::AppError;
 pub use settings::Settings;
 pub use state::{AppState, ModelState};
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tracing_appender::non_blocking::WorkerGuard;
 
 // Hold the guard for the program's lifetime to avoid losing buffered log lines.
@@ -200,24 +200,68 @@ pub fn run() {
 
                 match resource_monitor::ResourceMonitor::spawn().await {
                     Ok(monitor) => {
+                        // Start from the persisted profile mode (Auto unless the
+                        // user pinned one in Settings). An unparseable stored
+                        // value falls back to Auto.
+                        let initial_mode = {
+                            let state = app_handle_for_lifecycle.state::<AppState>();
+                            let inner = state.inner.lock().unwrap();
+                            inference_core::profile::mode_from_str(&inner.settings.profile_mode)
+                                .unwrap_or(inference_core::profile::ProfileMode::Auto)
+                        };
                         let selector = inference_core::profile::ProfileSelector::new(
                             monitor.subscribe(),
-                            inference_core::profile::ProfileMode::Auto,
+                            initial_mode,
                             inference_core::profile::ProfileName::Balanced,
                         );
-                        // Feed selector decisions into the engine policy (push).
+                        // Make the selector reachable from the profile commands.
+                        {
+                            let state = app_handle_for_lifecycle.state::<AppState>();
+                            state.set_profile_selector(selector.clone());
+                        }
+                        // Feed selector decisions into the engine policy (push)
+                        // and mirror each change to the frontend as a
+                        // `profile:changed` event (plus an emergency toast).
                         let engine_for_policy = engine.clone();
+                        let app_for_events = app_handle_for_lifecycle.clone();
                         // `selector` is moved into this task; the task lives as
                         // long as the watch channel (i.e. as long as the
                         // selector itself) so this keeps the selector alive.
                         let mut changes = selector.subscribe_changes();
                         tauri::async_runtime::spawn(async move {
-                            let _selector = selector; // keep alive for the task
+                            let selector = selector; // keep alive for the task
                             loop {
                                 let profile = *changes.borrow_and_update();
                                 engine_for_policy.set_policy(
                                     inference_core::profile::policy_for(profile),
                                 );
+                                let status = crate::commands::profile::ProfileStatus {
+                                    active: profile,
+                                    mode: inference_core::profile::mode_to_str(
+                                        selector.current_mode(),
+                                    )
+                                    .to_string(),
+                                    emergency: selector
+                                        .emergency()
+                                        .map(inference_core::profile::emergency_label),
+                                };
+                                let _ = app_for_events.emit("profile:changed", &status);
+                                // Rebuild the tray so the energy submenu's
+                                // checkmarks + active-profile status reflect the
+                                // fresh decision live.
+                                crate::tray::refresh(&app_for_events);
+                                if let Some(reason) = selector.emergency() {
+                                    let _ = app_for_events.emit(
+                                        "toast",
+                                        crate::commands::toast(
+                                            "warn",
+                                            format!(
+                                                "Switched to Power Saver: {}",
+                                                inference_core::profile::emergency_label(reason)
+                                            ),
+                                        ),
+                                    );
+                                }
                                 if changes.changed().await.is_err() {
                                     break;
                                 }
@@ -370,6 +414,8 @@ pub fn run() {
             commands::history::history_get,
             commands::history::history_delete,
             commands::history::history_clear,
+            commands::profile::profile_get,
+            commands::profile::profile_set_mode,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

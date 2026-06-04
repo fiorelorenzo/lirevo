@@ -3,7 +3,9 @@ use std::time::Duration;
 use once_cell::sync::Lazy;
 use tauri::{AppHandle, Manager, image::Image};
 use tauri::tray::{TrayIcon, TrayIconBuilder};
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
+
+use inference_core::profile::{mode_to_str, ProfileName};
 
 use crate::{AppError, AppState};
 use crate::state::ModelState;
@@ -75,6 +77,16 @@ async fn spawn_recording_pulse(app: AppHandle) {
     }
 }
 
+/// Rebuild the tray from the current model/recording state. Used by callers
+/// outside the model/recording watch loop (e.g. the profile-change loop) that
+/// need the menu's energy submenu + status to reflect a fresh selection.
+pub fn refresh(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let model = state.current_model_state();
+    let recording = *state.recording_state_tx.borrow();
+    let _ = update_for_state(app, &model, recording);
+}
+
 fn update_for_state(app: &AppHandle, model: &ModelState, recording: bool) -> Result<(), AppError> {
     let bytes: &[u8] = if recording {
         ICON_RECORDING1
@@ -118,6 +130,7 @@ fn build_menu(app: &AppHandle, recording: bool, status_label: &str) -> Result<Me
         format!("Hold {} to dictate", hotkey_display(h))
     };
     let hotkey_item = MenuItem::with_id(app, "hotkey", &hotkey_label, false, None::<&str>).map_err(menu_err)?;
+    let energy_item = build_energy_submenu(app)?;
     let sep1 = PredefinedMenuItem::separator(app).map_err(menu_err)?;
     // "Show window" exists primarily for the `launch_minimized` flow — the
     // home window may never have been opened, and the user needs a single
@@ -133,11 +146,91 @@ fn build_menu(app: &AppHandle, recording: bool, status_label: &str) -> Result<Me
     let quit_item = PredefinedMenuItem::quit(app, None).map_err(menu_err)?;
 
     Menu::with_items(app, &[
-        &state_item, &hotkey_item, &sep1,
+        &state_item, &hotkey_item, &energy_item, &sep1,
         &show_item, &settings_item, &wiz_item, &sep2,
         &logs_item, &updates_item, &sep3,
         &quit_item,
     ]).map_err(menu_err)
+}
+
+/// Title-cased English label for a profile, used for both the submenu item
+/// text and the active-profile status line.
+fn profile_display(p: ProfileName) -> &'static str {
+    match p {
+        ProfileName::PowerSaver => "Power Saver",
+        ProfileName::Balanced => "Balanced",
+        ProfileName::Performance => "Performance",
+    }
+}
+
+/// Build the "Energy" submenu: a status item showing the resolved active
+/// profile, then four mutually-exclusive `CheckMenuItem`s (Auto + the three
+/// pinned profiles). The item matching the current MODE is checked; if the
+/// selector isn't ready yet, Auto is checked.
+fn build_energy_submenu(app: &AppHandle) -> Result<Submenu<tauri::Wry>, AppError> {
+    let selector = app.state::<AppState>().profile_selector();
+    // `profile-auto` when in Auto (or selector not ready), else the pinned id.
+    let checked_id = selector
+        .as_ref()
+        .map_or("profile-auto", |sel| match mode_to_str(sel.current_mode()) {
+            "auto" => "profile-auto",
+            "power_saver" => "profile-power_saver",
+            "balanced" => "profile-balanced",
+            "performance" => "profile-performance",
+            _ => "profile-auto",
+        });
+
+    let status_label = match &selector {
+        Some(sel) => {
+            let active = profile_display(sel.current_profile());
+            if matches!(mode_to_str(sel.current_mode()), "auto") {
+                format!("Active: Auto - {active}")
+            } else {
+                format!("Active: {active}")
+            }
+        }
+        None => "Active: Auto".to_string(),
+    };
+    let status_item = MenuItem::with_id(app, "profile-status", &status_label, false, None::<&str>)
+        .map_err(menu_err)?;
+    let sep = PredefinedMenuItem::separator(app).map_err(menu_err)?;
+
+    let auto = check_item(app, "profile-auto", "Auto", checked_id)?;
+    let saver = check_item(
+        app,
+        "profile-power_saver",
+        profile_display(ProfileName::PowerSaver),
+        checked_id,
+    )?;
+    let balanced = check_item(
+        app,
+        "profile-balanced",
+        profile_display(ProfileName::Balanced),
+        checked_id,
+    )?;
+    let perf = check_item(
+        app,
+        "profile-performance",
+        profile_display(ProfileName::Performance),
+        checked_id,
+    )?;
+
+    Submenu::with_items(
+        app,
+        "Energy",
+        true,
+        &[&status_item, &sep, &auto, &saver, &balanced, &perf],
+    )
+    .map_err(menu_err)
+}
+
+fn check_item(
+    app: &AppHandle,
+    id: &str,
+    label: &str,
+    checked_id: &str,
+) -> Result<CheckMenuItem<tauri::Wry>, AppError> {
+    CheckMenuItem::with_id(app, id, label, true, id == checked_id, None::<&str>).map_err(menu_err)
 }
 
 fn menu_err(e: tauri::Error) -> AppError { AppError::Internal(format!("menu: {e}")) }
@@ -167,6 +260,21 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
             let app2 = app.clone();
             tauri::async_runtime::spawn(async move {
                 let _ = crate::commands::updater::check_for_updates(app2).await;
+            });
+        }
+        id @ ("profile-auto" | "profile-power_saver" | "profile-balanced"
+        | "profile-performance") => {
+            // Map the menu id to the persisted mode string (strip the
+            // `profile-` prefix): `profile-auto` -> `auto`, etc.
+            let mode = id.trim_start_matches("profile-").to_string();
+            let app2 = app.clone();
+            tauri::async_runtime::spawn(async move {
+                if crate::commands::profile::apply_profile_mode(&app2, mode).await.is_ok() {
+                    // The decided profile may not change (e.g. re-pinning the
+                    // current band), so the watch-driven refresh in lib.rs
+                    // won't always fire — refresh here so the checkmark moves.
+                    refresh(&app2);
+                }
             });
         }
         _ => {}
