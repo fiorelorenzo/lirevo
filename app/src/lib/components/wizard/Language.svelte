@@ -4,7 +4,7 @@
   import { Languages } from '@lucide/svelte';
   import { WIZARD_LANGUAGES, languageLabel, modelForLanguage } from '$lib/models/catalog';
   import { settings, updateSettings } from '$lib/stores/settings.svelte';
-  import { wizardDownloadSelection } from '$lib/stores/wizardDownloads';
+  import { wizardDownloadSelection, markDownloadStarted } from '$lib/stores/wizardDownloads';
   import { lda, type CatalogEntry } from '$lib/tauri';
   import { t } from '$lib/i18n';
   import { withErrorToast } from '$lib/stores/toasts';
@@ -85,10 +85,12 @@
     await updateSettings({ language: selected, sttModelId: sttId });
     wizardDownloadSelection.set({ sttId, llmId });
 
-    // Fire-and-forget both downloads; progress arrives via download:progress
-    // events that the Downloads step watches. Errors there surface inline.
-    void lda.sttDownload(sttId);
-    if (llmId) void lda.modelsDownload(llmId);
+    // Fire-and-forget each download once; progress arrives via download:progress
+    // events the Downloads step watches. markDownloadStarted stops Back -> Next
+    // from re-triggering an in-flight download (which would reset the bars and
+    // start a competing fetch). Errors are retried from the Downloads step.
+    if (markDownloadStarted(sttId)) void lda.sttDownload(sttId);
+    if (llmId && markDownloadStarted(llmId)) void lda.modelsDownload(llmId);
 
     onnext();
   }
