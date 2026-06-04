@@ -23,7 +23,6 @@ export interface Settings {
   launchAtLogin: boolean;
   launchMinimized: boolean;
   stayRunningOnWindowClose: boolean;
-  keepModelsWarm: boolean;
   recordHistory: boolean;
   profileMode: string;
   uiLanguage: string;

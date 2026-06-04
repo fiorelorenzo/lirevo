@@ -376,18 +376,6 @@
             </div>
             <div class="p-4 flex items-center justify-between gap-4">
               <div class="min-w-0">
-                <Label>{t('settings.general.keep_models_warm')}</Label>
-                <p class="text-xs text-muted-foreground mt-1">
-                  {t('settings.general.keep_models_warm_helper')}
-                </p>
-              </div>
-              <Switch
-                checked={$settings.keepModelsWarm}
-                onCheckedChange={(v) => updateSettings({ keepModelsWarm: v })}
-              />
-            </div>
-            <div class="p-4 flex items-center justify-between gap-4">
-              <div class="min-w-0">
                 <Label>{t('settings.general.record_history')}</Label>
                 <p class="text-xs text-muted-foreground mt-1">
                   {t('settings.general.record_history_helper')}

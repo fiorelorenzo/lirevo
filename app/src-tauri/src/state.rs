@@ -79,7 +79,6 @@ impl AppState {
                 llm_model_path: settings.llm_model_path.clone(),
                 llm_ctx_size: settings.llm_ctx_size,
                 stt_model_id: settings.stt_model_id.clone(),
-                keep_warm: settings.keep_models_warm,
             },
             inference_core::profile::ProfileName::Balanced,
         );

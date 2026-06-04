@@ -35,7 +35,6 @@ pub struct EngineConfig {
     pub llm_model_path: Option<std::path::PathBuf>,
     pub llm_ctx_size: u32,
     pub stt_model_id: Option<String>,
-    pub keep_warm: bool,
 }
 
 /// Payload for the informational `engine:llm_state_changed` event. This is
@@ -431,7 +430,6 @@ mod tests {
             llm_model_path: path,
             llm_ctx_size: 4096,
             stt_model_id: None,
-            keep_warm: false,
         }
     }
 

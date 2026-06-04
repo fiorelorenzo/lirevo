@@ -126,7 +126,7 @@ pub fn get_model_state(state: State<'_, AppState>) -> Result<ModelState, AppErro
 /// surface a `ModelState::Loading` until the next reload picks the cached
 /// weights up.
 pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
-    let (engine, stt_model_id, llm_path, ctx_size, keep_warm, onboarding_complete, token) = {
+    let (engine, stt_model_id, llm_path, ctx_size, onboarding_complete, token) = {
         let mut inner = state.inner.lock().unwrap();
         inner.current_load_token += 1;
         let token = inner.current_load_token;
@@ -140,7 +140,6 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
             stt_model_id,
             inner.settings.llm_model_path.clone(),
             inner.settings.llm_ctx_size,
-            inner.settings.keep_models_warm,
             inner.settings.onboarding_complete,
             token,
         )
@@ -189,7 +188,6 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
         llm_model_path: effective_llm_path.clone(),
         llm_ctx_size: ctx_size,
         stt_model_id: stt_id_for_engine,
-        keep_warm,
     };
 
     // Settings-change reload: `ensure_llm` / `ensure_stt` short-circuit when a
@@ -333,7 +331,6 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
                 } else {
                     Some(stt_model_id.clone())
                 },
-                keep_warm,
             };
             drop(inner);
             engine.update_config(cfg);
@@ -399,7 +396,15 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
     // and there is nothing to swallow on shutdown.
     crate::register_quit_safety_atexit();
 
-    if keep_warm && (stt_ready || llama_ready) {
+    // Warm-up policy is owned by the active energy profile, not a separate
+    // setting: Balanced/Performance keep models resident, so precompiling GPU
+    // kernels + allocating the KV cache up front pays off; PowerSaver stays
+    // cold (it idle-unloads aggressively, so a warm-up would be wasted). If the
+    // selector isn't wired yet (very early startup), default to warming up.
+    let warm = state
+        .profile_selector()
+        .is_none_or(|sel| sel.current_profile().keeps_models_warm());
+    if warm && (stt_ready || llama_ready) {
         let engine_for_warmup = engine.clone();
         tokio::spawn(async move {
             warm_up(&engine_for_warmup).await;
@@ -418,10 +423,10 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
 /// rejected too early), while a hundreds-of-ms elapsed confirms the
 /// GPU pipeline actually built kernels and allocated buffers.
 ///
-/// Exposed at crate visibility so `commands::settings::update_settings`
-/// can also fire it when the user toggles `keep_models_warm` from off
-/// to on while models are already loaded — without this they'd have
-/// to either trigger a reload or restart the app to see the benefit.
+/// Called at the end of `load_models` when the active energy profile keeps
+/// models resident (Balanced/Performance — see
+/// [`inference_core::profile::ProfileName::keeps_models_warm`]). PowerSaver
+/// skips it.
 ///
 /// Drives the warm-up through the Engine: `ensure_stt` (lazy-loads if needed)
 /// for a silent transcribe, and a 1-token `chat` for the LLM. Both are

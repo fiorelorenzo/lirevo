@@ -41,6 +41,17 @@ impl ProfileName {
             ProfileName::Performance => "performance",
         }
     }
+
+    /// Whether this profile keeps models resident: eager pre-load plus a
+    /// post-load warm-up inference so the first dictation is snappy.
+    /// `PowerSaver` stays cold to save energy (it idle-unloads aggressively,
+    /// so a warm-up would be wasted). This predicate is the single source of
+    /// truth that replaced the old `keep_models_warm` user setting — the
+    /// energy profile now owns "how warm we keep models".
+    #[must_use]
+    pub fn keeps_models_warm(self) -> bool {
+        matches!(self, ProfileName::Balanced | ProfileName::Performance)
+    }
 }
 
 /// Serialize a [`ProfileMode`] to its persisted string form: `"auto"` for
@@ -588,6 +599,13 @@ mod tests {
         for p in [POWER_SAVER, BALANCED, PERFORMANCE] {
             assert_eq!(p.stt_precision, SttPrecision::Bf16);
         }
+    }
+
+    #[test]
+    fn keeps_models_warm_only_for_resident_profiles() {
+        assert!(!ProfileName::PowerSaver.keeps_models_warm());
+        assert!(ProfileName::Balanced.keeps_models_warm());
+        assert!(ProfileName::Performance.keeps_models_warm());
     }
 
     #[test]

@@ -169,8 +169,7 @@ fn is_loaded(s: SlotSnapshot) -> bool {
 }
 
 fn preload_profile(policy: &ProfilePolicy) -> bool {
-    use inference_core::profile::ProfileName;
-    matches!(policy.name, ProfileName::Balanced | ProfileName::Performance)
+    policy.name.keeps_models_warm()
 }
 
 #[cfg(test)]
