@@ -185,6 +185,9 @@
 <div class="h-full flex">
   <!-- Sidebar -->
   <nav class="w-44 bg-muted/30 backdrop-blur-xl border-r border-border p-3 flex flex-col gap-1">
+    <!-- Passive top strip so the settings window can be dragged from the
+         sidebar header, like a native macOS toolbar. -->
+    <div data-tauri-drag-region class="h-6 -mx-3 -mt-3 mb-1 pointer-events-none"></div>
     <button
       class="text-left px-3 py-2 rounded-md text-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors mb-2"
       onclick={() => navigate('home')}

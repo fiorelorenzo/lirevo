@@ -63,8 +63,11 @@
 </script>
 
 <div class="h-full flex flex-col">
-  <header class="px-8 pt-6">
-    <StepIndicator {step} total={STEPS} />
+  <header data-tauri-drag-region class="px-8 pt-6">
+    <!-- Passive progress display — let clicks fall through to the drag region. -->
+    <div class="pointer-events-none">
+      <StepIndicator {step} total={STEPS} />
+    </div>
   </header>
 
   <div class="flex-1 relative overflow-hidden">
