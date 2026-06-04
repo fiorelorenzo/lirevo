@@ -173,6 +173,13 @@
       "keep_models_warm_helper": "Run a tiny warm-up inference after loading so the first dictation isn't delayed by one-time GPU and cache initialization.",
       "record_history": "Record dictation history",
       "record_history_helper": "Keep a local history of your dictations on this device.",
+      "energy": "Energy",
+      "energy_helper": "Auto adapts to system load. Pinning a profile overrides it, except when low battery or thermal pressure forces Power Saver.",
+      "energy_auto": "Auto",
+      "energy_power_saver": "Power Saver",
+      "energy_balanced": "Balanced",
+      "energy_performance": "Performance",
+      "energy_auto_active": "Auto ({{profile}})",
       "microphone": {
         "section": "Microphone check",
         "section_helper": "Test your selected input device — useful when switching headsets or after macOS audio changes.",

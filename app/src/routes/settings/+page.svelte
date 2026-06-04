@@ -12,6 +12,8 @@
   import ModelCard from '$lib/components/ModelCard.svelte';
   import SkeletonRow from '$lib/components/SkeletonRow.svelte';
   import { settings, updateSettings } from '$lib/stores/settings.svelte';
+  import { profile, setProfileMode } from '$lib/stores/profile';
+  import type { ProfileName } from '$lib/tauri';
   import { t } from '$lib/i18n';
   import { navigate } from '$lib/router';
   import {
@@ -59,6 +61,28 @@
     { value: 'de', label: 'Deutsch' },
     { value: 'es', label: 'Español' },
   ];
+
+  const ENERGY_OPTIONS = [
+    { value: 'auto', label: t('settings.general.energy_auto') },
+    { value: 'power_saver', label: t('settings.general.energy_power_saver') },
+    { value: 'balanced', label: t('settings.general.energy_balanced') },
+    { value: 'performance', label: t('settings.general.energy_performance') },
+  ];
+
+  // The live store's `mode` wins once it resolves; before that fall back to
+  // the persisted choice so the control shows the right value on first paint.
+  let energyMode = $derived($profile?.mode ?? $settings?.profileMode ?? 'auto');
+  const PROFILE_LABELS: Record<ProfileName, string> = {
+    powerSaver: 'Power Saver',
+    balanced: 'Balanced',
+    performance: 'Performance',
+  };
+  // When pinned to Auto, surface which concrete profile is currently active.
+  let resolvedActive = $derived(
+    energyMode === 'auto' && $profile?.active
+      ? t('settings.general.energy_auto_active', { profile: PROFILE_LABELS[$profile.active] })
+      : null,
+  );
 
   let devices = $state<InputDeviceEntry[]>([]);
 
@@ -373,6 +397,35 @@
                 checked={$settings.recordHistory}
                 onCheckedChange={(v) => updateSettings({ recordHistory: v })}
               />
+            </div>
+            <div class="p-4 flex items-start justify-between gap-4">
+              <div class="min-w-0">
+                <Label>{t('settings.general.energy')}</Label>
+                <p class="text-xs text-muted-foreground mt-1">
+                  {t('settings.general.energy_helper')}
+                </p>
+              </div>
+              <div class="shrink-0 flex items-center gap-2">
+                {#if resolvedActive}
+                  <span class="text-xs text-muted-foreground">{resolvedActive}</span>
+                {/if}
+                <Select.Root
+                  type="single"
+                  value={energyMode}
+                  onValueChange={(v) => v && setProfileMode(v)}
+                >
+                  <Select.Trigger class="w-40">
+                    <span class="flex-1 min-w-0 truncate text-left">
+                      {ENERGY_OPTIONS.find((o) => o.value === energyMode)?.label ?? energyMode}
+                    </span>
+                  </Select.Trigger>
+                  <Select.Content>
+                    {#each ENERGY_OPTIONS as opt (opt.value)}
+                      <Select.Item value={opt.value}>{opt.label}</Select.Item>
+                    {/each}
+                  </Select.Content>
+                </Select.Root>
+              </div>
             </div>
           </div>
         </section>
