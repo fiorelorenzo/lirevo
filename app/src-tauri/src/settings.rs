@@ -71,6 +71,12 @@ pub struct Settings {
     /// existing installs upgrading without the key opt in by default.
     #[serde(default = "default_true")]
     pub record_history: bool,
+    /// Energy-profile selection mode. `"auto"` lets the [`ProfileSelector`]
+    /// decide; `"power_saver"` / `"balanced"` / `"performance"` pin a profile.
+    /// Parsed by `inference_core::profile::mode_from_str`. Defaults to
+    /// `"auto"`.
+    #[serde(default = "default_profile_mode")]
+    pub profile_mode: String,
     pub ui_language: String,
     pub onboarding_complete: bool,
     pub app_version: String,
@@ -98,6 +104,7 @@ impl Default for Settings {
             stay_running_on_window_close: true,
             keep_models_warm: true,
             record_history: true,
+            profile_mode: default_profile_mode(),
             ui_language: "en".into(),
             onboarding_complete: false,
             app_version: env!("CARGO_PKG_VERSION").to_string(),
@@ -107,6 +114,8 @@ impl Default for Settings {
 }
 
 fn default_true() -> bool { true }
+
+fn default_profile_mode() -> String { "auto".into() }
 
 /// Default dictation language derived from the OS locale (e.g. `it-IT` →
 /// `it`). Whisper auto-detect on very short utterances often hallucinates
@@ -289,6 +298,7 @@ mod tests {
         assert!(s.stay_running_on_window_close);
         assert!(!s.launch_minimized);
         assert!(s.record_history);
+        assert_eq!(s.profile_mode, "auto");
     }
 
     #[test]
@@ -317,6 +327,7 @@ mod tests {
         assert!(s.stay_running_on_window_close);
         assert!(!s.launch_minimized);
         assert!(s.record_history);
+        assert_eq!(s.profile_mode, "auto");
     }
 
     #[test]

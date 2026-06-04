@@ -22,10 +22,62 @@ use serde::Serialize;
 /// resource-hungry, but `Ord` is intentionally not derived — there is no
 /// meaningful "greater than" between profiles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub enum ProfileName {
     PowerSaver,
     Balanced,
     Performance,
+}
+
+impl ProfileName {
+    /// Stable `snake_case` identifier used for persistence (settings) and the
+    /// `profile:changed` event's `mode` field. Distinct from the serde
+    /// `camelCase` form, which is the frontend-facing `active` enum value.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ProfileName::PowerSaver => "power_saver",
+            ProfileName::Balanced => "balanced",
+            ProfileName::Performance => "performance",
+        }
+    }
+}
+
+/// Serialize a [`ProfileMode`] to its persisted string form: `"auto"` for
+/// `Auto`, else the pinned profile's [`ProfileName::as_str`].
+#[must_use]
+pub fn mode_to_str(m: ProfileMode) -> &'static str {
+    match m {
+        ProfileMode::Auto => "auto",
+        ProfileMode::PinnedSoft(name) => name.as_str(),
+    }
+}
+
+/// Parse a persisted mode string back into a [`ProfileMode`]. `"auto"` maps
+/// to `Auto`; a profile name maps to `PinnedSoft(name)`; anything else is
+/// `None`.
+#[must_use]
+pub fn mode_from_str(s: &str) -> Option<ProfileMode> {
+    match s {
+        "auto" => Some(ProfileMode::Auto),
+        "power_saver" => Some(ProfileMode::PinnedSoft(ProfileName::PowerSaver)),
+        "balanced" => Some(ProfileMode::PinnedSoft(ProfileName::Balanced)),
+        "performance" => Some(ProfileMode::PinnedSoft(ProfileName::Performance)),
+        _ => None,
+    }
+}
+
+/// Human-readable English label for an emergency reason, surfaced in the
+/// toast that explains an automatic switch to Power Saver.
+#[must_use]
+pub fn emergency_label(r: EmergencyReason) -> String {
+    match r {
+        EmergencyReason::LowPowerMode => "Low Power Mode",
+        EmergencyReason::ThermalCritical => "thermal pressure",
+        EmergencyReason::MemoryCritical => "memory pressure",
+        EmergencyReason::BatteryCritical => "low battery",
+    }
+    .to_string()
 }
 
 /// How the active profile is chosen.
@@ -285,8 +337,6 @@ impl Decider {
         self.mode
     }
 
-    // Consumed by M5.3 toast wiring; not yet read by the async shell.
-    #[allow(dead_code)]
     pub(crate) fn emergency(&self) -> Option<EmergencyReason> {
         self.emergency
     }
@@ -430,6 +480,13 @@ impl ProfileSelector {
         self.inner.decider.lock().expect("decider mutex").mode()
     }
 
+    /// The currently-active emergency reason, if any. `Some(_)` means an
+    /// emergency trigger is forcing `PowerSaver` regardless of mode/score.
+    #[must_use]
+    pub fn emergency(&self) -> Option<EmergencyReason> {
+        self.inner.decider.lock().expect("decider mutex").emergency()
+    }
+
     /// User override (Auto vs `PinnedSoft`). Takes effect on the next signal.
     pub fn set_mode(&self, mode: ProfileMode) {
         self.inner
@@ -531,6 +588,41 @@ mod tests {
         for p in [POWER_SAVER, BALANCED, PERFORMANCE] {
             assert_eq!(p.stt_precision, SttPrecision::Bf16);
         }
+    }
+
+    #[test]
+    fn mode_str_round_trips() {
+        for m in [
+            ProfileMode::Auto,
+            ProfileMode::PinnedSoft(ProfileName::PowerSaver),
+            ProfileMode::PinnedSoft(ProfileName::Balanced),
+            ProfileMode::PinnedSoft(ProfileName::Performance),
+        ] {
+            assert_eq!(mode_from_str(mode_to_str(m)), Some(m));
+        }
+    }
+
+    #[test]
+    fn mode_from_str_rejects_unknown() {
+        assert_eq!(mode_from_str("turbo"), None);
+        assert_eq!(mode_from_str(""), None);
+        assert_eq!(mode_from_str("Auto"), None);
+    }
+
+    #[test]
+    fn profile_name_serializes_camel_case() {
+        assert_eq!(
+            serde_json::to_value(ProfileName::PowerSaver).unwrap(),
+            serde_json::json!("powerSaver")
+        );
+        assert_eq!(
+            serde_json::to_value(ProfileName::Balanced).unwrap(),
+            serde_json::json!("balanced")
+        );
+        assert_eq!(
+            serde_json::to_value(ProfileName::Performance).unwrap(),
+            serde_json::json!("performance")
+        );
     }
 
     #[test]

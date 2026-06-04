@@ -25,9 +25,18 @@ export interface Settings {
   stayRunningOnWindowClose: boolean;
   keepModelsWarm: boolean;
   recordHistory: boolean;
+  profileMode: string;
   uiLanguage: string;
   onboardingComplete: boolean;
   appVersion: string;
+}
+
+export type ProfileName = 'powerSaver' | 'balanced' | 'performance';
+
+export interface ProfileStatus {
+  active: ProfileName;
+  mode: 'auto' | 'power_saver' | 'balanced' | 'performance';
+  emergency: string | null;
 }
 
 export type ModelState =
@@ -187,6 +196,9 @@ export const lda = {
   historyDelete: (id: number) => invoke<void>('history_delete', { id }),
   historyClear: () => invoke<void>('history_clear'),
 
+  profileGet: () => invoke<ProfileStatus>('profile_get'),
+  profileSetMode: (mode: string) => invoke<void>('profile_set_mode', { mode }),
+
   onModelState: (cb: (s: ModelState) => void): Promise<UnlistenFn> =>
     listen<ModelState>('model:state', (e) => cb(e.payload)),
   onRecordingState: (cb: (rec: boolean) => void): Promise<UnlistenFn> =>
@@ -201,4 +213,6 @@ export const lda = {
     listen<Toast>('toast', (e) => cb(e.payload)),
   onDictationSaved: (cb: (s: DictationSummary) => void): Promise<UnlistenFn> =>
     listen<DictationSummary>('dictation:saved', (e) => cb(e.payload)),
+  onProfileChanged: (cb: (s: ProfileStatus) => void): Promise<UnlistenFn> =>
+    listen<ProfileStatus>('profile:changed', (e) => cb(e.payload)),
 };
