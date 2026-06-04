@@ -43,6 +43,12 @@ pub async fn stt_download(app: AppHandle, id: String) -> Result<(), AppError> {
     use tauri::Emitter;
 
     let name = crate::stt::catalog::audiopipe_name_for_platform(&id).to_string();
+    // Catalog download size, so the UI shows a total from the first event
+    // (mirrors the LLM path, which seeds bytesTotal from its catalog) and has a
+    // fallback when hf-hub's per-event total isn't populated yet.
+    let known_total = crate::stt::catalog::model_metadata(&id)
+        .map(|m| m.size_bytes)
+        .unwrap_or(0);
     tracing::info!(id = %id, name = %name, "stt_download: starting");
 
     // Queued: tell the UI the download is registered before any bytes flow.
@@ -52,7 +58,7 @@ pub async fn stt_download(app: AppHandle, id: String) -> Result<(), AppError> {
             id: id.clone(),
             state: DownloadProgressState::Queued,
             bytes_received: 0,
-            bytes_total: 0,
+            bytes_total: known_total,
             error_message: None,
         },
     );
@@ -74,7 +80,7 @@ pub async fn stt_download(app: AppHandle, id: String) -> Result<(), AppError> {
                         id: progress_id.clone(),
                         state: DownloadProgressState::Downloading,
                         bytes_received: received,
-                        bytes_total: total,
+                        bytes_total: if total > 0 { total } else { known_total },
                         error_message: None,
                     },
                 );
@@ -92,8 +98,8 @@ pub async fn stt_download(app: AppHandle, id: String) -> Result<(), AppError> {
                 DownloadProgress {
                     id,
                     state: DownloadProgressState::Complete,
-                    bytes_received: 0,
-                    bytes_total: 0,
+                    bytes_received: known_total,
+                    bytes_total: known_total,
                     error_message: None,
                 },
             );
