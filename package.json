@@ -5,9 +5,6 @@
   "type": "module",
   "description": "Build/utility scripts for the Lirevo repo (icons, etc.)",
   "scripts": {
-    "gen:tray-icons": "node scripts/gen-tray-icons.mjs"
-  },
-  "devDependencies": {
-    "pngjs": "^7.0.0"
+    "gen:icons": "bash scripts/gen-icons.sh"
   }
 }

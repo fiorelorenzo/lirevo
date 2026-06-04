@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 #
-# Regenerate Lirevo app icons (PNG variants + .icns + tray template).
+# Regenerate Lirevo app icons (PNG variants + .icns) and the tray icons.
 #
-# Source: app/src-tauri/icons/icon.svg (master) + tray-template.svg.
-# Output: PNG variants + icon.icns alongside.
+# Source of truth: app/src-tauri/icons/icon.svg (the brand waveform on a dark
+# squircle). The tray icons are generated inline below from the same waveform
+# mark, as monochrome macOS template images.
 #
 # Requirements:
 # - rsvg-convert (brew install librsvg)
@@ -17,7 +18,6 @@ set -euo pipefail
 cd "$(dirname "$0")/../app/src-tauri/icons"
 
 readonly MASTER="icon.svg"
-readonly TRAY_MASTER="tray-template.svg"
 
 if [[ ! -f "$MASTER" ]]; then
   echo "error: $MASTER not found" >&2
@@ -62,59 +62,49 @@ rm -rf "$(dirname "$tmp_iconset")"
 # Windows .ico (basic, single 256px frame — Tauri Windows packaging refines if needed)
 sips -s format ico icon.png --out icon.ico 2>/dev/null || true
 
-echo "==> Generating tray template icons from $TRAY_MASTER"
+echo "==> Generating tray template icons (waveform mark)"
 
-# Tray icons are state-driven. For M3+ the .rs code references:
-# - tray-ready.png      (default state)
-# - tray-loading.png    (model loading)
-# - tray-recording-1.png + tray-recording-2.png (pulse animation)
-# - tray-error.png      (error state)
-#
-# All are rendered from the same two-dot template — variants differ via
-# opacity / motion overlay added inline below.
-
+# Tray icons are state-driven monochrome template images (black + alpha; macOS
+# auto-tints per light/dark menu bar). Geometry: 5 pill bars in a 36x36 box,
+# centerline y=18, bar width 4, rx 2, centers x = 4,11,18,25,32. A bar with
+# half-height hh is x=cx-2 y=18-hh w=4 h=2*hh. The READY icon's amplitude
+# encodes the active energy profile; recording/loading/error use dedicated
+# treatments (see app/src-tauri/src/tray.rs). Rendered at 44x44 to match the
+# previous assets' size.
 mkdir -p tray
 
-# Base template: just the two-dot mark in template-image style (black, will
-# be auto-colored by macOS per light/dark mode)
-rsvg-convert -w 44 -h 44 "$TRAY_MASTER" -o tray/tray-ready.png
+# $1 = output filename, $2 = inner SVG body
+tray_png() {
+  printf '%s' "<svg viewBox=\"0 0 36 36\" xmlns=\"http://www.w3.org/2000/svg\">$2</svg>" \
+    | rsvg-convert -w 44 -h 44 -o "tray/$1"
+}
 
-# Loading state: dots overlapping (will be replaced with pulse animation later)
-cat > /tmp/lirevo-tray-loading.svg <<'EOF'
-<svg viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg">
-  <circle cx="22" cy="22" r="6" fill="#000000" opacity="0.5"/>
-  <circle cx="22" cy="22" r="6" fill="#000000" opacity="0.5"/>
-</svg>
-EOF
-rsvg-convert -w 44 -h 44 /tmp/lirevo-tray-loading.svg -o tray/tray-loading.png
+# Five pill bars from a space-separated list of "cx:halfHeight" pairs.
+bars() {
+  local out="" pair cx hh y h
+  for pair in "$@"; do
+    cx="${pair%%:*}"; hh="${pair##*:}"
+    y="$(echo "18 - $hh" | bc -l)"
+    h="$(echo "2 * $hh" | bc -l)"
+    out+="<rect x=\"$((cx - 2))\" y=\"$y\" width=\"4\" height=\"$h\" rx=\"2\" fill=\"#000\"/>"
+  done
+  printf '%s' "$out"
+}
 
-# Recording frame 1: left dot active, right dot subdued
-cat > /tmp/lirevo-tray-rec1.svg <<'EOF'
-<svg viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg">
-  <circle cx="14" cy="22" r="7" fill="#000000"/>
-  <circle cx="30" cy="22" r="5" fill="#000000" opacity="0.3"/>
-</svg>
-EOF
-rsvg-convert -w 44 -h 44 /tmp/lirevo-tray-rec1.svg -o tray/tray-recording-1.png
+# Ready: amplitude = energy profile.
+tray_png tray-ready-power_saver.png "<g>$(bars 4:2 11:3.5 18:5 25:3.5 32:2)</g>"
+tray_png tray-ready-balanced.png    "<g>$(bars 4:2.5 11:6 18:9 25:6 32:2.5)</g>"
+tray_png tray-ready-performance.png "<g>$(bars 4:5 11:9 18:13 25:9 32:5)</g>"
 
-# Recording frame 2: dots swapped (creates pulse effect when alternated)
-cat > /tmp/lirevo-tray-rec2.svg <<'EOF'
-<svg viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg">
-  <circle cx="14" cy="22" r="5" fill="#000000" opacity="0.3"/>
-  <circle cx="30" cy="22" r="7" fill="#000000"/>
-</svg>
-EOF
-rsvg-convert -w 44 -h 44 /tmp/lirevo-tray-rec2.svg -o tray/tray-recording-2.png
+# Recording: a lively two-frame "dancing" waveform (profile-independent).
+tray_png tray-recording-1.png "<g>$(bars 4:9 11:4 18:13 25:6 32:10)</g>"
+tray_png tray-recording-2.png "<g>$(bars 4:5 11:11 18:7 25:13 32:4)</g>"
 
-# Error: single dot only (visual signal of broken state)
-cat > /tmp/lirevo-tray-error.svg <<'EOF'
-<svg viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg">
-  <circle cx="22" cy="22" r="6" fill="#000000"/>
-</svg>
-EOF
-rsvg-convert -w 44 -h 44 /tmp/lirevo-tray-error.svg -o tray/tray-error.png
+# Loading: a faded medium waveform (indeterminate).
+tray_png tray-loading.png "<g opacity=\"0.45\">$(bars 4:2.5 11:6 18:9 25:6 32:2.5)</g>"
 
-rm -f /tmp/lirevo-tray-*.svg
+# Error: a clean exclamation glyph.
+tray_png tray-error.png "<rect x=\"16\" y=\"6\" width=\"4\" height=\"15\" rx=\"2\" fill=\"#000\"/><circle cx=\"18\" cy=\"26\" r=\"2.4\" fill=\"#000\"/>"
 
 echo "==> Done. Generated icons:"
 ls -la *.png *.icns *.ico tray/*.png 2>/dev/null | awk '{print "  " $NF}'

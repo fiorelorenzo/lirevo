@@ -11,11 +11,27 @@ use crate::{AppError, AppState};
 use crate::state::ModelState;
 
 // Icons embedded at compile time. Paths relative to this source file.
-const ICON_LOADING:    &[u8] = include_bytes!("../icons/tray/tray-loading.png");
-const ICON_READY:      &[u8] = include_bytes!("../icons/tray/tray-ready.png");
-const ICON_RECORDING1: &[u8] = include_bytes!("../icons/tray/tray-recording-1.png");
-const ICON_RECORDING2: &[u8] = include_bytes!("../icons/tray/tray-recording-2.png");
-const ICON_ERROR:      &[u8] = include_bytes!("../icons/tray/tray-error.png");
+// Monochrome template images (black + alpha) — the tray is built with
+// `icon_as_template(true)` so macOS auto-tints them per light/dark menu bar.
+// The three Ready variants encode the active energy profile via waveform
+// amplitude. Regenerate with scripts/gen-icons.sh.
+const ICON_LOADING:            &[u8] = include_bytes!("../icons/tray/tray-loading.png");
+const ICON_READY_POWER_SAVER:  &[u8] = include_bytes!("../icons/tray/tray-ready-power_saver.png");
+const ICON_READY_BALANCED:     &[u8] = include_bytes!("../icons/tray/tray-ready-balanced.png");
+const ICON_READY_PERFORMANCE:  &[u8] = include_bytes!("../icons/tray/tray-ready-performance.png");
+const ICON_RECORDING1:         &[u8] = include_bytes!("../icons/tray/tray-recording-1.png");
+const ICON_RECORDING2:         &[u8] = include_bytes!("../icons/tray/tray-recording-2.png");
+const ICON_ERROR:              &[u8] = include_bytes!("../icons/tray/tray-error.png");
+
+/// Ready-state tray icon whose waveform amplitude encodes the active energy
+/// profile (PowerSaver = low, Balanced = medium, Performance = tall).
+fn ready_icon_for(profile: ProfileName) -> &'static [u8] {
+    match profile {
+        ProfileName::PowerSaver => ICON_READY_POWER_SAVER,
+        ProfileName::Balanced => ICON_READY_BALANCED,
+        ProfileName::Performance => ICON_READY_PERFORMANCE,
+    }
+}
 
 static TRAY: Lazy<Mutex<Option<TrayIcon>>> = Lazy::new(|| Mutex::new(None));
 
@@ -25,6 +41,7 @@ pub fn install(app: &AppHandle) -> Result<(), AppError> {
     let menu = build_menu(app, false, "Loading...")?;
     let tray = TrayIconBuilder::new()
         .icon(icon)
+        .icon_as_template(true)
         .menu(&menu)
         .on_menu_event(handle_menu_event)
         .build(app)
@@ -71,6 +88,7 @@ async fn spawn_recording_pulse(app: AppHandle) {
         if let Ok(img) = Image::from_bytes(bytes) {
             if let Some(tray) = TRAY.lock().unwrap().as_ref() {
                 let _ = tray.set_icon(Some(img));
+                let _ = tray.set_icon_as_template(true);
             }
         }
         tokio::time::sleep(Duration::from_millis(800)).await;
@@ -92,7 +110,16 @@ fn update_for_state(app: &AppHandle, model: &ModelState, recording: bool) -> Res
         ICON_RECORDING1
     } else {
         match model {
-            ModelState::Ready { .. } => ICON_READY,
+            ModelState::Ready { .. } => {
+                // The Ready icon's amplitude tracks the active (resolved)
+                // energy profile. Fall back to Balanced if the selector isn't
+                // wired yet (very early startup).
+                let profile = app
+                    .state::<AppState>()
+                    .profile_selector()
+                    .map_or(ProfileName::Balanced, |s| s.current_profile());
+                ready_icon_for(profile)
+            }
             ModelState::Error { .. } => ICON_ERROR,
             _ => ICON_LOADING,
         }
@@ -103,6 +130,9 @@ fn update_for_state(app: &AppHandle, model: &ModelState, recording: bool) -> Res
     let menu = build_menu(app, recording, &label)?;
     if let Some(tray) = TRAY.lock().unwrap().as_ref() {
         let _ = tray.set_icon(Some(icon));
+        // set_icon resets the NSImage, which drops the template flag — re-apply
+        // so macOS keeps auto-tinting for light/dark menu bars.
+        let _ = tray.set_icon_as_template(true);
         let _ = tray.set_menu(Some(menu));
     }
     Ok(())
