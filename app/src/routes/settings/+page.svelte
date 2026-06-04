@@ -393,10 +393,7 @@
                   {t('settings.general.energy_helper')}
                 </p>
               </div>
-              <div class="shrink-0 flex items-center gap-2">
-                {#if resolvedActive}
-                  <span class="text-xs text-muted-foreground">{resolvedActive}</span>
-                {/if}
+              <div class="shrink-0 flex flex-col items-end gap-1.5">
                 <Select.Root
                   type="single"
                   value={energyMode}
@@ -413,6 +410,9 @@
                     {/each}
                   </Select.Content>
                 </Select.Root>
+                {#if resolvedActive}
+                  <span class="text-xs text-muted-foreground">{resolvedActive}</span>
+                {/if}
               </div>
             </div>
           </div>
