@@ -121,6 +121,39 @@ export interface PartialTranscript {
   isFinal: boolean;
 }
 
+/** Lightweight history row for the list (no full transcripts). */
+export interface DictationSummary {
+  id: number;
+  createdAt: number;
+  preview: string;
+  sttModel: string;
+  llmModel: string | null;
+  targetApp: string | null;
+  totalMs: number;
+  cleanupStatus: string;
+}
+
+/** Full history record for the detail view. */
+export interface Dictation {
+  id: number;
+  createdAt: number;
+  language: string | null;
+  sttModel: string;
+  audioMs: number | null;
+  rawText: string;
+  sttMs: number;
+  llmModel: string | null;
+  cleanedText: string;
+  cleanMs: number | null;
+  cleanupStatus: string;
+  cleanupError: string | null;
+  injectMethod: string;
+  injectMs: number | null;
+  totalMs: number;
+  targetApp: string | null;
+  targetBundle: string | null;
+}
+
 export const lda = {
   getSettings: () => invoke<Settings>('get_settings'),
   updateSettings: (patch: Partial<Settings>) => invoke<Settings>('update_settings', { patch }),
@@ -148,6 +181,12 @@ export const lda = {
   pickFile: (filters: FileFilter[]) => invoke<string | null>('pick_file', { filters }),
   checkForUpdates: () => invoke<UpdateInfo>('check_for_updates'),
 
+  historyList: (limit?: number, offset?: number) =>
+    invoke<DictationSummary[]>('history_list', { limit, offset }),
+  historyGet: (id: number) => invoke<Dictation | null>('history_get', { id }),
+  historyDelete: (id: number) => invoke<void>('history_delete', { id }),
+  historyClear: () => invoke<void>('history_clear'),
+
   onModelState: (cb: (s: ModelState) => void): Promise<UnlistenFn> =>
     listen<ModelState>('model:state', (e) => cb(e.payload)),
   onRecordingState: (cb: (rec: boolean) => void): Promise<UnlistenFn> =>
@@ -160,4 +199,6 @@ export const lda = {
     listen<DownloadProgress>('download:progress', (e) => cb(e.payload)),
   onToast: (cb: (t: Toast) => void): Promise<UnlistenFn> =>
     listen<Toast>('toast', (e) => cb(e.payload)),
+  onDictationSaved: (cb: (s: DictationSummary) => void): Promise<UnlistenFn> =>
+    listen<DictationSummary>('dictation:saved', (e) => cb(e.payload)),
 };
