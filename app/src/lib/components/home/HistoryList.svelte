@@ -30,7 +30,7 @@
       <div
         class={[
           'overflow-hidden rounded-lg border transition-colors',
-          isSelected ? 'border-primary/40 bg-primary/[0.04]' : 'border-border/60 bg-surface',
+          isSelected ? 'border-primary/40 bg-surface' : 'border-border/60 bg-surface',
         ].join(' ')}
       >
         <div
