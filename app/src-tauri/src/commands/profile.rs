@@ -1,4 +1,4 @@
-use tauri::State;
+use tauri::{Manager, State};
 
 use inference_core::profile::{emergency_label, mode_from_str, mode_to_str, ProfileName};
 
@@ -34,13 +34,26 @@ pub async fn profile_set_mode(
     state: State<'_, AppState>,
     mode: String,
 ) -> Result<(), AppError> {
+    let _ = state;
+    apply_profile_mode(&app, mode).await
+}
+
+/// Set the energy-profile mode on the live selector and persist it to
+/// settings. Shared by the `profile_set_mode` Tauri command and the tray
+/// energy submenu so both code paths set + persist identically.
+pub async fn apply_profile_mode(app: &tauri::AppHandle, mode: String) -> Result<(), AppError> {
     let m = mode_from_str(&mode)
         .ok_or_else(|| AppError::Internal(format!("unknown profile mode: {mode}")))?;
-    let sel = state
+    let sel = app
+        .state::<AppState>()
         .profile_selector()
         .ok_or_else(|| AppError::Internal("profile selector not ready".into()))?;
     sel.set_mode(m);
-    crate::commands::settings::update_settings(app, state, serde_json::json!({ "profileMode": mode }))
-        .await?;
+    crate::commands::settings::update_settings(
+        app.clone(),
+        app.state::<AppState>(),
+        serde_json::json!({ "profileMode": mode }),
+    )
+    .await?;
     Ok(())
 }

@@ -246,6 +246,10 @@ pub fn run() {
                                         .map(inference_core::profile::emergency_label),
                                 };
                                 let _ = app_for_events.emit("profile:changed", &status);
+                                // Rebuild the tray so the energy submenu's
+                                // checkmarks + active-profile status reflect the
+                                // fresh decision live.
+                                crate::tray::refresh(&app_for_events);
                                 if let Some(reason) = selector.emergency() {
                                     let _ = app_for_events.emit(
                                         "toast",
