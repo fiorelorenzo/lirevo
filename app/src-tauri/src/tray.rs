@@ -211,7 +211,7 @@ fn build_menu(app: &AppHandle, recording: bool, status_label: &str) -> Result<Me
     let hotkey_item = MenuItem::with_id(app, "hotkey", &hotkey_label, false, None::<&str>).map_err(menu_err)?;
     let energy_item = build_energy_submenu(app)?;
     let sep1 = PredefinedMenuItem::separator(app).map_err(menu_err)?;
-    // "Show window" exists primarily for the `launch_minimized` flow — the
+    // "Show window" exists primarily for the silent-at-login flow — the
     // home window may never have been opened, and the user needs a single
     // tray-clickable affordance to bring up the dashboard. Also useful in
     // the close-to-tray flow when the home window is just hidden.

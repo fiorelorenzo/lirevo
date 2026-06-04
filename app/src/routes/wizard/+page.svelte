@@ -9,6 +9,7 @@
   import Permissions from '$lib/components/wizard/Permissions.svelte';
   import General from '$lib/components/wizard/General.svelte';
   import { lda } from '$lib/tauri';
+  import { navigate } from '$lib/router';
   import { withErrorToast } from '$lib/stores/toasts';
   import { t } from '$lib/i18n';
   import {
@@ -39,6 +40,10 @@
 
   async function finish() {
     await withErrorToast(t('wizard.error.complete'), () => lda.completeWizard());
+    // The wizard is usually reached via client-side nav (the home window
+    // showing /wizard), so route that window back to home explicitly. The
+    // backend only opens a separate home window when the wizard was its own.
+    navigate('home');
   }
 
   async function onFooterNext() {

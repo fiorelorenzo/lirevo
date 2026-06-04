@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import { getCurrentWindow } from '@tauri-apps/api/window';
   import { Button } from '$lib/components/ui/button';
   import { Mic, Keyboard, Check, Loader2 } from '@lucide/svelte';
   import { lda, type PermissionStatus as Status } from '$lib/tauri';
@@ -38,6 +39,10 @@
       toastError(`${t('wizard.microphone.error.prompt')}: ${reason}`);
     } finally {
       micPrompting = false;
+      // macOS leaves an accessory app (no Dock icon) backgrounded after the
+      // system mic dialog dismisses, so the wizard appears to vanish. Pull our
+      // window back to the front. Best-effort.
+      void getCurrentWindow().setFocus().catch(() => {});
     }
   }
 

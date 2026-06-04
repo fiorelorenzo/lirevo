@@ -1,11 +1,13 @@
 <script lang="ts">
-  // Final wizard step: the hotkey picker plus the three "how should this
-  // app live on your Mac" toggles, merged from the old Hotkey +
-  // BackgroundMode steps. Finishing here completes the wizard.
+  // Final wizard step: the hotkey picker plus the "Launch at login" toggle,
+  // merged from the old Hotkey + BackgroundMode steps. Finishing here
+  // completes the wizard. (Lirevo is a menu-bar app: it has no Dock icon,
+  // starts silently in the tray when auto-launched at login, and stays in the
+  // tray when its window is closed — so there's nothing else to configure.)
   import KeyChip from '$lib/components/KeyChip.svelte';
   import { Label } from '$lib/components/ui/label';
   import { Switch } from '$lib/components/ui/switch';
-  import { Rocket, EyeOff, MonitorOff } from '@lucide/svelte';
+  import { Rocket } from '@lucide/svelte';
   import { settings, updateSettings } from '$lib/stores/settings.svelte';
   import type { Hotkey } from '$lib/tauri';
   import { t } from '$lib/i18n';
@@ -34,10 +36,6 @@
   // Local mirrors so toggles feel instant; updateSettings runs on change so
   // persisted state matches the UI even if the user bails via Skip.
   let launchAtLogin = $derived($settings?.launchAtLogin ?? false);
-  let launchMinimized = $derived($settings?.launchMinimized ?? false);
-  let stayRunningOnWindowClose = $derived(
-    $settings?.stayRunningOnWindowClose ?? true,
-  );
 
   async function finish() {
     await updateSettings({ hotkey: selected });
@@ -94,38 +92,6 @@
       <Switch
         checked={launchAtLogin}
         onCheckedChange={(v) => updateSettings({ launchAtLogin: v })}
-      />
-    </div>
-
-    <div class="p-4 flex items-start justify-between gap-4">
-      <div class="flex items-start gap-3 min-w-0">
-        <EyeOff class="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-        <div class="min-w-0">
-          <Label>{t('wizard.background.launch_minimized')}</Label>
-          <p class="text-xs text-muted-foreground mt-1">
-            {t('wizard.background.launch_minimized_helper')}
-          </p>
-        </div>
-      </div>
-      <Switch
-        checked={launchMinimized}
-        onCheckedChange={(v) => updateSettings({ launchMinimized: v })}
-      />
-    </div>
-
-    <div class="p-4 flex items-start justify-between gap-4">
-      <div class="flex items-start gap-3 min-w-0">
-        <MonitorOff class="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-        <div class="min-w-0">
-          <Label>{t('wizard.background.stay_running_on_window_close')}</Label>
-          <p class="text-xs text-muted-foreground mt-1">
-            {t('wizard.background.stay_running_on_window_close_helper')}
-          </p>
-        </div>
-      </div>
-      <Switch
-        checked={stayRunningOnWindowClose}
-        onCheckedChange={(v) => updateSettings({ stayRunningOnWindowClose: v })}
       />
     </div>
   </div>

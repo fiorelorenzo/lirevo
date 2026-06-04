@@ -45,19 +45,6 @@ pub struct Settings {
     pub paste_delay_ms: u32,
 
     pub launch_at_login: bool,
-    /// Start the app without opening any window. Combined with
-    /// `launch_at_login`, this gives a true background-only experience —
-    /// the tray icon is the only UI affordance until the user clicks it.
-    /// Has no effect on subsequent re-launches once a window is already
-    /// open. Defaults to `false` (visible window at startup) so first-run
-    /// users always see the wizard / home.
-    #[serde(default)]
-    pub launch_minimized: bool,
-    /// Hide the main window on close instead of destroying it; keep the
-    /// app running in the tray so the hotkey stays live. The macOS
-    /// convention for menu-bar-first apps. Defaults to `true`.
-    #[serde(default = "default_true")]
-    pub stay_running_on_window_close: bool,
     /// Keep a local history of dictations on this device. Gates whether the
     /// dictation pipeline persists transcripts to the on-device history store
     /// (the capture itself lands in a later change). Defaults to `true` so
@@ -93,8 +80,6 @@ impl Default for Settings {
             force_pasteboard: false,
             paste_delay_ms: 120,
             launch_at_login: false,
-            launch_minimized: false,
-            stay_running_on_window_close: true,
             record_history: true,
             profile_mode: default_profile_mode(),
             ui_language: "en".into(),
@@ -284,10 +269,6 @@ mod tests {
         assert_eq!(s.paste_delay_ms, 120);
         assert!(!s.onboarding_complete);
         assert!(!s.force_pasteboard);
-        // Background-mode defaults: stay-on-close ON, launch-minimized OFF
-        // so first-run still sees the wizard.
-        assert!(s.stay_running_on_window_close);
-        assert!(!s.launch_minimized);
         assert!(s.record_history);
         assert_eq!(s.profile_mode, "auto");
     }
@@ -296,7 +277,7 @@ mod tests {
     fn legacy_settings_without_new_fields_get_correct_defaults() {
         // Simulates a v1 settings.json from before this change: missing the
         // new fields. Serde defaults must populate them so the user doesn't
-        // lose the stay-running / history behaviors on upgrade.
+        // lose the history behavior on upgrade.
         let legacy = json!({
             "whisperModelPath": null,
             "llmModelPath": null,
@@ -314,8 +295,6 @@ mod tests {
             "schemaVersion": 1,
         });
         let s: Settings = serde_json::from_value(legacy).unwrap();
-        assert!(s.stay_running_on_window_close);
-        assert!(!s.launch_minimized);
         assert!(s.record_history);
         assert_eq!(s.profile_mode, "auto");
     }

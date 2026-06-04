@@ -43,8 +43,12 @@ pub async fn complete_wizard(
             crate::commands::inference::load_models(&app2, state).await;
         });
     }
+    // Destroy (not close) a separate wizard window: `close` would be caught by
+    // the menu-bar keep-alive handler and merely hide it. When the wizard was
+    // reached via client-side nav this is a no-op (the window is "home"); the
+    // frontend then routes that window back to home after this command.
     if let Some(w) = app.get_webview_window("wizard") {
-        let _ = w.close();
+        let _ = w.destroy();
     }
     open_window_internal(&app, "home")?;
     Ok(())
@@ -73,8 +77,8 @@ pub fn open_window_internal_with_query(
     }
     // Focus existing window if alive. Order matters: `show` first (it's a
     // no-op if already visible), then `unminimize` (handles macOS minimize),
-    // then `set_focus`. Without the `show`, a window that was hidden via the
-    // `stay_running_on_window_close` close-handler stays hidden forever
+    // then `set_focus`. Without the `show`, a window that was hidden by the
+    // close-handler (which hides instead of quitting) stays hidden forever
     // because `set_focus` on an invisible window is silently ignored.
     if let Some(w) = app.get_webview_window(route) {
         let _ = w.show();
