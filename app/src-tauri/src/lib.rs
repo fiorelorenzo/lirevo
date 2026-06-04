@@ -1,4 +1,5 @@
 mod commands;
+mod db;
 mod engine;
 mod error;
 mod hotkey;
