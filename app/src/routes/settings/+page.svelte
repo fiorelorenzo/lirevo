@@ -350,6 +350,18 @@
                 onCheckedChange={(v) => updateSettings({ launchAtLogin: v })}
               />
             </div>
+            <div class="p-4 flex items-start justify-between gap-4">
+              <div class="min-w-0">
+                <Label>{t('settings.general.smart_mic_routing')}</Label>
+                <p class="text-xs text-muted-foreground mt-1">
+                  {t('settings.general.smart_mic_routing_helper')}
+                </p>
+              </div>
+              <Switch
+                checked={$settings.smartMicRouting}
+                onCheckedChange={(v) => updateSettings({ smartMicRouting: v })}
+              />
+            </div>
             <div class="p-4 flex items-center justify-between gap-4">
               <div class="min-w-0">
                 <Label>{t('settings.general.record_history')}</Label>
