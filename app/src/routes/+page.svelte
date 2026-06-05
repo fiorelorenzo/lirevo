@@ -106,6 +106,26 @@
     void dictationHistory.load();
   });
 
+  // Infinite scroll: auto-fetch the next history page when a sentinel near the
+  // bottom of the scroll area comes into view (pre-loads 200px early).
+  let scrollContainer = $state<HTMLElement | null>(null);
+  let loadSentinel = $state<HTMLElement | null>(null);
+  $effect(() => {
+    const root = scrollContainer;
+    const sentinel = loadSentinel;
+    if (!root || !sentinel || !hasMore) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting) && hasMore && !historyLoading) {
+          void dictationHistory.loadMore();
+        }
+      },
+      { root, rootMargin: '200px' },
+    );
+    io.observe(sentinel);
+    return () => io.disconnect();
+  });
+
   function toggleSelect(id: number) {
     selectedId = selectedId === id ? null : id;
   }
@@ -251,7 +271,7 @@
   {/if}
 
   <!-- History area -->
-  <div class="relative flex flex-1 flex-col overflow-y-auto">
+  <div bind:this={scrollContainer} class="relative flex flex-1 flex-col overflow-y-auto">
     {#if items.length === 0}
       {#if historyLoading}
         <div class="flex flex-1 items-center justify-center">
@@ -270,19 +290,10 @@
         />
 
         {#if hasMore}
-          <div class="flex justify-center pt-1">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={historyLoading}
-              onclick={() => dictationHistory.loadMore()}
-            >
-              {#if historyLoading}
-                <Spinner size="sm" label="Loading" />
-              {:else}
-                Load more
-              {/if}
-            </Button>
+          <div bind:this={loadSentinel} class="flex justify-center py-2">
+            {#if historyLoading}
+              <Spinner size="sm" label="Loading more" />
+            {/if}
           </div>
         {/if}
       </div>
