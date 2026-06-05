@@ -5,6 +5,7 @@ mod error;
 mod hotkey;
 mod logging;
 mod models;
+mod paths;
 mod settings;
 mod state;
 mod stt;
@@ -93,6 +94,11 @@ pub fn run() {
                 Err(e) => eprintln!("[lda] failed to init logging: {e}"),
             }
 
+            // Data/log dirs are app-name based (Lirevo / "Lirevo (Dev)"),
+            // separate for dev vs prod. On debug builds, move any legacy
+            // bundle-id data dir into the new location before anything reads it.
+            paths::migrate_legacy_data_dir(app.handle());
+
             // Menu-bar / agent app: never show a Dock icon. `LSUIElement` in
             // Info.plist declares this, but tao forces the Regular activation
             // policy at launch and overrides it — set Accessory explicitly.
@@ -107,7 +113,7 @@ pub fn run() {
             commands::settings::apply_paste_delay(settings.paste_delay_ms);
             // Open the local DB once at startup. A broken/locked file falls back
             // to an in-memory DB (logged) so history never blocks app launch.
-            let data_dir = app.path().app_data_dir()?;
+            let data_dir = paths::data_dir(app.handle())?;
             std::fs::create_dir_all(&data_dir).ok();
             let db = std::sync::Arc::new(crate::db::Db::open_or_memory(&data_dir.join("data.db")));
             let app_state = AppState::new(settings, db);

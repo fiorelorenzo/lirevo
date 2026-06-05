@@ -5,8 +5,7 @@ use tracing_appender::rolling;
 /// Returns the WorkerGuard which must be kept alive for the program's lifetime
 /// to avoid losing buffered log lines.
 pub fn init(app: &tauri::AppHandle) -> Result<tracing_appender::non_blocking::WorkerGuard, anyhow::Error> {
-    use tauri::Manager;
-    let log_dir = app.path().app_log_dir()?;
+    let log_dir = crate::paths::log_dir(app)?;
     std::fs::create_dir_all(&log_dir)?;
 
     let file_appender = rolling::daily(&log_dir, "lda.log");
