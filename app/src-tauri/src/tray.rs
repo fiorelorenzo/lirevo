@@ -260,15 +260,12 @@ fn build_menu(app: &AppHandle, recording: bool, status_label: &str) -> Result<Me
     let show_item = MenuItem::with_id(app, "show-home", "Show Lirevo", true, None::<&str>).map_err(menu_err)?;
     let settings_item = MenuItem::with_id(app, "open-settings", "Settings...", true, Some("CmdOrCtrl+,")).map_err(menu_err)?;
     let sep2 = PredefinedMenuItem::separator(app).map_err(menu_err)?;
-    let logs_item = MenuItem::with_id(app, "view-logs", "View logs", true, None::<&str>).map_err(menu_err)?;
     let updates_item = MenuItem::with_id(app, "check-updates", "Check for updates", true, None::<&str>).map_err(menu_err)?;
-    let sep3 = PredefinedMenuItem::separator(app).map_err(menu_err)?;
     let quit_item = PredefinedMenuItem::quit(app, None).map_err(menu_err)?;
 
     Menu::with_items(app, &[
         &state_item, &hotkey_item, &energy_item, &sep1,
-        &show_item, &settings_item, &sep2,
-        &logs_item, &updates_item, &sep3,
+        &show_item, &settings_item, &updates_item, &sep2,
         &quit_item,
     ]).map_err(menu_err)
 }
@@ -337,7 +334,7 @@ fn build_energy_submenu(app: &AppHandle) -> Result<Submenu<tauri::Wry>, AppError
 
     Submenu::with_items(
         app,
-        "Energy",
+        "Energy Profile",
         true,
         &[&status_item, &sep, &auto, &saver, &balanced, &perf],
     )
@@ -369,30 +366,6 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
     match event.id().as_ref() {
         "show-home" => { let _ = crate::commands::windows::open_window_internal(app, "home"); }
         "open-settings" => { let _ = crate::commands::windows::open_window_internal(app, "settings"); }
-        "view-logs" => {
-            match app.path().app_log_dir() {
-                Ok(dir) => {
-                    // Use the same reliable `open` path the System Settings
-                    // helpers use; the opener plugin call was silently failing.
-                    #[cfg(target_os = "macos")]
-                    {
-                        if let Err(e) = std::process::Command::new("open").arg(&dir).spawn() {
-                            tracing::warn!(?e, dir = %dir.display(), "view-logs: open failed");
-                        }
-                    }
-                    #[cfg(not(target_os = "macos"))]
-                    {
-                        use tauri_plugin_opener::OpenerExt;
-                        if let Err(e) =
-                            app.opener().open_path(dir.to_string_lossy().to_string(), None::<&str>)
-                        {
-                            tracing::warn!(?e, "view-logs: open_path failed");
-                        }
-                    }
-                }
-                Err(e) => tracing::warn!(?e, "view-logs: app_log_dir failed"),
-            }
-        }
         "check-updates" => {
             let app2 = app.clone();
             tauri::async_runtime::spawn(async move {
