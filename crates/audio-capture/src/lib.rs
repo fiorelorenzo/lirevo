@@ -3,7 +3,7 @@
 //! Provides a synchronous `Recorder` that grabs samples from the system default
 //! input device (or a named override) into an in-memory buffer, then on `stop()`
 //! returns the captured audio resampled to 16 kHz mono f32 — the format expected
-//! by the sidecar `/v1/stt` endpoint.
+//! by the in-process STT engine.
 
 #![warn(clippy::pedantic)]
 #![allow(clippy::missing_errors_doc, clippy::missing_panics_doc)]

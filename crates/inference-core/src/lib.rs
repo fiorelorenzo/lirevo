@@ -1,8 +1,9 @@
 //! Library facade for `inference-core`.
 //!
-//! This crate ships both a binary (the unix-socket sidecar; see `main.rs`) and a
-//! library — the library surface lets in-process consumers call the LLM helpers
-//! directly without going through the HTTP layer.
+//! This crate ships both a binary (the dev-only unix-socket sidecar; see
+//! `main.rs`) and a library. The shipped Tauri host uses only the library
+//! surface, calling the STT/LLM helpers in-process — never the sidecar or any
+//! HTTP layer.
 //!
 //! The HTTP/axum sidecar remains the canonical path used by `lirevo-prototype` and
 //! `lirevo-cli`. STT now goes through `audiopipe` (re-exported from this crate

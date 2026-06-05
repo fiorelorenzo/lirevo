@@ -3,16 +3,22 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![CI](https://github.com/fiorelorenzo/lirevo/actions/workflows/build-mac.yml/badge.svg)](https://github.com/fiorelorenzo/lirevo/actions/workflows/build-mac.yml)
 
-Fully local, open-source AI scribe and agent for macOS (Linux + Windows in v2).
-Inspired by FreeFlow, Wispr Flow, Superwhisper — but learns your writing style and grows into a personal agent. Zero cloud, zero account, zero telemetry.
+Fully local, open-source AI scribe for macOS (Linux + Windows planned for v2).
+Push-to-talk dictation that transcribes your speech, cleans up disfluencies in
+your own language, and types the result into whatever app you are focused on.
+Inspired by Wispr Flow and Superwhisper, but built to learn your writing style
+and grow into a personal agent. Zero cloud, zero account, zero telemetry.
 
 **Pronunciation:** Lirevo — *lee-REH-voh*.
 
-**Status:** **M4 shipped** — Tauri app with full setup wizard, push-to-talk dictation, and STT now powered by `audiopipe` (Parakeet TDT v3 / Qwen3-ASR / Whisper, multi-vendor GPU). Next: M5 swaps the LLM cleanup runtime to `mistral.rs` + Gemma 4. M6–M10 build the agent core, then ship v0.5 (free dictation) and v1.0 (paid agent). See [CHANGELOG](CHANGELOG.md) for the full roadmap.
+The roadmap is staged: a free, local-first dictation app first (v0.5), then a
+paid personal agent built on top of it (v1.0). See [CHANGELOG](CHANGELOG.md)
+for milestone status.
 
 ## Installing
 
-Releases ship as an arm64 `.dmg`. Until M10 the app is **unsigned** (Apple Developer enrollment is part of M10), so on the first launch:
+Releases ship as an arm64 `.dmg` for Apple Silicon Macs (macOS 14 Sonoma or
+later). On first launch:
 
 1. Drag `Lirevo.app` to `/Applications`.
 2. Right-click the app and choose **Open** (only the first time).
@@ -23,51 +29,151 @@ Releases ship as an arm64 `.dmg`. Until M10 the app is **unsigned** (Apple Devel
 
 ## Using the app
 
-After launching the app for the first time, the **setup wizard** guides you through eight steps:
+Lirevo is a **menu-bar app**. It has no Dock icon — the tray icon is its only
+persistent presence. Closing the home or settings window hides it back to the
+tray instead of quitting; reopen it from the tray's **Show Lirevo** item.
 
-1. **Welcome.**
-2. **Accessibility** — grant via the System Settings deep link (needed for the global hotkey and text injection).
-3. **Microphone** — confirm the mic test envelope is non-zero.
-4. **STT model** — pick one of three speech-to-text engines: Parakeet TDT v3 (default, 25 European languages, lowest latency), Qwen3-ASR (30 languages with broad Asian, Arabic, and European coverage), or Whisper large-v3-turbo (99-language fallback). Weights download from Hugging Face into `~/.cache/huggingface/hub/`.
-5. **Language** — pick "Auto-detect" (default) or force a specific language. The dropdown is filtered by the model chosen in the previous step.
-6. **Cleanup model (optional)** — pick a small LLM to add punctuation and tidy sentence flow, or skip to inject raw STT output. Can be added or changed later from Settings.
-7. **Background mode** — decide how present the app should be (launch at login, start hidden, stay in the menu bar).
-8. **Hotkey** — pick a key (default: Right Option).
+### First run: the setup wizard
 
-Once the wizard is done, hold the hotkey anywhere on the system and speak. Release to transcribe → clean → inject into the focused app.
+On first launch a four-step wizard gets you ready to dictate:
 
-The menu bar icon shows model state (loading / ready / recording / error). **Settings**, **Model Manager**, and **Re-run Wizard** are all accessible from the tray menu.
+1. **Pick your dictation language.** Selecting a language auto-picks the speech
+   model that covers it (Parakeet for the 25 European languages, Whisper for the
+   rest) and kicks off both the speech-model and cleanup-model downloads.
+2. **Downloading your models.** Two progress cards — the dictation (STT) model
+   and the cleanup (LLM) model — with retry on error. You continue once both
+   finish.
+3. **Grant permissions.** Microphone (needed to capture audio) and Accessibility
+   (needed for the global hotkey and to type into other apps). Accessibility must
+   be toggled on manually in System Settings; macOS has no programmatic grant.
+4. **Finish setup.** Choose your push-to-talk hotkey (default: Right Option),
+   and toggle **Launch at login** and **Smart Microphone**.
+
+### Push-to-talk dictation
+
+Hold the hotkey anywhere on the system and speak. Release to transcribe, clean
+up, and inject into the focused app. The pipeline runs in three stages:
+
+1. **Speech-to-text** transcribes your audio (the dictation model streams a live
+   partial transcript into the overlay while you talk, when the model supports
+   streaming).
+2. **Cleanup** runs a small local LLM that removes speech disfluencies and adds
+   punctuation **without translating** — the output stays in the language you
+   spoke. If you have not configured a cleanup model, the raw transcript is typed
+   as-is. If cleanup fails, Lirevo gracefully falls back to the raw transcript.
+3. **Injection** types the text at your cursor via the macOS Accessibility API,
+   with a pasteboard (clipboard paste) fallback for apps that do not expose a
+   standard text element.
+
+A transparent, notch-safe **overlay** appears centred on screen the moment you
+start recording: a live waveform plus the streaming transcript while you speak,
+then a "processing" animation that persists through transcription and cleanup
+until the final text is injected.
+
+### The menu-bar tray
+
+The tray icon is a monochrome waveform whose amplitude encodes the active energy
+profile (low = Power Saver, medium = Balanced, tall = Performance). It also
+reflects state: an animated pulse while models load, a recording indicator while
+you dictate, an error icon if models fail, and an attention badge when a required
+permission is missing. The tray menu has a status line, the hotkey hint, an
+**Energy Profile** submenu, **Show Lirevo**, **Settings…**, **Check for updates**,
+and **Quit**.
+
+### Energy profiles
+
+Lirevo is resource-aware. An **Energy Profile** controls how long models stay
+resident in memory, how many CPU threads the LLM uses, and when models are
+unloaded on battery. Set it from the tray's Energy Profile submenu or in
+**Settings → General → App**:
+
+| Profile | LLM idle-unload | STT idle-unload | Models kept warm |
+| --- | --- | --- | --- |
+| Power Saver | 10 s | 60 s | no |
+| Balanced (default behaviour) | 2 min | 5 min | yes |
+| Performance | 10 min | 15 min | yes |
+
+In **Auto** mode (the default), Lirevo watches battery level, AC state, thermal
+and memory pressure, and foreground-app CPU, and picks the profile for you,
+switching to Power Saver under pressure (a toast explains why). Models that get
+idle-unloaded reload transparently on your next dictation, so they always appear
+"ready".
+
+### Smart Microphone
+
+When your primary mic is a Bluetooth device (AirPods, say), opening it for
+capture forces the Bluetooth link out of stereo (A2DP) into mono handsfree
+(HFP), killing stereo playback for the duration. **Smart Microphone** (on by
+default; **Settings → General → Dictation**) avoids this: if a Bluetooth output
+is actively playing and your mic is also Bluetooth, dictation routes to a backup
+mic (built-in by default, configurable) so your audio keeps playing in stereo.
+
+### Dictation history
+
+If **Record dictation history** is enabled (**Settings → General → App**), every
+dictation is saved to a local SQLite database on your device and shown on the
+home screen. Each entry expands to show the raw transcript, the cleaned text,
+which models ran, the target app, the input device used, timings, and language.
+History never leaves your machine; clear it any time from the home screen.
+
+### Permissions
+
+Lirevo needs two macOS permissions:
+
+- **Microphone** — to capture your speech.
+- **Accessibility** — to register the global hotkey and to type into other apps.
+
+If either is missing, the home screen shows a warning banner and the tray icon
+shows an attention badge, with buttons to grant or open the relevant System
+Settings pane.
 
 ### Text injection: known limitations
 
-- **AXUIElement path** works in Safari, Notes, TextEdit, VS Code, and most native Cocoa apps.
-- **Pasteboard fallback** is used automatically when AX fails. It currently kicks in for Apple Terminal and some Electron apps with non-standard text input.
-- During pasteboard fallback the clipboard is temporarily overwritten and then restored. **Non-string clipboard content (images, files) is lost during restore** — known limitation; a settings toggle to disable pasteboard fallback is planned for M8.
-- If the paste delay is too low for a slow target app, the restore may land before the paste (symptom: nothing types). Bump `--paste-delay-ms` to 200–300 if you see this in dev.
+- The **Accessibility (AXUIElement) path** is preferred and works in most native
+  Cocoa apps (Safari, Notes, TextEdit, and similar). It inserts at the cursor or
+  replaces the current selection.
+- The **pasteboard fallback** kicks in automatically when the Accessibility path
+  cannot reach an app's text element — typical for Electron apps (VS Code,
+  Cursor, Slack, Discord) — or when you enable **Always use pasteboard** in
+  Settings.
+- During the pasteboard fallback the clipboard is temporarily overwritten with
+  your text and then restored. **Non-string clipboard content (images, files) is
+  not preserved** and is lost. This is a known limitation; disable the fallback
+  with the **Always use pasteboard** toggle only if you accept clipboard-paste
+  for every injection.
+- If injection lands before the target app is ready, raise the **Paste delay**
+  slider (**Settings → General → Text injection**, default 120 ms).
 
 ## Architecture (one paragraph)
 
-Single Tauri 2 process. The frontend is Svelte 5 + Tailwind v4 + shadcn-svelte running in WKWebView. The backend is Rust, calling `audiopipe::Model` (Parakeet / Qwen3-ASR / Whisper) for STT and `llama-cpp-2` for LLM cleanup — M5 will swap the latter for `mistral.rs`. Hotkey events flow from a CGEventTap thread (in `os-integration`) through an mpsc channel into a tokio task that owns the dictation state machine. Settings persist via `tauri-plugin-store`. Auto-update plumbing is wired but inactive until code signing lands in M10.
+Lirevo is a single Tauri 2 process. The frontend is Svelte 5 (runes) + Tailwind
+v4 + shadcn-svelte running in WKWebView. The backend is a Rust workspace; the
+Tauri host loads the inference engines **directly as in-process libraries** —
+`audiopipe` (Parakeet / Qwen3-ASR / Whisper) for STT and `llama-cpp-2` (GGUF)
+for LLM cleanup. There is **no sidecar process, no Unix socket, and no HTTP
+endpoint** in the shipped app. Hotkey events flow from a CGEventTap thread (in
+`os-integration`) through a channel into a tokio task that owns the dictation
+state machine. A resource-aware **Engine** lazily loads and unloads each model
+on demand, driven by signals from a `resource-monitor` crate and the active
+energy profile, and auto-recovers on error. Settings persist via
+`tauri-plugin-store`; history persists in local SQLite with a migration runner.
 
-Cross-platform discipline (see [AGENTS.md](AGENTS.md)): macOS-only today, but platform-specific code is gated behind abstractions in `os-integration` / `audio-capture` so the v2 Linux + Windows ports are a matter of adding sibling implementations, not rewriting consumers.
+Cross-platform discipline (see [AGENTS.md](AGENTS.md)): macOS-only today, but
+platform-specific code is gated behind abstractions in `os-integration` /
+`audio-capture` / `resource-monitor` so the v2 Linux + Windows ports are a matter
+of adding sibling implementations, not rewriting consumers.
 
 ## Development
 
 ### Requirements
 
-- macOS 14 (Sonoma) or later, on Apple Silicon (the MLX-accelerated STT path compiles against Metal 3.1)
-- Rust 1.85 (managed automatically via `rust-toolchain.toml`)
-- Node 22 (`.nvmrc`)
+- macOS 14 (Sonoma) or later, on Apple Silicon
+- Rust 1.88 (managed automatically via `rust-toolchain.toml`)
+- Node 22 (managed via `.nvmrc`; CI pins the same)
 - `just` (`brew install just`)
-- `cargo-nextest` and `cargo-watch` (`brew install cargo-nextest cargo-watch`)
+- `cargo-nextest` (`brew install cargo-nextest`)
 
 ### First-time setup
-
-```bash
-just setup
-```
-
-Or manually:
 
 ```bash
 cd app && npm install
@@ -75,152 +181,196 @@ cd app && npm install
 
 ### Common commands
 
-| Goal                                        | Command                          |
-| ------------------------------------------- | -------------------------------- |
-| Dev (HMR, no real TCC prompts)              | `just dev`                       |
-| Dev with mocked permissions                 | `LIREVO_DEV_SKIP_PERMS=1 just dev` |
-| Dev with real TCC prompts (debug `.app`)    | `just dev-bundle`                |
-| Release `.app` + `.dmg`                     | `just dmg`                       |
-| All tests (Rust nextest + Vitest)           | `just test`                      |
-| Type check (Rust + Svelte)                  | `just check`                     |
-| Format                                      | `just fmt`                       |
-| Lint (clippy `-D warnings` + eslint)        | `just lint`                      |
-| Wipe build caches                           | `just clean`                     |
+Use `just` recipes — they are the contract CI runs. Run `just` with no args for
+the full list.
 
-Run `just` with no args for the full list.
+| Goal                                        | Command                            |
+| ------------------------------------------- | ---------------------------------- |
+| Dev (HMR, no real TCC prompts)              | `just dev`                         |
+| Dev with mocked permissions                 | `LIREVO_DEV_SKIP_PERMS=1 just dev` |
+| Dev with real TCC prompts (debug `.app`)    | `just dev-bundle`                  |
+| Release `.app` + `.dmg`                     | `just dmg`                         |
+| All tests (Rust nextest + Vitest)           | `just test`                        |
+| Type check (Rust + Svelte)                  | `just check`                       |
+| Format                                      | `just fmt`                         |
+| Lint (clippy `-D warnings` + eslint)        | `just lint`                        |
+| Wipe build caches                           | `just clean`                       |
+| Reset runtime state (keeps models)          | `just reset`                       |
+| Reset runtime state + delete models         | `just reset-all`                   |
+
+`just reset` clears TCC grants, `settings.json`, and logs but keeps your
+downloaded models; `just reset-all` also deletes the model files. Both refuse to
+run while the app is alive.
+
+### Dev vs prod data and log directories
+
+Debug builds use a distinct bundle id (`ai.lirevo.app.dev`) and app-name-suffixed
+directories so they never touch the release app's models, history, settings, or
+macOS system state:
+
+| Build type | Data directory | Log directory |
+| --- | --- | --- |
+| Release (`just dmg`) | `~/Library/Application Support/Lirevo` | `~/Library/Logs/Lirevo` |
+| Debug (`just dev`, `just dev-bundle`) | `~/Library/Application Support/Lirevo (Dev)` | `~/Library/Logs/Lirevo (Dev)` |
 
 ### macOS permission workflows (mic / Accessibility)
 
-macOS TCC binds permissions to a binary's code-signing identity hash, not its bundle ID. Three consequences:
+macOS TCC binds permissions to a binary's code-signing identity hash, not its
+bundle id. Consequences:
 
-- The bare `just dev` binary **cannot** trigger TCC prompts — macOS auto-denies the request silently. Use one of the workarounds below.
-- A permission granted to the release `.app` (`just dmg`) does **not** transfer to `just dev` / `just dev-bundle` outputs, even though they share `ai.lirevo.app` as bundle ID.
-- Every fresh debug bundle is a fresh TCC entity. If macOS misbehaves after rebuilds, reset:
+- The bare `just dev` binary **cannot** trigger TCC prompts — it is not a proper
+  `.app` bundle, so macOS silently denies the request. Use a workaround below.
+- A permission granted to the release `.app` (`just dmg`) does **not** transfer
+  to debug builds, which use the separate `ai.lirevo.app.dev` bundle id.
+- Every fresh ad-hoc-signed debug bundle is a new TCC entity. If macOS misbehaves
+  after rebuilds, reset the **debug** identifier:
   ```bash
-  tccutil reset Microphone     ai.lirevo.app
-  tccutil reset Accessibility  ai.lirevo.app
+  tccutil reset Microphone     ai.lirevo.app.dev
+  tccutil reset Accessibility  ai.lirevo.app.dev
   ```
-  This clears the cached grant/deny + the entry in System Settings → Privacy. The next launch starts from scratch and macOS shows the prompt again.
+  (`just reset` / `just reset-all` do this for you.)
 
 Pick the right workflow:
 
-| Goal                                                  | Command                                       |
-| ----------------------------------------------------- | --------------------------------------------- |
-| Iterate on wizard UI without real audio / TCC         | `LIREVO_DEV_SKIP_PERMS=1 just dev` — short-circuits `check_*` / `prompt_*` to Granted; `test_mic` returns a synthetic envelope. Debug builds only. |
-| Test real TCC prompt + real audio capture             | `just dev-bundle` — builds a debug `.app` and opens it. |
-| Final smoke test before release                       | `just dmg` — release `.app` + `.dmg`.         |
+| Goal                                              | Command                                                                                                                                  |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Iterate on wizard UI without real audio / TCC     | `LIREVO_DEV_SKIP_PERMS=1 just dev` — short-circuits the `check_*` / `prompt_*` commands to Granted and `test_mic` to a synthetic envelope. Debug builds only. |
+| Test real TCC prompts + real audio capture        | `just dev-bundle` — builds a debug `.app` and opens it.                                                                                   |
+| Final smoke test before release                   | `just dmg` — release `.app` + `.dmg`.                                                                                                     |
 
-### Dev-only crates
+### Stable dev signing (persistent TCC grants)
 
-These crates are **never** bundled in the shipped `.app`:
+Because TCC is keyed on the signing hash, an ad-hoc-signed debug bundle gets a
+new hash on every build and loses its permission grants. To keep grants across
+`just dev-bundle` rebuilds, set `APPLE_SIGNING_IDENTITY` to a **Developer ID
+Application** certificate (`security find-identity -v -p codesigning` lists
+yours) in an untracked `.env` at the repo root. `just dev-bundle` then re-signs
+the bundle with that identity **without** hardened runtime — hardened runtime
+would block the bundled inference libraries (ggml/Metal, whisper, llama,
+audiopipe/MLX) from loading. A stable identity keeps the hash constant, so a
+one-time mic + Accessibility grant sticks on every rebuild. Without an identity,
+`just dev-bundle` falls back to ad-hoc signing and resets the stale grants.
 
-- **`lirevo-prototype`** (`crates/lirevo-prototype`) — headless end-to-end dictation pipeline. Useful for testing the STT → cleanup → inject chain without launching the Tauri UI. Run with `cargo run -p lirevo-prototype`. Needs an `inference-core` HTTP sidecar running.
-- **`lirevo-cli`** (`crates/lirevo-cli`) — thin client over the `inference-core` HTTP sidecar (`/v1/stt`, `/v1/chat`, `/healthz`). See [Dev tools: lirevo-cli](#dev-tools-lirevo-cli) below.
-- **`lirevo-eval`** (`crates/lirevo-eval`) — refiner-model bake-off harness. Benchmarks LLM candidates against a multilingual corpus on chrF, semantic cosine, deterministic assertions, latency, and (optionally) LLM-as-judge fidelity scores. See `crates/lirevo-eval/README.md`.
+## Model provisioning
+
+The shipped app downloads everything for you from the setup wizard — there are no
+files to place manually.
+
+### Speech-to-text (STT)
+
+Three models are offered (authoritative catalog: `app/src-tauri/src/stt/catalog.rs`):
+
+| Model | Size | Languages | License |
+| --- | --- | --- | --- |
+| **Parakeet TDT v3** (default, recommended) | ~1.25 GB | 25 European languages, lowest latency | CC-BY-4.0 |
+| **Qwen3-ASR** (broad languages) | ~700 MB | 30 languages, broad Asian / Arabic / European coverage | Apache-2.0 |
+| **Whisper large-v3-turbo** (other languages) | ~1.5 GB | ~99 languages | MIT/Apache-2.0 |
+
+Weights are downloaded into the Hugging Face cache (`~/.cache/huggingface/hub/`)
+the first time a model is used; `audiopipe` handles this transparently. There are
+no `.bin` / `.gguf` paths to provide manually and no CoreML encoder to download
+separately — on Apple Silicon `audiopipe` accelerates Parakeet internally.
+
+### Language model (LLM cleanup)
+
+LLM cleanup models are GGUF files downloaded in-app from an embedded catalog
+(`crates/inference-core/data/model_catalog.json`):
+
+| Model | Filename | Size | Recommended |
+| --- | --- | --- | --- |
+| Qwen3 4B | `Qwen3-4B-Instruct-2507-Q4_K_M.gguf` | ~2.5 GB | no |
+| Llama 3.2 3B | `Llama-3.2-3B-Instruct-Q4_K_M.gguf` | ~2.0 GB | no |
+| Qwen3 1.7B | `Qwen3-1.7B-Q4_K_M.gguf` | ~1.1 GB | no |
+| **Gemma 3 1B** | `gemma-3-1b-it-Q4_K_M.gguf` | ~800 MB | **yes** |
+| Gemma 3 270M | `gemma-3-270m-it-Q4_K_M.gguf` | ~250 MB | no |
+
+The wizard downloads the recommended model (currently **Gemma 3 1B**) by default.
+LLM files are stored under the app data directory's `models/` folder (for
+example `~/Library/Application Support/Lirevo/models/`). You can also point the
+**Models** tab at an existing `.gguf` file with the file picker. The LLM context
+size is configurable in **Settings → Models → Advanced** (default 4096 tokens).
+
+## Dev-only crates
+
+The Rust workspace under `crates/` has eight crates. These four are **dev-only
+code paths** not bundled in the shipped `.app`:
+
+- **`inference-core`** (HTTP/axum layer) — the library surface is used in-process
+  by the Tauri host, but its Unix-socket sidecar server is dev-only and used only
+  by `lirevo-prototype` and `lirevo-cli`.
+- **`lirevo-prototype`** (`crates/lirevo-prototype`) — headless end-to-end
+  push-to-talk prototype (hotkey → record → STT → cleanup → inject). Unlike the
+  shipped app, it talks to the `inference-core` sidecar over a Unix socket.
+- **`lirevo-cli`** (`crates/lirevo-cli`) — thin client over the `inference-core`
+  sidecar's Unix socket. See below.
+- **`lirevo-eval`** (`crates/lirevo-eval`) — evaluation harness for the LLM
+  cleanup stage. Runs JSONL corpora against configurable backends and scores them
+  (chrF, length ratio, embedding cosine, assertions) to produce judge reports.
+  Subcommands: `run`, `gen-corpus`, `judge`, `bless`, `bake-cell`. Driven by
+  `just eval BACKENDS [OUT]`. See `crates/lirevo-eval/README.md`.
+
+The other four crates — `audio-capture`, `lirevo-prompts`, `os-integration`,
+`resource-monitor` — ship in the app.
 
 ### Dev tools: `lirevo-cli`
 
-`lirevo-cli` lives in `crates/lirevo-cli` and talks to the `inference-core` HTTP sidecar over a UNIX socket. Socket resolution order: `--socket` flag > `SIDECAR_SOCKET_PATH` env > default `$HOME/Library/Application Support/ai.lirevo.app/sidecar.sock`.
-
-Examples:
+`lirevo-cli` talks to a standalone `inference-core` sidecar over a Unix socket.
+The socket path must be set explicitly via `--socket` or the
+`SIDECAR_SOCKET_PATH` env var (the default fallback is a bare platform data-dir
+path and is rarely what you want).
 
 ```bash
-# Sidecar health
-lirevo-cli health
-# status=ok  version=0.0.1  uptime_ms=12345  stt_ready=true  llm_ready=true
+# Start a standalone sidecar and point the CLI at it.
+export SIDECAR_SOCKET_PATH=/tmp/ic.sock
+SIDECAR_SOCKET_PATH=/tmp/ic.sock cargo run -p inference-core &
 
-# Loaded models
-lirevo-cli models
+# Sidecar status
+lirevo-cli health      # status, version, uptime_ms, stt_ready
+lirevo-cli version     # version, build, backend
+lirevo-cli models      # models the sidecar has loaded
 
 # Transcribe a WAV
 lirevo-cli stt sample.wav
-# stderr: [whisper-rs] ggml-large-v3-turbo (en) 30000ms audio, 4120ms processing (rtf 0.14x)
-# stdout: hello world, this is a test.
-
-# Full JSON response on stdout
 lirevo-cli stt sample.wav --json
-
-# Force a language + return per-segment timings
 lirevo-cli stt sample.wav --language en --segments --json
-
-# MsgPack response (debug)
 lirevo-cli --msgpack stt sample.wav
 
 # Raw chat call
 lirevo-cli chat --user "Capital of Italy?"
-# Rome.
+lirevo-cli chat --user "Fix this." --system "Be concise." --temperature 0.2 --max-tokens 50
 
-# Chat with a system prompt
-lirevo-cli chat --user "..." --system "Be concise." --temperature 0.2 --max-tokens 50
-
-# Dictation cleanup preset (versioned system prompt — only punctuation /
-# capitalization / paragraphing, never alters meaning)
+# Dictation cleanup preset (versioned system prompt: fixes disfluencies and
+# punctuation, never translates)
 lirevo-cli clean "and so my fellow americans ask not what your country can do"
-
-# Pipe-friendly: stdin → clean
-lirevo-cli stt audio.wav | lirevo-cli clean
-
-# Language hint
+echo "raw text" | lirevo-cli clean
 lirevo-cli stt audio.wav | lirevo-cli clean --language en
-
-# End-to-end one-liner
-lirevo-cli stt ~/sample.wav | lirevo-cli clean
 ```
 
-Exit codes: `0` success, `2` server unreachable, `3` HTTP 4xx, `4` HTTP 5xx, `5` bad input file.
-
-### STT model provisioning (M4+: audiopipe)
-
-The shipped app's wizard handles STT model downloads automatically. Three models are offered:
-
-| Model | Size | Languages | License |
-| --- | --- | --- | --- |
-| **Parakeet TDT 0.6B v3** (default, recommended) | ~600 MB | 25 European languages | CC-BY-4.0 |
-| **Qwen3-ASR 0.6B** (broad languages) | ~700 MB | 30 languages, broad Asian / Arabic / European coverage | Apache-2.0 |
-| **Whisper large-v3-turbo** (fallback) | ~1.5 GB | ~99 languages | MIT |
-
-Weights are downloaded to the Hugging Face cache (`~/.cache/huggingface/hub/`) on first use of each model — `audiopipe` handles this transparently. There are no `.bin` / `.gguf` paths to provide manually and no CoreML encoder to download separately (audiopipe's Parakeet MLX engine handles Apple Silicon acceleration internally).
-
-For headless / sidecar workflows (`lirevo-prototype`, `lirevo-cli` against a standalone `inference-core`), point the sidecar at a model by name:
-
-```bash
-# Select model (defaults to parakeet-tdt-0.6b-v3 on Apple Silicon, mlx variant)
-export SIDECAR_STT_MODEL_NAME=parakeet-tdt-0.6b-v3
-# Or, for testing without weights:
-export SIDECAR_STT_BACKEND=stub
-SIDECAR_SOCKET_PATH=/tmp/s.sock cargo run -p inference-core
-```
-
-Multi-vendor GPU acceleration is configured via Cargo features on the `audiopipe` dep (`metal`, `coreml`, and on v2 builds `directml` / `vulkan-ggml`). The shipped macOS DMG ships with Metal + CoreML + MLX enabled.
-
-### LLM model provisioning (headless / sidecar use)
-
-Recommended GGUF instruct models on 16 GB+ M-series:
-
-- `Llama-3.2-3B-Instruct-Q4_K_M.gguf` (~2 GB, current recommended default)
-- `Qwen2.5-3B-Instruct-Q4_K_M.gguf` (~2 GB, strong on Italian)
-- `Phi-3.5-mini-instruct-Q4_K_M.gguf` (~2.2 GB)
-
-```bash
-export SIDECAR_LLM_MODEL_PATH=/absolute/path/to/Llama-3.2-3B-Instruct-Q4_K_M.gguf
-# Optional: tweak context size (default 4096)
-export SIDECAR_LLM_CTX_SIZE=4096
-```
-
-Start the sidecar with `cargo run -p inference-core` or `just dev`. If the model is missing, `/v1/chat` returns `503 llm_unavailable` and `/healthz` reports `llm_ready: false`.
-
-The env-var-based LLM path will be **superseded by M5** when `mistral.rs` takes over and the model catalog moves into the app catalog with `benchmark_score` from `lirevo-eval`.
+Exit codes: `0` success, `2` socket not found / bad args, `3` HTTP 4xx, `4` HTTP
+5xx or internal error, `5` empty stdin input (for `clean`). The `--translate`
+flag on `stt` is accepted but ignored (audiopipe does not support translation).
+Logging level is controlled by `LIREVO_CLI_LOG_LEVEL` (default `warn`).
 
 ## Documentation
 
-Design documents (architecture spec, milestone specs, implementation plans) are kept as local-only working docs under `docs/`. The public repository tracks only code, configuration, README, CHANGELOG, LICENSE, NOTICE.
+Design documents (architecture spec, milestone specs, implementation plans) are
+kept as local-only working docs under `docs/`. The public repository tracks only
+code, configuration, README, CHANGELOG, LICENSE, and NOTICE.
 
 ## About the name
 
-**Lirevo** is a coined name in the Vercel/Stripe/Anthropic tradition — pronounceable but with no pre-existing semantic baggage in any language, so it can carry the brand entirely on its own meaning. Pronounced *lee-REH-voh*.
+**Lirevo** is a coined name in the Vercel/Stripe/Anthropic tradition —
+pronounceable but with no pre-existing semantic baggage in any language, so it
+can carry the brand entirely on its own meaning. Pronounced *lee-REH-voh*.
 
-The folder name `local-dictation-app/` is a legacy placeholder from before the brand was chosen. It will be renamed when convenient; meanwhile every internal reference uses `lirevo`.
+The folder name `local-dictation-app/` is a legacy placeholder from before the
+brand was chosen. It will be renamed when convenient; meanwhile every internal
+reference uses `lirevo` / `ai.lirevo.app`.
 
 ## License
 
-[Apache-2.0](LICENSE). Copyright 2026 Lorenzo Fiore. See [NOTICE](NOTICE) for third-party attributions.
+[Apache-2.0](LICENSE). Copyright 2026 Lorenzo Fiore. See [NOTICE](NOTICE) for
+third-party attributions.
+
+A relicense to AGPL-3.0-or-later is planned for the public dictation release
+(see the [CHANGELOG](CHANGELOG.md) roadmap); the current code is Apache-2.0.

@@ -22,13 +22,15 @@ See `README.md` for end-user setup and `CHANGELOG.md` for milestone status.
 - **Frontend:** Svelte 5 + SvelteKit + Tailwind v4 + shadcn-svelte, running in
   WKWebView via Tauri 2.
 - **Backend:** Rust (workspace, edition 2021, toolchain pinned in
-  `rust-toolchain.toml`). Tauri 2 host process loads `whisper-rs` and
-  `llama-cpp-2` directly as libraries — no separate sidecar process in the
-  shipped app.
+  `rust-toolchain.toml`). The Tauri 2 host process loads `audiopipe` (STT) and
+  `llama-cpp-2` (LLM) directly as libraries, in-process — no separate sidecar
+  process in the shipped app. STT today is `audiopipe` (Parakeet by default on
+  Apple Silicon, with Whisper as a fallback via an `audiopipe` feature); the LLM
+  cleanup stage is `llama-cpp-2` (GGUF).
 - **OS integration:** `cocoa` / `core-foundation` / `core-graphics` for
   CGEventTap (global hotkey) and AXUIElement (text injection).
-- **Build tooling:** `just`, `cargo`, `npm`, `cargo-nextest`. Node 22, Rust 1.88
-  (see `rust-toolchain.toml`).
+- **Build tooling:** `just`, `cargo`, `npm`, `cargo-nextest`. Node 22 (see
+  `.nvmrc`; CI pins the same), Rust 1.88 (see `rust-toolchain.toml`).
 
 ## Repository layout
 
@@ -36,25 +38,64 @@ See `README.md` for end-user setup and `CHANGELOG.md` for milestone status.
 .
 ├── app/                      # Tauri app (frontend + Tauri host)
 │   ├── src/                  # Svelte UI (routes, components, stores, i18n)
-│   └── src-tauri/            # Tauri host crate (Rust): commands, tray,
-│                             #   hotkey wiring, settings, state machine
-├── crates/                   # Rust workspace
-│   ├── audio-capture/        # cpal-based mic capture + resampling
-│   ├── inference-core/       # whisper-rs + llama-cpp-2 wrappers, HTTP/axum
-│   │                         #   layer used only by dev CLIs
-│   ├── lirevo-cli/              # Dev CLI (`lirevo-cli`) talking to inference-core
-│   ├── lirevo-prompts/          # Versioned LLM prompts (cleanup, etc.)
-│   ├── lirevo-prototype/        # Dev-only headless dictation pipeline
-│   └── os-integration/       # macOS hotkey + injection bindings
-├── scripts/                  # Build/utility scripts (icons, etc.)
+│   └── src-tauri/            # Tauri host crate (Rust) — the shipped app
+├── crates/                   # Rust workspace (8 crates)
+│   ├── audio-capture/        # cpal mic capture, device resolution,
+│   │                         #   resampling to 16 kHz mono, Smart Mic routing
+│   ├── inference-core/       # audiopipe (STT) + llama-cpp-2 (LLM) wrappers and
+│   │                         #   model catalog. Its HTTP/axum sidecar layer is
+│   │                         #   dev-only; the library surface is used in-process.
+│   ├── lirevo-cli/           # Dev-only CLI talking to inference-core's sidecar
+│   ├── lirevo-eval/          # Dev-only cleanup-stage eval harness (corpus,
+│   │                         #   scoring, judge reports)
+│   ├── lirevo-prompts/       # Versioned LLM cleanup prompts
+│   ├── lirevo-prototype/     # Dev-only headless dictation pipeline
+│   ├── os-integration/       # macOS hotkey, text injection, TCC checks,
+│   │                         #   clipboard + audio cue (stubs on other targets)
+│   └── resource-monitor/     # Battery / thermal / memory / CPU signal
+│                             #   broadcaster (real sensors on macOS, stub elsewhere)
+├── scripts/                  # Build/utility scripts (icons, reset, etc.)
 ├── Justfile                  # Canonical task entry points
 ├── Cargo.toml                # Workspace manifest
 └── README.md
 ```
 
-`lirevo-prototype`, `lirevo-cli`, and `inference-core`'s HTTP layer are **dev-only**:
-they are not bundled in the shipped DMG. Production code paths run inside the
-Tauri host (`app/src-tauri/`).
+`lirevo-prototype`, `lirevo-cli`, `lirevo-eval`, and `inference-core`'s
+HTTP/axum sidecar layer are **dev-only**: they are not bundled in the shipped
+DMG. Production code paths run inside the Tauri host (`app/src-tauri/`).
+
+### Tauri host modules (`app/src-tauri/src/`)
+
+This is the only crate shipped in the DMG. STT (`audiopipe`) and LLM
+(`llama-cpp-2`) run in-process here — there is no child process, Unix socket,
+or HTTP endpoint in the shipped app.
+
+```
+app/src-tauri/src/
+├── commands/                 # Tauri IPC handlers invokable from the webview:
+│                             #   dictation, inference, history, models,
+│                             #   permissions, profile, settings, windows,
+│                             #   dialog, updater
+├── db/                       # Local SQLite history (rusqlite + migrations):
+│                             #   history.rs queries, migrations/ append-only SQL
+├── engine/                   # Resource-aware Engine lifecycle: lazy load/unload
+│                             #   of LLM + STT, auto-recover, energy-profile
+│                             #   integration (decision.rs, slot.rs, streak.rs)
+├── stt/                      # Host STT layer over audiopipe::Model
+│                             #   (catalog.rs, mock.rs); HF-cache download
+├── error.rs                  # AppError enum serialized over IPC
+├── hotkey.rs                 # Push-to-talk coordinator: bridges os-integration's
+│                             #   CFRunLoop HotkeyListener into tokio, drives the
+│                             #   Recorder, runs the STT → cleanup → inject pipeline
+├── logging.rs                # tracing-subscriber init (rolling daily log file)
+├── models.rs                 # Frontend-facing catalog wire type + load helpers
+├── paths.rs                  # Data + log dir resolution ("Lirevo" / "Lirevo (Dev)")
+├── settings.rs               # Persisted Settings with versioned migration
+├── state.rs                  # Shared AppState (Recorder, Injector, Settings,
+│                             #   ModelState watch channel, Db, Engine)
+└── tray.rs                   # Menu-bar tray: template icons, loading animation,
+                              #   permission attention badge, state transitions
+```
 
 ## Cross-platform discipline
 
@@ -102,7 +143,7 @@ Use `just` recipes — they are the contract that CI runs.
 
 | Goal                                    | Command                       |
 | --------------------------------------- | ----------------------------- |
-| First-time setup                        | `just setup` (if defined) or `cd app && npm install` |
+| First-time setup                        | `cd app && npm install`       |
 | Dev (HMR, no real TCC prompts)          | `just dev`                    |
 | Dev with mocked permissions             | `LIREVO_DEV_SKIP_PERMS=1 just dev` |
 | Dev with real TCC prompts (debug `.app`)| `just dev-bundle`             |
@@ -112,6 +153,27 @@ Use `just` recipes — they are the contract that CI runs.
 | Format                                  | `just fmt`                    |
 | Lint (clippy `-D warnings` + eslint)    | `just lint`                   |
 | Wipe build caches                       | `just clean`                  |
+| Reset runtime state (keeps models)      | `just reset`                  |
+| Reset runtime state + delete models     | `just reset-all`              |
+
+Both `just dev` and `just dev-bundle` inject the distinct **debug bundle id**
+`ai.lirevo.app.dev` via `--config '{"identifier":"ai.lirevo.app.dev"}'`. The
+production identifier `ai.lirevo.app` lives in `tauri.conf.json` and is used
+only by `just dmg`.
+
+`just dev-bundle` re-signs the bundle for **stable TCC grants**: set
+`APPLE_SIGNING_IDENTITY` (a "Developer ID Application" cert) in an untracked
+`.env` (auto-loaded by the Justfile). It re-signs with that identity but
+**without** hardened runtime — Tauri's identity-sign would enable hardened
+runtime, which blocks the bundled inference libs (ggml/Metal, llama, audiopipe)
+from loading. A stable identity keeps the code-signing hash constant so TCC
+grants persist across rebuilds. Without an identity it falls back to ad-hoc and
+resets the stale grants on each build.
+
+`just reset` / `just reset-all` delegate to `scripts/reset.sh`: they clear TCC
+grants, wipe `settings.json`, and remove logs. `reset` keeps downloaded models;
+`reset-all` deletes them too (with a confirmation prompt). Both refuse to run
+while the app is alive. `just eval` is a dev-only refiner-stage model bake-off.
 
 CI (`.github/workflows/build-mac.yml`) runs `just check`, `just test`, and
 `just dmg` on `macos-15`. A change that breaks any of those breaks CI.
@@ -147,21 +209,40 @@ hotkey, microphone, or injection code paths.
 1. **TCC is bound to the code-signing identity hash, not the bundle ID.**
    A permission granted to one build of the app does *not* transfer to another
    build with a different signing hash, even if the bundle ID matches. Every
-   ad-hoc-signed debug bundle is a fresh TCC entity.
-2. **`just dev` cannot trigger TCC prompts.** The bare binary launched by
+   ad-hoc-signed debug bundle is a fresh TCC entity. `just dev-bundle` works
+   around this by re-signing with a stable Developer ID identity (see "stable
+   TCC grants" under Common commands) so grants persist across rebuilds.
+2. **Dev and prod use distinct bundle IDs.** Debug builds (`just dev`,
+   `just dev-bundle`) run as `ai.lirevo.app.dev`; release (`just dmg`) is
+   `ai.lirevo.app`. macOS keys Caches, WebKit storage, Preferences, and TCC on
+   the bundle ID, so the debug app never inherits or pollutes the release app's
+   system state. Data and log directories are split separately, by app name,
+   in `paths.rs`: release uses `~/Library/Application Support/Lirevo` and
+   `~/Library/Logs/Lirevo`; debug uses the same paths with a `Lirevo (Dev)` leaf.
+3. **`just dev` cannot trigger TCC prompts.** The bare binary launched by
    `cargo tauri dev` is not a proper `.app` bundle; macOS silently denies the
    prompt. To exercise real permission UX use `just dev-bundle` (debug `.app`)
    or `just dmg` (release `.app`).
-3. **Reset stale grants before re-testing permissions:**
+4. **Hardened runtime is intentionally omitted from `dev-bundle`.** The bundled
+   inference libraries (ggml/Metal, llama-cpp-2, audiopipe) are not all signed
+   by the same Team ID and JIT Metal shaders at runtime, so hardened runtime
+   stops the app from launching. `dev-bundle` re-signs without `--options
+   runtime`; `entitlements.plist` (`cs.disable-library-validation`,
+   `cs.allow-jit`, `cs.allow-unsigned-executable-memory`) covers the release DMG.
+5. **Reset stale grants before re-testing permissions.** Use the bundle ID that
+   matches the build — `ai.lirevo.app.dev` for dev bundles, `ai.lirevo.app` for
+   the release DMG:
    ```bash
-   tccutil reset Microphone     ai.lirevo.app
-   tccutil reset Accessibility  ai.lirevo.app
+   # debug (dev-bundle)
+   tccutil reset Microphone     ai.lirevo.app.dev
+   tccutil reset Accessibility  ai.lirevo.app.dev
    ```
-4. **`LIREVO_DEV_SKIP_PERMS=1`** short-circuits the `check_*` / `prompt_*`
+   `just reset` / `just reset-all` clear these automatically.
+6. **`LIREVO_DEV_SKIP_PERMS=1`** short-circuits the `check_*` / `prompt_*`
    commands to "granted" and makes `test_mic` return a synthetic envelope.
    Debug builds only. Use it for UI iteration when you don't need real audio
    or real prompts.
-5. **Text injection has two paths**: AXUIElement (preferred) with a pasteboard
+7. **Text injection has two paths**: AXUIElement (preferred) with a pasteboard
    fallback. Pasteboard fallback overwrites the user's clipboard, restores it
    after the paste, and loses non-string clipboard content (images/files) in
    the process. Don't add new code paths that change this without a settings
@@ -173,8 +254,8 @@ The repo is **public and open source** under Apache-2.0. Treat anything you
 add to git as world-readable forever.
 
 - **Model weights** (`*.bin`, `*.gguf`, `*.mlmodelc/`, `models/`). Multi-GB
-  binaries; users provide their own — see README sections
-  "Whisper model provisioning" / "LLM model provisioning".
+  binaries; users download their own in-app via the setup wizard — see the
+  README provisioning sections.
 - **Build artifacts** (`target/`, `dist/`, `build/`, `out/`, `*.dmg`, `node_modules/`).
 - **Test audio fixtures** (`crates/inference-core/tests/fixtures/*.wav`).
 - **Local working docs** (`docs/plans/`, `docs/specs/`). The `docs/` directory
@@ -209,5 +290,5 @@ draft PR — don't push to `main`.
 - **How does X currently work?** Start in `app/src-tauri/src/` for backend
   flows, `app/src/routes/` for UI flows, or the relevant crate under
   `crates/` for inference / OS plumbing.
-- **What's the user-visible behaviour?** `README.md` (sections "Using the
-  app" and the M1/M2 provisioning blocks).
+- **What's the user-visible behaviour?** `README.md` ("Using the app" and the
+  model-provisioning sections).
