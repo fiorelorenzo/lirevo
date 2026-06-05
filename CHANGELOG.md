@@ -4,6 +4,112 @@ All notable changes to this project are documented in this file. The format foll
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - Unreleased — v0.6: energy profiles, resource-aware Engine, history, native menu-bar posture
+
+### Added
+- **Resource-aware Engine lifecycle.** A single `Engine` (`app/src-tauri/src/engine/`)
+  now owns both inference backends. It lazy-loads STT/LLM on first dictation,
+  auto-recovers from a failed load, and unloads idle models to free memory. A
+  `lifecycle_loop` ticks every 5 s against `resource_monitor::Signals` and runs
+  a pure `lifecycle_decision` resolver (`engine/decision.rs`) that returns
+  unload / reload / preload actions. Triggers include critical memory pressure,
+  low free RAM (< 2048 MB), a heavy foreground app, on-battery below the profile
+  threshold, and per-profile idle timeouts. STT is never unloaded mid-dictation
+  (the streaming worker holds the slot lock). Idle unloads emit an informational
+  `engine:llm_state_changed` Tauri event and never regress the user-facing
+  `model:state` — the next dictation transparently reloads.
+- **`resource-monitor` crate.** Cross-platform system-resource broadcaster: emits
+  `Signals` snapshots (battery %, thermal state, memory pressure, free RAM,
+  system CPU %, foreground-app CPU %) over a tokio broadcast channel. Real
+  sensors under `crates/resource-monitor/src/macos/`; a no-op stub on every other
+  target so the workspace compiles everywhere.
+- **Energy profiles** (`power_saver` / `balanced` / `performance`, plus an `auto`
+  resolver). `inference_core::profile::ProfileSelector` scores `ResourceMonitor`
+  signals with 30 s hysteresis, an emergency bypass (Low Power Mode, thermal
+  Critical, memory Critical, battery < 5%), and a user-pinnable mode; on change
+  it pushes the matching `ProfilePolicy` (idle-unload timeouts, LLM thread count,
+  STT precision, battery threshold) into the Engine. Each profile's knobs:
+  Power Saver 10 s LLM / 60 s STT idle-unload, eco-only cores, unload below 50%
+  battery; Balanced 120 s / 300 s, mixed cores, unload below 20%; Performance
+  600 s / 900 s, all P-cores, never unloads on battery. Configurable from
+  **Settings → General → App → Energy Profile** or the tray's Energy Profile
+  submenu via the `apply_profile_mode` command. Balanced and Performance keep
+  models warm; Power Saver skips warm-up.
+- **Smart Microphone.** When a Bluetooth output is actively playing and the
+  configured mic is also Bluetooth, dictation routes capture to a backup mic
+  (built-in by default) so the Bluetooth link stays in A2DP stereo instead of
+  dropping to mono HFP. `audio_capture::choose_input_device` runs on every
+  hotkey-down; a rerouted capture is recorded in the history row as
+  `smart_routing_applied`. New settings: `smart_mic_routing` (default on) and an
+  optional `backup_input_device` (null = built-in auto). Configurable in the
+  wizard's final step and in **Settings → General → Dictation**.
+- **Dictation history.** Successful dictations are saved to a local SQLite
+  database (`app/src-tauri/src/db/`, `rusqlite` + `rusqlite-migration`) with an
+  append-only migration system (`001_dictations`, `002_smart_routing`). The home
+  screen gained an infinite-scroll history list with per-row previews, model
+  badges, target app, timings, an expandable detail view, single-row delete, and
+  a "Clear" action. `history_*` Tauri commands back the UI; a `dictation:saved`
+  event refreshes the list live. New `record_history` setting (default on); the
+  history write is best-effort and never blocks the pipeline.
+- **Redesigned menu-bar tray.** Monochrome waveform template icons whose
+  amplitude encodes the active energy profile (low = Power Saver, medium =
+  Balanced, tall = Performance), an animated loading pulse, recording / loading /
+  error states, and a permission-attention badge shown when Accessibility or
+  Microphone is missing (polled independently of any open window). The menu adds
+  an Energy Profile submenu (Auto / Power Saver / Balanced / Performance with the
+  resolved profile) and a "Check for updates" item.
+- **Native menu-bar app posture.** The app runs with `ActivationPolicy::Accessory`
+  (no Dock icon); the tray is the only persistent presence. Closing the home or
+  settings window hides it (`api.prevent_close()` + `hide()`) instead of quitting.
+  Launch-at-login (via `tauri-plugin-autostart`, `MacosLauncher::LaunchAgent`)
+  passes a `--minimized` argument so an autostarted launch opens no window and
+  stays silently in the tray.
+- **`lirevo-eval` crate.** Dev-only evaluation harness for the LLM cleanup stage:
+  loads JSONL corpora, runs them against configurable backends, scores output
+  (chrF, length-ratio, embedding-cosine, assertion checks), and produces judge
+  reports. Subcommands `run`, `gen-corpus`, `judge`, `bless`, `bake-cell`; driven
+  by the `just eval` recipe. Not bundled in the DMG.
+- **Quit-safety `atexit` handler** (`register_quit_safety_atexit` in `lib.rs`)
+  that flips `LIREVO_EXIT_REQUESTED` before `ggml_metal`'s C++ destructor runs,
+  preventing a spurious `SIGABRT` on app quit.
+
+### Changed
+- **In-process inference, no sidecar in the shipped app.** Both `LlamaBackend`
+  (`llama-cpp-2`) and `audiopipe::Model` are loaded directly into the Tauri host
+  process. There is no child process, Unix socket, or HTTP endpoint in the
+  shipped DMG. `inference-core`'s axum sidecar, `lirevo-cli`, `lirevo-prototype`,
+  and `lirevo-eval` are all dev-only.
+- **Cleanup prompt** (`lirevo-prompts::build_clean_system_prompt`) now edits out
+  speech disfluencies and adds punctuation while preserving the dictation
+  language — it never translates. When no LLM is configured or cleanup fails, the
+  raw transcript is injected as-is.
+- **Dictation overlay** is notch-safe and persists through a `processing` phase
+  (driven by `overlay:phase` events: `recording` → `processing` → `done`) until
+  the final text is injected, instead of dismissing after recording stops. An
+  RAII `OverlayPhaseGuard` guarantees the overlay dismisses on every exit path.
+- **Dev/prod data + log directories are named after the app** (`paths.rs`):
+  `Lirevo` for release, `Lirevo (Dev)` for debug, replacing the bundle-id leaf.
+  Debug builds get a one-time migration of the old `ai.lirevo.app` directory to
+  `Lirevo (Dev)`, preserving existing dev models and history.
+- **Distinct debug bundle id `ai.lirevo.app.dev`** (injected via
+  `--config '{"identifier":"ai.lirevo.app.dev"}'` by `just dev` and
+  `just dev-bundle`) so debug builds never share macOS system state
+  (Caches / WebKit / Preferences / TCC) with the release app.
+- **Stable dev code-signing.** `just dev-bundle` re-signs the bundle with a
+  Developer ID identity (from `APPLE_SIGNING_IDENTITY` in `.env`) **without**
+  hardened runtime, so the bundled native inference libraries (ggml/Metal,
+  whisper, llama, audiopipe) still load and TCC grants persist across rebuilds.
+  Without an identity it falls back to ad-hoc and resets TCC for
+  `ai.lirevo.app.dev` each build.
+- **Tray menu** dropped the "Re-run setup wizard" and "View logs" items;
+  "Energy" was renamed to "Energy Profile". Re-running the wizard now lives in
+  **Settings → About**.
+
+### Removed
+- **`keep_models_warm` setting and toggle.** Warm-up is now derived from the
+  active energy profile (Balanced/Performance warm; Power Saver does not).
+- M3-era tray "Re-run setup wizard" / "View logs" menu items (see Changed).
+
 ## [Unreleased]
 
 ### Roadmap (next milestones)
@@ -13,16 +119,16 @@ The project is evolving into a **personal agent that learns how you write and he
 - **v0.5 (~month 3-4): free dictation public** — clean, fast, local-first dictation app with style learning, released as the OSS foundation. Free forever under AGPL-3.0-or-later. Serves as both the audience-building loss leader and the runtime base for the agent.
 - **v1.0 (~month 10-12): paid agent launch** — full personal agent built on top of the dictation base. Observes (opt-in), learns, acts. Paid €129 one-time perpetual license. Free dictation users get conversion path; agent buyers get the loss-leader features included.
 
-The inference stack is being rewritten end-to-end on Rust-native, multi-vendor foundations to support both v0.5 and v1.0. M4 (STT swap) shipped in 0.5.0; M5 (LLM swap) is next; then the agent stack is built out (M6-M7); then polish + license + launch (M8-M10).
+The inference stack runs on Rust-native, multi-vendor foundations to support both v0.5 and v1.0. M4 (STT swap to audiopipe) shipped in 0.5.0. M5 attempted an LLM-runtime swap to mistral.rs but was abandoned — the app stays on `llama-cpp-2` (GGUF); two salvage upstream PRs to mistral.rs came out of it (build fix #2176, tokenizer #2177). The v0.6 line that replaced it (single llama.cpp backend + resource-aware Engine lifecycle + energy profiles, all in this changelog's unreleased section) is the current dictation work. Next the agent stack is built out (M6-M7), then polish + license + launch (M8-M10).
 
-- **M5 — LLM runtime migration to mistral.rs + Gemma 4 default.** Replaces `llama-cpp-2` with `mistralrs::*` consumed directly. New model catalog: **Gemma 4 E2B-it + assistant draft pair** (Apache-2.0, ~1.55GB Q4, multimodal image+audio+video, 140+ languages, 128K context, speculative decoding 3x speedup) as default, and **Qwen3-VL-2B-Instruct** (Apache-2.0, 256K context, 102M HF downloads) as stable alternative. Catalog entries include `benchmark_score` from `lirevo-eval`. Audit + perf bench Task 1 as kill switch; conditional Task 1.5 = upstream fix of Gemma 4 issues #2098/#2058/#2051 in mistral.rs via `~/Progetti/Personale/rust-ml-contrib/`. **At the end of M5: v0.5 free dictation public release.**
-- **M6 — Agent core.** SQLite + migration runner + screen capture infrastructure (custom modulo on cidre, AGENTS.md-compliant cross-platform abstraction) + style learning vision-based (Gemma 4 multimodal consolidator) + retrieval foundations (vector DB local choice TBD via M6 brainstorm) + hierarchical context (per-app + per-window-title + per-recipient where detectable). Capture cadence configurable, screenshots discarded after feature extraction (storage as structured data only).
+- **M5 — LLM runtime (resolved on `llama-cpp-2`).** The planned migration to `mistral.rs` + a Gemma 4 default was attempted and rolled back; Lirevo keeps `llama-cpp-2` and the in-app GGUF catalog (recommended default: `gemma-3-1b-it-Q4_K_M.gguf`, blessed by `lirevo-eval`). The energy this would have spent on a backend swap went into the v0.6 resource-aware lifecycle and energy-profile work instead. **The v0.5 free dictation public release sits at the end of this dictation track.**
+- **M6 — Agent core.** Builds on the generic local SQLite layer + migration runner already shipped in v0.6 (`app/src-tauri/src/db/`): adds screen capture infrastructure (custom module on cidre, AGENTS.md-compliant cross-platform abstraction) + vision-based style learning + retrieval foundations (vector DB local choice TBD via M6 brainstorm) + hierarchical context (per-app + per-window-title + per-recipient where detectable). Capture cadence configurable, screenshots discarded after feature extraction (storage as structured data only).
 - **M7 — Agent UX.** Agent Console as full-screen overlay summoned by `Cmd+Shift+Space` (Spotlight/Raycast-style). Search/retrieve over learned activity. "What I've learned" inspector for transparency. Manual teach hotkey ("this is how I write"). Privacy UX polish.
-- **M8 — Polish & Reliability + Mac optimizations.** VAD silence-detection auto-stop, custom hotkey combos wired to M3 settings UI, per-app force-pasteboard overrides, real wizard "Test mic" with live audio level, model download resume on cancel/network failure, polished tray icons, memory pressure handler, thermal state monitor, QoS user-interactive, Low Power Mode awareness, diagnostic panel.
+- **M8 — Polish & Reliability + Mac optimizations.** VAD silence-detection auto-stop, custom hotkey combos wired to settings UI, per-app force-pasteboard overrides, model download resume on cancel/network failure, QoS user-interactive, diagnostic panel. (The memory-pressure / thermal / Low Power Mode handlers, polished waveform tray icons, and live-level wizard "Test mic" originally scoped here shipped early in the v0.6 line.)
 - **M9 — License & Payment infrastructure.** OAuth flow (Google/GitHub/Apple) via custom URL scheme callback + offline JWT 365-day opt-in. License backend Rust+axum on Hetzner Cloud (~€15/mo all-in). Lemonsqueezy as Merchant of Record. Paywall UX with three tiers (Free / Cloud Sync €4/mo / Agent €129 one-time). Privacy Inspector UI showing real-time network activity for auditability.
 - **M10 — Beta + v1.0 paid agent launch.** Code signing + notarization + auto-update endpoints live + minisign keys + docs (getting-started, troubleshooting, CONTRIBUTING, privacy commitment) + landing site + beta program (waitlist signups from v0.5 launch) + release notes automation + HN/Reddit/Product Hunt launch + v1.0.0 release.
 
-After M5 (and again after M7), the project rewrites `architecture-design.md` as a **v2** consolidated source of truth reflecting the post-pivot stack (Tauri + audiopipe + mistral.rs + agent core). The original v1 doc becomes archeology.
+After the dictation track lands (and again after M7), the project rewrites `architecture-design.md` as a **v2** consolidated source of truth reflecting the current stack (Tauri + audiopipe + llama-cpp-2 + agent core). The original v1 doc becomes archeology.
 
 **Pricing model** (for v1.0 launch):
 

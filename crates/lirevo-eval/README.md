@@ -41,8 +41,9 @@ cargo run -p lirevo-eval --release -- gen-corpus \
 # [scoring.embedding] block to pin them for future runs.
 ```
 
-`$MODELS` is wherever your local `.gguf` files live —
-typically `~/Library/Application Support/ai.lirevo.app/models/`.
+`$MODELS` is wherever your local `.gguf` files live — typically the app's model
+folder, `~/Library/Application Support/Lirevo/models/` (or `Lirevo (Dev)/models/`
+for debug builds).
 
 ## Backend specs
 
