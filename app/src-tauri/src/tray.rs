@@ -217,7 +217,6 @@ fn build_menu(app: &AppHandle, recording: bool, status_label: &str) -> Result<Me
     // the close-to-tray flow when the home window is just hidden.
     let show_item = MenuItem::with_id(app, "show-home", "Show Lirevo", true, None::<&str>).map_err(menu_err)?;
     let settings_item = MenuItem::with_id(app, "open-settings", "Settings...", true, Some("CmdOrCtrl+,")).map_err(menu_err)?;
-    let wiz_item = MenuItem::with_id(app, "open-wizard", "Re-run setup wizard", true, None::<&str>).map_err(menu_err)?;
     let sep2 = PredefinedMenuItem::separator(app).map_err(menu_err)?;
     let logs_item = MenuItem::with_id(app, "view-logs", "View logs", true, None::<&str>).map_err(menu_err)?;
     let updates_item = MenuItem::with_id(app, "check-updates", "Check for updates", true, None::<&str>).map_err(menu_err)?;
@@ -226,7 +225,7 @@ fn build_menu(app: &AppHandle, recording: bool, status_label: &str) -> Result<Me
 
     Menu::with_items(app, &[
         &state_item, &hotkey_item, &energy_item, &sep1,
-        &show_item, &settings_item, &wiz_item, &sep2,
+        &show_item, &settings_item, &sep2,
         &logs_item, &updates_item, &sep3,
         &quit_item,
     ]).map_err(menu_err)
@@ -328,7 +327,6 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
     match event.id().as_ref() {
         "show-home" => { let _ = crate::commands::windows::open_window_internal(app, "home"); }
         "open-settings" => { let _ = crate::commands::windows::open_window_internal(app, "settings"); }
-        "open-wizard" => { let _ = crate::commands::windows::open_window_internal(app, "wizard"); }
         "view-logs" => {
             if let Ok(dir) = app.path().app_log_dir() {
                 use tauri_plugin_opener::OpenerExt;
