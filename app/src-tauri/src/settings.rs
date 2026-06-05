@@ -131,9 +131,18 @@ fn default_dictation_language() -> String {
 const STORE_FILE: &str = "settings.json";
 const STORE_KEY: &str = "settings";
 
+/// Absolute path to settings.json inside our app-name data dir (so it lives
+/// alongside the db + models, and stays separate for dev vs prod), rather than
+/// the store plugin's default bundle-id config dir.
+fn store_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, AppError> {
+    Ok(crate::paths::data_dir(app)
+        .map_err(|e| AppError::Settings(e.to_string()))?
+        .join(STORE_FILE))
+}
+
 impl Settings {
     pub fn load(app: &tauri::AppHandle) -> Result<Self, AppError> {
-        let store = app.store(STORE_FILE)
+        let store = app.store(store_path(app)?)
             .map_err(|e| AppError::Settings(e.to_string()))?;
         let s = if let Some(value) = store.get(STORE_KEY) {
             match serde_json::from_value::<Settings>(value.clone()) {
@@ -178,7 +187,7 @@ impl Settings {
     }
 
     pub fn persist(&self, app: &tauri::AppHandle) -> Result<(), AppError> {
-        let store = app.store(STORE_FILE)
+        let store = app.store(store_path(app)?)
             .map_err(|e| AppError::Settings(e.to_string()))?;
         store.set(STORE_KEY, serde_json::to_value(self)?);
         store.save().map_err(|e| AppError::Settings(e.to_string()))?;

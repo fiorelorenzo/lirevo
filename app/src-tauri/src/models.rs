@@ -133,8 +133,7 @@ fn find_by_filename(name: &str) -> Option<CatalogEntry> {
 }
 
 pub fn models_dir(app: &tauri::AppHandle) -> std::io::Result<PathBuf> {
-    use tauri::Manager;
-    let dir = app.path().app_data_dir()
+    let dir = crate::paths::data_dir(app)
         .map_err(|e| std::io::Error::other(e.to_string()))?
         .join("models");
     std::fs::create_dir_all(&dir)?;
