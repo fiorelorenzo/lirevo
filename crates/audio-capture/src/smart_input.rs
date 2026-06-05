@@ -20,13 +20,19 @@ pub struct InputChoice {
 }
 
 /// If `enabled` and audio is playing through a Bluetooth output path and the
-/// configured/default mic is Bluetooth, prefer the built-in mic so the
-/// Bluetooth output stays in stereo. Otherwise keep `configured`.
+/// configured/default mic is Bluetooth, route dictation to the `backup` mic so
+/// the Bluetooth output stays in stereo. `backup` is the user's chosen backup
+/// device; when `None` it falls back to the built-in mic. Otherwise keep
+/// `configured`.
 #[must_use]
-pub fn choose_input_device(configured: Option<String>, enabled: bool) -> InputChoice {
+pub fn choose_input_device(
+    configured: Option<String>,
+    enabled: bool,
+    backup: Option<String>,
+) -> InputChoice {
     if enabled && output_is_active() && input_is_bluetooth(configured.as_deref()) {
-        if let Some(builtin) = builtin_input_name() {
-            return InputChoice { device: Some(builtin), rerouted: true };
+        if let Some(device) = backup.or_else(builtin_input_name) {
+            return InputChoice { device: Some(device), rerouted: true };
         }
     }
     InputChoice { device: configured, rerouted: false }
@@ -332,11 +338,17 @@ mod tests {
 
     #[test]
     fn choose_input_device_disabled_is_passthrough() {
-        let choice = choose_input_device(Some("AirPods Pro".into()), false);
+        let choice = choose_input_device(Some("AirPods Pro".into()), false, None);
         assert_eq!(choice.device.as_deref(), Some("AirPods Pro"));
         assert!(!choice.rerouted);
 
-        let default = choose_input_device(None, false);
+        // A backup is irrelevant while disabled.
+        let with_backup =
+            choose_input_device(Some("AirPods Pro".into()), false, Some("USB Mic".into()));
+        assert_eq!(with_backup.device.as_deref(), Some("AirPods Pro"));
+        assert!(!with_backup.rerouted);
+
+        let default = choose_input_device(None, false, None);
         assert!(default.device.is_none());
         assert!(!default.rerouted);
     }

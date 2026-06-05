@@ -48,6 +48,11 @@ pub struct Settings {
     /// Defaults to `true` so existing installs opt in on upgrade.
     #[serde(default = "default_true")]
     pub smart_mic_routing: bool,
+    /// Microphone that smart routing falls back to when it reroutes (a Bluetooth
+    /// output is playing and the configured mic is Bluetooth). `None` = auto
+    /// (the built-in mic, the sensible default).
+    #[serde(default)]
+    pub backup_input_device: Option<String>,
     pub force_pasteboard: bool,
     pub paste_delay_ms: u32,
 
@@ -85,6 +90,7 @@ impl Default for Settings {
             language: default_dictation_language(),
             input_device_name: None,
             smart_mic_routing: true,
+            backup_input_device: None,
             force_pasteboard: false,
             paste_delay_ms: 120,
             launch_at_login: false,

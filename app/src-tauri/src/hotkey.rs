@@ -110,7 +110,7 @@ fn handle_down(app: &AppHandle, state: &tauri::State<'_, AppState>) {
     // heavy work (Recorder::new opens the CoreAudio device — tens of ms).
     // Holding std::sync::Mutex across that blocks other Tauri commands that
     // also lock AppState.
-    let (configured, smart_mic_routing) = {
+    let (configured, smart_mic_routing, backup_input_device) = {
         let inner = state.inner.lock().unwrap();
         if inner.recorder.is_some() {
             tracing::info!("handle_down: already recording (duplicate Down)");
@@ -119,17 +119,20 @@ fn handle_down(app: &AppHandle, state: &tauri::State<'_, AppState>) {
         (
             inner.settings.input_device_name.clone(),
             inner.settings.smart_mic_routing,
+            inner.settings.backup_input_device.clone(),
         )
     };
 
     // Decide which mic to open. With smart routing enabled, if audio is
     // playing through a Bluetooth output and the configured/default mic is a
-    // Bluetooth device, prefer the built-in mic so the output stays in stereo.
-    let choice = audio_capture::choose_input_device(configured, smart_mic_routing);
+    // Bluetooth device, route to the configured backup mic (or the built-in
+    // mic by default) so the output stays in stereo.
+    let choice =
+        audio_capture::choose_input_device(configured, smart_mic_routing, backup_input_device);
     if choice.rerouted {
         tracing::info!(
             device = ?choice.device,
-            "handle_down: smart mic routing → built-in mic (Bluetooth output active)"
+            "handle_down: smart mic routing → backup mic (Bluetooth output active)"
         );
     }
     // Human label of the device actually used, for the history row.
