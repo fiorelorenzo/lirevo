@@ -2,6 +2,13 @@
 # APPLE_SIGNING_IDENTITY. No-op when the file is absent (CI, fresh clones).
 set dotenv-load := true
 
+# Debug builds use a distinct bundle id so dev and prod never share macOS
+# system state — Caches, WebKit storage, Preferences, and TCC permissions are
+# all keyed on the bundle id. (Data + log dirs are split separately, by app
+# name, in the Rust path resolver.) Release (`dmg`) keeps the real identifier
+# from tauri.conf.json.
+dev_identifier := "ai.lirevo.app.dev"
+
 default:
     @just --list
 
@@ -11,7 +18,7 @@ default:
 # UI, or `just dev-bundle` to test real TCC flows.
 dev:
     cd app && npm install --no-audit --no-fund
-    cd app && npx tauri dev
+    cd app && npx tauri dev --config '{"identifier":"{{dev_identifier}}"}'
 
 # Debug .app bundle for testing macOS-permission flows (microphone,
 # accessibility). The bare `just dev` binary cannot trigger TCC prompts;
@@ -36,12 +43,12 @@ dev-bundle:
     #!/usr/bin/env bash
     set -euo pipefail
     app="app/src-tauri/target/aarch64-apple-darwin/debug/bundle/macos/Lirevo.app"
-    ( cd app && npm install --no-audit --no-fund && env -u APPLE_SIGNING_IDENTITY npx tauri build --debug --target aarch64-apple-darwin --bundles app )
+    ( cd app && npm install --no-audit --no-fund && env -u APPLE_SIGNING_IDENTITY npx tauri build --debug --config '{"identifier":"{{dev_identifier}}"}' --target aarch64-apple-darwin --bundles app )
     if [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then
         codesign --force --deep -s "$APPLE_SIGNING_IDENTITY" "$app"
     else
-        tccutil reset Accessibility ai.lirevo.app || true
-        tccutil reset Microphone ai.lirevo.app || true
+        tccutil reset Accessibility {{dev_identifier}} || true
+        tccutil reset Microphone {{dev_identifier}} || true
     fi
     open "$app"
 
