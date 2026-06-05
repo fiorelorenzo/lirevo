@@ -170,7 +170,7 @@
       "backup_mic": "Backup microphone",
       "backup_mic_helper": "Which mic to dictate with when smart routing kicks in.",
       "backup_mic_auto": "Built-in microphone (auto)",
-      "energy": "Energy",
+      "energy": "Energy Profile",
       "energy_helper": "Auto adapts to system load. Pinning a profile overrides it, except when low battery or thermal pressure forces Power Saver.",
       "energy_auto": "Auto",
       "energy_power_saver": "Power Saver",
