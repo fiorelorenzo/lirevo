@@ -27,6 +27,12 @@ pub struct NewDictation {
     pub total_ms: i64,
     pub target_app: Option<String>,
     pub target_bundle: Option<String>,
+    /// Input device actually used for this dictation.
+    pub input_device: Option<String>,
+    /// Whether the smart-mic-routing setting was on for this dictation.
+    pub smart_routing_enabled: bool,
+    /// Whether smart routing actually rerouted to the built-in mic.
+    pub smart_routing_applied: bool,
 }
 
 /// Lightweight row for the list (no full transcripts).
@@ -64,6 +70,12 @@ pub struct Dictation {
     pub total_ms: i64,
     pub target_app: Option<String>,
     pub target_bundle: Option<String>,
+    /// Input device actually used. `None` for rows written before migration 002.
+    pub input_device: Option<String>,
+    /// Whether smart mic routing was enabled. `None` for pre-002 rows.
+    pub smart_routing_enabled: Option<bool>,
+    /// Whether smart routing rerouted to the built-in mic. `None` for pre-002 rows.
+    pub smart_routing_applied: Option<bool>,
 }
 
 const PREVIEW_CHARS: usize = 120;
@@ -81,12 +93,14 @@ pub fn insert(db: &Db, e: &NewDictation) -> rusqlite::Result<i64> {
         c.execute(
             "INSERT INTO dictations (created_at, language, stt_model, audio_ms, raw_text, stt_ms,
                 llm_model, cleaned_text, clean_ms, cleanup_status, cleanup_error,
-                inject_method, inject_ms, total_ms, target_app, target_bundle)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
+                inject_method, inject_ms, total_ms, target_app, target_bundle,
+                input_device, smart_routing_enabled, smart_routing_applied)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)",
             params![
                 e.created_at, e.language, e.stt_model, e.audio_ms, e.raw_text, e.stt_ms,
                 e.llm_model, e.cleaned_text, e.clean_ms, e.cleanup_status, e.cleanup_error,
                 e.inject_method, e.inject_ms, e.total_ms, e.target_app, e.target_bundle,
+                e.input_device, i64::from(e.smart_routing_enabled), i64::from(e.smart_routing_applied),
             ],
         )?;
         Ok(c.last_insert_rowid())
@@ -123,7 +137,8 @@ pub fn get(db: &Db, id: i64) -> rusqlite::Result<Option<Dictation>> {
         c.query_row(
             "SELECT id, created_at, language, stt_model, audio_ms, raw_text, stt_ms, llm_model,
                 cleaned_text, clean_ms, cleanup_status, cleanup_error, inject_method, inject_ms,
-                total_ms, target_app, target_bundle FROM dictations WHERE id = ?1",
+                total_ms, target_app, target_bundle, input_device, smart_routing_enabled,
+                smart_routing_applied FROM dictations WHERE id = ?1",
             params![id],
             |r| {
                 Ok(Dictation {
@@ -132,6 +147,9 @@ pub fn get(db: &Db, id: i64) -> rusqlite::Result<Option<Dictation>> {
                     cleaned_text: r.get(8)?, clean_ms: r.get(9)?, cleanup_status: r.get(10)?,
                     cleanup_error: r.get(11)?, inject_method: r.get(12)?, inject_ms: r.get(13)?,
                     total_ms: r.get(14)?, target_app: r.get(15)?, target_bundle: r.get(16)?,
+                    input_device: r.get(17)?,
+                    smart_routing_enabled: r.get::<_, Option<i64>>(18)?.map(|v| v != 0),
+                    smart_routing_applied: r.get::<_, Option<i64>>(19)?.map(|v| v != 0),
                 })
             },
         )
@@ -160,6 +178,8 @@ mod tests {
             cleanup_status: if stt_only { CLEANUP_SKIPPED.into() } else { CLEANUP_APPLIED.into() },
             cleanup_error: None, inject_method: "pasteboard".into(), inject_ms: Some(163),
             total_ms: 986, target_app: Some("Mail".into()), target_bundle: Some("com.apple.mail".into()),
+            input_device: Some("MacBook Pro Microphone".into()),
+            smart_routing_enabled: true, smart_routing_applied: stt_only,
         }
     }
 
@@ -179,9 +199,14 @@ mod tests {
         let full = get(&db, id1).unwrap().unwrap();
         assert_eq!(full.cleaned_text, "first");
         assert_eq!(full.cleanup_status, CLEANUP_APPLIED);
+        assert_eq!(full.input_device.as_deref(), Some("MacBook Pro Microphone"));
+        assert_eq!(full.smart_routing_enabled, Some(true));
+        // id1 was the non-stt-only sample, so routing was not applied.
+        assert_eq!(full.smart_routing_applied, Some(false));
         let stt_only = get(&db, id2).unwrap().unwrap();
         assert_eq!(stt_only.llm_model, None);
         assert_eq!(stt_only.clean_ms, None);
+        assert_eq!(stt_only.smart_routing_applied, Some(true));
     }
 
     #[test]

@@ -8,6 +8,7 @@
     Languages,
     AppWindow,
     TriangleAlert,
+    Bluetooth,
   } from '@lucide/svelte';
   import { lda, type Dictation } from '$lib/tauri';
   import Spinner from '$lib/components/Spinner.svelte';
@@ -142,6 +143,23 @@
         {#if detail.targetApp}
           <span class="inline-flex items-center gap-1">
             <AppWindow class="h-3 w-3" />{detail.targetApp}
+          </span>
+        {/if}
+        {#if detail.inputDevice}
+          <span class="inline-flex items-center gap-1">
+            {#if detail.smartRoutingApplied}
+              <Bluetooth class="h-3 w-3" />
+            {:else}
+              <Mic class="h-3 w-3" />
+            {/if}
+            {detail.inputDevice}
+          </span>
+        {/if}
+        {#if detail.smartRoutingApplied}
+          <span
+            class="inline-flex items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-primary leading-none"
+          >
+            smart routing
           </span>
         {/if}
         <span class="inline-flex items-center gap-1 tabular-nums">

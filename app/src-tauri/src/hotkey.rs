@@ -110,17 +110,42 @@ fn handle_down(app: &AppHandle, state: &tauri::State<'_, AppState>) {
     // heavy work (Recorder::new opens the CoreAudio device — tens of ms).
     // Holding std::sync::Mutex across that blocks other Tauri commands that
     // also lock AppState.
-    let device_name = {
+    let (configured, smart_mic_routing) = {
         let inner = state.inner.lock().unwrap();
         if inner.recorder.is_some() {
             tracing::info!("handle_down: already recording (duplicate Down)");
             return;
         }
-        inner.settings.input_device_name.clone()
+        (
+            inner.settings.input_device_name.clone(),
+            inner.settings.smart_mic_routing,
+        )
+    };
+
+    // Decide which mic to open. With smart routing enabled, if audio is
+    // playing through a Bluetooth output and the configured/default mic is a
+    // Bluetooth device, prefer the built-in mic so the output stays in stereo.
+    let choice = audio_capture::choose_input_device(configured, smart_mic_routing);
+    if choice.rerouted {
+        tracing::info!(
+            device = ?choice.device,
+            "handle_down: smart mic routing → built-in mic (Bluetooth output active)"
+        );
+    }
+    // Human label of the device actually used, for the history row.
+    let input_device = match &choice.device {
+        Some(name) => name.clone(),
+        None => audio_capture::default_input_device_label()
+            .unwrap_or_else(|_| "(default)".into()),
+    };
+    let recording_meta = crate::state::RecordingMeta {
+        input_device,
+        smart_routing_enabled: smart_mic_routing,
+        smart_routing_applied: choice.rerouted,
     };
 
     let result = (|| -> Result<Recorder, String> {
-        let cfg = RecorderConfig { device_name, ..Default::default() };
+        let cfg = RecorderConfig { device_name: choice.device.clone(), ..Default::default() };
         let mut recorder = Recorder::new(cfg).map_err(|e| e.to_string())?;
         recorder.start().map_err(|e| e.to_string())?;
         Ok(recorder)
@@ -153,6 +178,7 @@ fn handle_down(app: &AppHandle, state: &tauri::State<'_, AppState>) {
             {
                 let mut inner = state.inner.lock().unwrap();
                 inner.recorder = Some(recorder);
+                inner.recording_meta = Some(recording_meta);
             }
             let _ = state.recording_state_tx.send(true);
             let _ = app.emit("recording:state", true);
@@ -304,13 +330,14 @@ async fn run_pipeline(
 
     // Snapshot what we need; release the lock before any heavy work so we
     // never hold the std::sync::Mutex across an await.
-    let (engine, language, force_pasteboard, record_history) = {
+    let (engine, language, force_pasteboard, record_history, recording_meta) = {
         let inner = state.inner.lock().unwrap();
         (
             inner.engine.clone(),
             inner.settings.language.clone(),
             inner.settings.force_pasteboard,
             inner.settings.record_history,
+            inner.recording_meta.clone(),
         )
     };
     // `Db` is internally synchronized and lives outside `inner`'s mutex; clone
@@ -502,6 +529,13 @@ async fn run_pipeline(
                     total_ms: t3.as_millis() as i64,
                     target_app,
                     target_bundle,
+                    input_device: recording_meta.as_ref().map(|m| m.input_device.clone()),
+                    smart_routing_enabled: recording_meta
+                        .as_ref()
+                        .is_some_and(|m| m.smart_routing_enabled),
+                    smart_routing_applied: recording_meta
+                        .as_ref()
+                        .is_some_and(|m| m.smart_routing_applied),
                 };
                 let db = db_arc.clone();
                 let app2 = app.clone();

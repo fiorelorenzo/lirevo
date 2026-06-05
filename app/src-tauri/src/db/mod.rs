@@ -10,7 +10,10 @@ pub mod history;
 /// new one. `to_latest` applies only the not-yet-applied migrations and bumps
 /// `PRAGMA user_version`, so an upgraded app self-heals its schema.
 fn migrations() -> Migrations<'static> {
-    Migrations::new(vec![M::up(include_str!("migrations/001_dictations.sql"))])
+    Migrations::new(vec![
+        M::up(include_str!("migrations/001_dictations.sql")),
+        M::up(include_str!("migrations/002_smart_routing.sql")),
+    ])
 }
 
 /// The app's generic local database. One connection behind a mutex (SQLite
@@ -107,5 +110,21 @@ mod tests {
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
         assert!(v >= 1);
+    }
+
+    #[test]
+    fn migration_002_adds_smart_routing_columns() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrations().to_latest(&mut conn).unwrap();
+        let cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(dictations)")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        for expected in ["input_device", "smart_routing_enabled", "smart_routing_applied"] {
+            assert!(cols.iter().any(|c| c == expected), "missing column {expected}");
+        }
     }
 }
