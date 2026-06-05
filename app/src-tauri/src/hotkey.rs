@@ -79,14 +79,14 @@ async fn dictation_loop(app: AppHandle, mut rx: tokio::sync::mpsc::Receiver<Hotk
         tracing::info!(?event, "dictation_loop: received hotkey event");
         let state = app.state::<AppState>();
         match event {
-            HotkeyEvent::Down => handle_down(&app, &state).await,
+            HotkeyEvent::Down => handle_down(&app, &state),
             HotkeyEvent::Up => handle_up(&app, &state),
         }
     }
     tracing::warn!("hotkey event channel closed; dictation loop exiting");
 }
 
-async fn handle_down(app: &AppHandle, state: &tauri::State<'_, AppState>) {
+fn handle_down(app: &AppHandle, state: &tauri::State<'_, AppState>) {
     tracing::info!("handle_down: hotkey pressed");
     let ms = state.current_model_state();
     // The engine lazy-unloads STT under memory pressure, so the UI may report
@@ -143,48 +143,63 @@ async fn handle_down(app: &AppHandle, state: &tauri::State<'_, AppState>) {
                 }
             });
 
-            // Snapshot what the streaming worker needs (engine + dictation
-            // language) before re-acquiring the inner lock to install the
-            // recorder + streaming handle.
-            let (engine, language) = {
-                let inner = state.inner.lock().unwrap();
-                (inner.engine.clone(), inner.settings.language.clone())
-            };
-            // Lazy-load the STT slot for this dictation. If it's still
-            // downloading (None) or errors, fall back to the no-streaming path
-            // (run_pipeline will retry via ensure_stt one-shot).
-            let stt_slot = match engine.ensure_stt().await {
-                Ok(slot) => slot,
-                Err(e) => {
-                    tracing::warn!(%e, "handle_down: ensure_stt failed; no streaming session");
-                    None
-                }
-            };
-            if stt_slot.is_some() {
-                engine.mark_stt_used();
-            }
-            let streaming = stt_slot.map(|slot| {
-                let lang_opt = if language == "auto" || language.is_empty() {
-                    None
-                } else {
-                    Some(language.clone())
-                };
-                crate::commands::inference::spawn_streaming_session(
-                    app.clone(),
-                    slot,
-                    lang_opt,
-                )
-            });
-
-            // Re-acquire briefly to install the recorder + streaming handle.
+            // Install the recorder + show the overlay IMMEDIATELY, before any
+            // model work. The first dictation's STT load can take seconds; if we
+            // blocked the hotkey loop awaiting it here, the overlay wouldn't
+            // appear, the user would mash the key, and the queued Down/Up events
+            // would fire in a burst once the load finished — recording several
+            // empty dictations. Installing the recorder now also arms the
+            // duplicate-Down guard above.
             {
                 let mut inner = state.inner.lock().unwrap();
                 inner.recorder = Some(recorder);
-                inner.streaming = streaming;
             }
             let _ = state.recording_state_tx.send(true);
             let _ = app.emit("recording:state", true);
             show_overlay(app);
+            let _ = app.emit("overlay:phase", "recording");
+
+            // Open the live-streaming session off the hotkey loop: `ensure_stt`
+            // lazy-loads the model (slow on first use), so awaiting it inline
+            // would block the loop. If the user releases before it's ready,
+            // `handle_up` falls back to the one-shot transcribe path; if it only
+            // becomes ready after recording already stopped, it's discarded.
+            let app3 = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let state = app3.state::<AppState>();
+                let (engine, language) = {
+                    let inner = state.inner.lock().unwrap();
+                    (inner.engine.clone(), inner.settings.language.clone())
+                };
+                let stt_slot = match engine.ensure_stt().await {
+                    Ok(slot) => slot,
+                    Err(e) => {
+                        tracing::warn!(%e, "handle_down: ensure_stt failed; no streaming session");
+                        None
+                    }
+                };
+                let Some(slot) = stt_slot else { return };
+                engine.mark_stt_used();
+                let lang_opt = if language == "auto" || language.is_empty() {
+                    None
+                } else {
+                    Some(language)
+                };
+                // Attach only if still recording; otherwise the user already
+                // released and the one-shot path is handling this dictation.
+                let mut inner = state.inner.lock().unwrap();
+                if inner.recorder.is_some() {
+                    inner.streaming = Some(crate::commands::inference::spawn_streaming_session(
+                        app3.clone(),
+                        slot,
+                        lang_opt,
+                    ));
+                } else {
+                    tracing::info!(
+                        "handle_down: streaming ready but recording already stopped; discarding"
+                    );
+                }
+            });
         }
         Err(e) => {
             tracing::warn!(error = %e, "recorder start failed");
@@ -228,7 +243,10 @@ fn handle_up(app: &AppHandle, state: &tauri::State<AppState>) {
 
     let _ = state.recording_state_tx.send(false);
     let _ = app.emit("recording:state", false);
-    hide_overlay_with_delay(app);
+    // Keep the overlay up and switch it to the processing animation. The
+    // pipeline hides it once the final text is injected (see run_pipeline's
+    // OverlayPhaseGuard).
+    let _ = app.emit("overlay:phase", "processing");
 
     let app2 = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -245,17 +263,16 @@ fn show_overlay(app: &AppHandle) {
     }
 }
 
-/// Hide the overlay after a short grace period so the waveform visibly
-/// settles before the pill disappears.
-fn hide_overlay_with_delay(app: &AppHandle) {
-    use tauri::Manager;
-    let app2 = app.clone();
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        if let Some(w) = app2.get_webview_window("overlay") {
-            let _ = w.hide();
-        }
-    });
+/// Emits the overlay `done` phase when dropped, so the overlay's exit
+/// animation fires on every `run_pipeline` exit path (success, early return,
+/// or error) without threading the emit through each branch. The overlay
+/// webview hides its own window once the exit animation finishes.
+struct OverlayPhaseGuard(AppHandle);
+impl Drop for OverlayPhaseGuard {
+    fn drop(&mut self) {
+        use tauri::Emitter;
+        let _ = self.0.emit("overlay:phase", "done");
+    }
 }
 
 /// Full STT → cleanup → inject pipeline.
@@ -274,6 +291,11 @@ async fn run_pipeline(
     samples: Vec<f32>,
     streaming: Option<crate::commands::inference::StreamingHandle>,
 ) {
+    // Fires the overlay `done` phase on any exit (success / early return /
+    // error), so the overlay stays through STT + cleanup and only animates out
+    // once the final text has been handled.
+    let _overlay_done = OverlayPhaseGuard(app.clone());
+
     let t0 = std::time::Instant::now();
     let state = app.state::<AppState>();
 
@@ -362,6 +384,14 @@ async fn run_pipeline(
     // use-relative (not load-relative).
     engine.mark_stt_used();
     let t1 = t0.elapsed();
+
+    // Nothing transcribed (silence / accidental tap): don't inject empty text
+    // or record an empty history row. The overlay still dismisses via the
+    // OverlayPhaseGuard on return.
+    if raw_text.trim().is_empty() {
+        tracing::info!("run_pipeline: empty transcript — skipping inject + history");
+        return;
+    }
 
     // Model ids for the history row, derived from the engine's live config.
     // `stt_model` falls back to the default catalog id when unset (matching

@@ -79,3 +79,51 @@ unsafe fn apply_floating_click_through_impl(
 ) -> Result<(), OverlayError> {
     Err(OverlayError::NotSupported)
 }
+
+/// Top inset (in logical points) reserved by the system at the top of the
+/// primary display: the macOS menu bar, whose height already grows to clear
+/// the camera notch on notched Macs. Callers position top-anchored floating
+/// UI (the recording overlay) below this so it is never hidden behind the
+/// notch or menu bar.
+///
+/// Returns `0.0` on platforms without a top system bar (Windows/Linux), and a
+/// conservative fallback if the screen can't be queried.
+#[must_use]
+pub fn primary_top_inset() -> f64 {
+    primary_top_inset_impl()
+}
+
+#[cfg(target_os = "macos")]
+fn primary_top_inset_impl() -> f64 {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::NSScreen;
+
+    // Standard menu bar height; used if the screen query is unavailable (e.g.
+    // called off the main thread). Notched Macs report ~37 via the query.
+    const FALLBACK: f64 = 24.0;
+
+    let Some(mtm) = MainThreadMarker::new() else {
+        return FALLBACK;
+    };
+    let Some(screen) = NSScreen::mainScreen(mtm) else {
+        return FALLBACK;
+    };
+    // `visibleFrame` excludes the menu bar (top) and Dock (bottom). The top
+    // inset is the gap between the full frame's top and the visible top — i.e.
+    // the menu bar, isolated from the Dock regardless of where the Dock sits.
+    let frame = screen.frame();
+    let visible = screen.visibleFrame();
+    let frame_top = frame.origin.y + frame.size.height;
+    let visible_top = visible.origin.y + visible.size.height;
+    let inset = frame_top - visible_top;
+    if inset.is_finite() && inset >= 0.0 {
+        inset
+    } else {
+        FALLBACK
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn primary_top_inset_impl() -> f64 {
+    0.0
+}

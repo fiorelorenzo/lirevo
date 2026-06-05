@@ -148,14 +148,18 @@ fn build_overlay_window(app: &AppHandle) -> Result<(), AppError> {
         .build()
         .map_err(|e| AppError::Internal(format!("overlay build: {e}")))?;
 
-    // Centered horizontally near the top of the primary monitor.
+    // Centered horizontally, just below the system top bar of the primary
+    // monitor. The top inset is the macOS menu bar (which already grows to
+    // clear the camera notch); 0 on platforms without a top bar. Without it the
+    // centered overlay sits behind the notch on notched Macs.
     if let Ok(Some(monitor)) = window.primary_monitor() {
         let mon_size = monitor.size();
         let mon_pos = monitor.position();
         let scale = monitor.scale_factor();
         let logical_w = mon_size.width as f64 / scale;
+        let top_inset = os_integration::overlay::primary_top_inset();
         let x = mon_pos.x as f64 / scale + (logical_w - OVERLAY_W) / 2.0;
-        let y = mon_pos.y as f64 / scale + 12.0; // 12 px from the top
+        let y = mon_pos.y as f64 / scale + top_inset + 8.0;
         let _ = window.set_position(tauri::LogicalPosition::new(x, y));
     }
 
