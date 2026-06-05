@@ -16,7 +16,18 @@ use crate::state::ModelState;
 // `icon_as_template(true)` so macOS auto-tints them per light/dark menu bar.
 // The three Ready variants encode the active energy profile via waveform
 // amplitude. Regenerate with scripts/gen-icons.sh.
-const ICON_LOADING:            &[u8] = include_bytes!("../icons/tray/tray-loading.png");
+// Loading is a 6-frame waveform animation (cycled by `spawn_loading_pulse`),
+// mirroring the in-app logo's loading ripple. Frame 0 is the static icon shown
+// before the animation loop spawns / when idle.
+const ICON_LOADING_FRAMES: [&[u8]; 6] = [
+    include_bytes!("../icons/tray/tray-loading-1.png"),
+    include_bytes!("../icons/tray/tray-loading-2.png"),
+    include_bytes!("../icons/tray/tray-loading-3.png"),
+    include_bytes!("../icons/tray/tray-loading-4.png"),
+    include_bytes!("../icons/tray/tray-loading-5.png"),
+    include_bytes!("../icons/tray/tray-loading-6.png"),
+];
+const ICON_LOADING:            &[u8] = ICON_LOADING_FRAMES[0];
 const ICON_READY_POWER_SAVER:  &[u8] = include_bytes!("../icons/tray/tray-ready-power_saver.png");
 const ICON_READY_BALANCED:     &[u8] = include_bytes!("../icons/tray/tray-ready-balanced.png");
 const ICON_READY_PERFORMANCE:  &[u8] = include_bytes!("../icons/tray/tray-ready-performance.png");
@@ -75,19 +86,24 @@ pub fn install(app: &AppHandle) -> Result<(), AppError> {
         let mut model_rx = state.model_state_tx.subscribe();
         let mut rec_rx = state.recording_state_tx.subscribe();
         let mut was_recording = false;
+        let mut was_loading = false;
         loop {
             let model = model_rx.borrow().clone();
             let recording = *rec_rx.borrow();
             let _ = update_for_state(&app2, &model, recording);
-            // Only spawn the pulse animation on the RISING edge of
-            // `recording`. The previous code spawned a fresh task on every
-            // model-state change while recording — multiple pulse tasks
-            // would then race on `tray.set_icon` and the icon would
-            // sometimes get stuck on a single frame.
+            // Spawn each animation only on the RISING edge of its state, so two
+            // pulse tasks never race on `tray.set_icon` (which would freeze the
+            // icon on a single frame).
             if recording && !was_recording {
                 tauri::async_runtime::spawn(spawn_recording_pulse(app2.clone()));
             }
+            let loading = !recording
+                && matches!(model, ModelState::Loading { .. } | ModelState::Reloading { .. });
+            if loading && !was_loading {
+                tauri::async_runtime::spawn(spawn_loading_pulse(app2.clone()));
+            }
             was_recording = recording;
+            was_loading = loading;
             tokio::select! {
                 _ = model_rx.changed() => {}
                 _ = rec_rx.changed() => {}
@@ -129,6 +145,32 @@ async fn spawn_recording_pulse(app: AppHandle) {
             }
         }
         tokio::time::sleep(Duration::from_millis(800)).await;
+    }
+}
+
+/// Cycle the loading-waveform frames (~150 ms each) while the model is loading
+/// and not recording — the tray's version of the in-app logo's loading ripple.
+/// Stops as soon as loading ends or recording starts.
+async fn spawn_loading_pulse(app: AppHandle) {
+    let mut frame = 0usize;
+    loop {
+        let state = app.state::<AppState>();
+        let recording = *state.recording_state_tx.borrow();
+        let loading = matches!(
+            state.current_model_state(),
+            ModelState::Loading { .. } | ModelState::Reloading { .. }
+        );
+        if recording || !loading {
+            break;
+        }
+        if let Ok(img) = Image::from_bytes(ICON_LOADING_FRAMES[frame]) {
+            if let Some(tray) = TRAY.lock().unwrap().as_ref() {
+                let _ = tray.set_icon(Some(img));
+                let _ = tray.set_icon_as_template(true);
+            }
+        }
+        frame = (frame + 1) % ICON_LOADING_FRAMES.len();
+        tokio::time::sleep(Duration::from_millis(150)).await;
     }
 }
 
@@ -328,9 +370,27 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
         "show-home" => { let _ = crate::commands::windows::open_window_internal(app, "home"); }
         "open-settings" => { let _ = crate::commands::windows::open_window_internal(app, "settings"); }
         "view-logs" => {
-            if let Ok(dir) = app.path().app_log_dir() {
-                use tauri_plugin_opener::OpenerExt;
-                let _ = app.opener().open_path(dir.to_string_lossy().to_string(), None::<&str>);
+            match app.path().app_log_dir() {
+                Ok(dir) => {
+                    // Use the same reliable `open` path the System Settings
+                    // helpers use; the opener plugin call was silently failing.
+                    #[cfg(target_os = "macos")]
+                    {
+                        if let Err(e) = std::process::Command::new("open").arg(&dir).spawn() {
+                            tracing::warn!(?e, dir = %dir.display(), "view-logs: open failed");
+                        }
+                    }
+                    #[cfg(not(target_os = "macos"))]
+                    {
+                        use tauri_plugin_opener::OpenerExt;
+                        if let Err(e) =
+                            app.opener().open_path(dir.to_string_lossy().to_string(), None::<&str>)
+                        {
+                            tracing::warn!(?e, "view-logs: open_path failed");
+                        }
+                    }
+                }
+                Err(e) => tracing::warn!(?e, "view-logs: app_log_dir failed"),
             }
         }
         "check-updates" => {

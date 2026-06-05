@@ -100,8 +100,14 @@ tray_png tray-ready-performance.png "<g>$(bars 4:5 11:9 18:13 25:9 32:5)</g>"
 tray_png tray-recording-1.png "<g>$(bars 4:9 11:4 18:13 25:6 32:10)</g>"
 tray_png tray-recording-2.png "<g>$(bars 4:5 11:11 18:7 25:13 32:4)</g>"
 
-# Loading: a faded medium waveform (indeterminate).
-tray_png tray-loading.png "<g opacity=\"0.45\">$(bars 4:2.5 11:6 18:9 25:6 32:2.5)</g>"
+# Loading: a 6-frame waveform "wave" the tray cycles, matching the in-app
+# logo's loading animation (bars rippling like an audio meter).
+tray_png tray-loading-1.png "<g>$(bars 4:4.5 11:8.3 18:6.9 25:2.1 32:2)</g>"
+tray_png tray-loading-2.png "<g>$(bars 4:8 11:7.5 18:2.9 25:2 32:3.7)</g>"
+tray_png tray-loading-3.png "<g>$(bars 4:8 11:3.7 18:2 25:2.9 32:7.5)</g>"
+tray_png tray-loading-4.png "<g>$(bars 4:4.5 11:2 18:2.1 25:6.9 32:8.3)</g>"
+tray_png tray-loading-5.png "<g>$(bars 4:2 11:2 18:6.1 25:8.5 32:5.3)</g>"
+tray_png tray-loading-6.png "<g>$(bars 4:2 11:5.3 18:8.5 25:6.1 32:2)</g>"
 
 # Error: a clean exclamation glyph.
 tray_png tray-error.png "<rect x=\"16\" y=\"6\" width=\"4\" height=\"15\" rx=\"2\" fill=\"#000\"/><circle cx=\"18\" cy=\"26\" r=\"2.4\" fill=\"#000\"/>"
