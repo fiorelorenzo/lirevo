@@ -1,3 +1,7 @@
+# Auto-load an untracked `.env` (gitignored) for local-only vars such as
+# APPLE_SIGNING_IDENTITY. No-op when the file is absent (CI, fresh clones).
+set dotenv-load := true
+
 default:
     @just --list
 
@@ -12,24 +16,34 @@ dev:
 # Debug .app bundle for testing macOS-permission flows (microphone,
 # accessibility). The bare `just dev` binary cannot trigger TCC prompts;
 # this builds a proper bundle so macOS recognizes the app and shows the
-# permission dialog. Slower than `just dev` (real cargo build + bundling)
-# but the only way to exercise the real permission UX.
+# permission dialog.
 #
 # Output: app/src-tauri/target/aarch64-apple-darwin/debug/bundle/macos/Lirevo.app
 #
-# We `tccutil reset` Accessibility + Microphone before relaunch because
-# the bundle is ad-hoc signed (Tauri's default) — the code-signing
-# identity hash changes every rebuild, so the previous TCC grants point
-# at a stale binary even though the System Settings toggle still reads
-# "on". Without the reset the user sees "permission denied" plus a
-# stale entry in Privacy & Security and has to clean it up by hand.
-# A stable identity needs a Developer ID cert (M0.5).
+# Stable signing for persistent permissions: set APPLE_SIGNING_IDENTITY (in an
+# untracked `.env`, auto-loaded above) to a "Developer ID Application" cert —
+# `security find-identity -v -p codesigning` lists yours. A stable identity
+# keeps the code-signing hash constant across rebuilds, so macOS TCC grants
+# PERSIST: grant mic + Accessibility once and they stick on every rebuild.
+#
+# We build ad-hoc, then re-sign with the identity but WITHOUT hardened runtime:
+# Tauri's identity-sign turns on hardened runtime, which blocks the bundled
+# inference libs (ggml/Metal, whisper, llama, audiopipe/MLX) from loading and
+# the app fails to launch ("Launchd job spawn failed"). Re-signing without it
+# keeps the identity stable (TCC persists) while letting the app run. Without an
+# identity (ad-hoc), the hash changes each build so we wipe the stale grants.
 dev-bundle:
-    cd app && npm install --no-audit --no-fund
-    cd app && npx tauri build --debug --target aarch64-apple-darwin --bundles app
-    -tccutil reset Accessibility ai.lirevo.app
-    -tccutil reset Microphone ai.lirevo.app
-    open app/src-tauri/target/aarch64-apple-darwin/debug/bundle/macos/Lirevo.app
+    #!/usr/bin/env bash
+    set -euo pipefail
+    app="app/src-tauri/target/aarch64-apple-darwin/debug/bundle/macos/Lirevo.app"
+    ( cd app && npm install --no-audit --no-fund && env -u APPLE_SIGNING_IDENTITY npx tauri build --debug --target aarch64-apple-darwin --bundles app )
+    if [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then
+        codesign --force --deep -s "$APPLE_SIGNING_IDENTITY" "$app"
+    else
+        tccutil reset Accessibility ai.lirevo.app || true
+        tccutil reset Microphone ai.lirevo.app || true
+    fi
+    open "$app"
 
 # Release build → .app + .dmg under app/src-tauri/target/aarch64-apple-darwin/release/bundle/
 dmg:

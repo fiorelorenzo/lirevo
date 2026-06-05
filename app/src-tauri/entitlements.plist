@@ -6,5 +6,16 @@
   <string>Lirevo needs microphone access to capture your dictation audio. Audio is processed locally and discarded after each transcription.</string>
   <key>com.apple.security.device.audio-input</key>
   <true/>
+  <!-- Hardened runtime (added when signed with a real identity) enforces
+       library validation + W^X. The bundled inference libraries (ggml/Metal,
+       whisper, llama, audiopipe/MLX) aren't all signed by this Team and JIT
+       Metal shaders at runtime, so allow loading them and using executable
+       memory — otherwise the signed app fails to launch / crashes in Metal. -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
 </dict>
 </plist>
