@@ -350,6 +350,49 @@
                 onCheckedChange={(v) => updateSettings({ launchAtLogin: v })}
               />
             </div>
+            <div class="p-4 flex items-start justify-between gap-4">
+              <div class="min-w-0">
+                <Label>{t('settings.general.smart_mic_routing')}</Label>
+                <p class="text-xs text-muted-foreground mt-1">
+                  {t('settings.general.smart_mic_routing_helper')}
+                </p>
+              </div>
+              <Switch
+                checked={$settings.smartMicRouting}
+                onCheckedChange={(v) => updateSettings({ smartMicRouting: v })}
+              />
+            </div>
+            {#if $settings.smartMicRouting}
+              <div class="p-4 flex items-start justify-between gap-4">
+                <div class="min-w-0">
+                  <Label>{t('settings.general.backup_mic')}</Label>
+                  <p class="text-xs text-muted-foreground mt-1">
+                    {t('settings.general.backup_mic_helper')}
+                  </p>
+                </div>
+                <Select.Root
+                  type="single"
+                  value={$settings.backupInputDevice ?? '__builtin__'}
+                  onValueChange={(v) =>
+                    updateSettings({ backupInputDevice: v === '__builtin__' ? null : (v ?? null) })}
+                  disabled={devices.length === 0}
+                >
+                  <Select.Trigger class="w-56 shrink-0">
+                    <span class="flex-1 min-w-0 truncate text-left">
+                      {$settings.backupInputDevice ?? t('settings.general.backup_mic_auto')}
+                    </span>
+                  </Select.Trigger>
+                  <Select.Content>
+                    <Select.Item value="__builtin__">
+                      {t('settings.general.backup_mic_auto')}
+                    </Select.Item>
+                    {#each devices as d (d.name)}
+                      <Select.Item value={d.name}>{d.name}</Select.Item>
+                    {/each}
+                  </Select.Content>
+                </Select.Root>
+              </div>
+            {/if}
             <div class="p-4 flex items-center justify-between gap-4">
               <div class="min-w-0">
                 <Label>{t('settings.general.record_history')}</Label>

@@ -41,6 +41,18 @@ pub struct Settings {
     pub language: String,
     /// System input device to capture from. `None` = system default.
     pub input_device_name: Option<String>,
+    /// Keep Bluetooth audio in stereo: when audio is playing through a
+    /// Bluetooth output and the dictation mic would be a Bluetooth device,
+    /// dictate with the built-in mic instead so the output stays in A2DP
+    /// stereo (opening a Bluetooth mic forces the whole device to mono HFP).
+    /// Defaults to `true` so existing installs opt in on upgrade.
+    #[serde(default = "default_true")]
+    pub smart_mic_routing: bool,
+    /// Microphone that smart routing falls back to when it reroutes (a Bluetooth
+    /// output is playing and the configured mic is Bluetooth). `None` = auto
+    /// (the built-in mic, the sensible default).
+    #[serde(default)]
+    pub backup_input_device: Option<String>,
     pub force_pasteboard: bool,
     pub paste_delay_ms: u32,
 
@@ -77,6 +89,8 @@ impl Default for Settings {
             hotkey: Hotkey::default(),
             language: default_dictation_language(),
             input_device_name: None,
+            smart_mic_routing: true,
+            backup_input_device: None,
             force_pasteboard: false,
             paste_delay_ms: 120,
             launch_at_login: false,
@@ -270,6 +284,7 @@ mod tests {
         assert!(!s.onboarding_complete);
         assert!(!s.force_pasteboard);
         assert!(s.record_history);
+        assert!(s.smart_mic_routing);
         assert_eq!(s.profile_mode, "auto");
     }
 
@@ -296,6 +311,7 @@ mod tests {
         });
         let s: Settings = serde_json::from_value(legacy).unwrap();
         assert!(s.record_history);
+        assert!(s.smart_mic_routing);
         assert_eq!(s.profile_mode, "auto");
     }
 

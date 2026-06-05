@@ -7,7 +7,7 @@
   import KeyChip from '$lib/components/KeyChip.svelte';
   import { Label } from '$lib/components/ui/label';
   import { Switch } from '$lib/components/ui/switch';
-  import { Rocket } from '@lucide/svelte';
+  import { Rocket, Bluetooth } from '@lucide/svelte';
   import { settings, updateSettings } from '$lib/stores/settings.svelte';
   import type { Hotkey } from '$lib/tauri';
   import { t } from '$lib/i18n';
@@ -36,6 +36,7 @@
   // Local mirrors so toggles feel instant; updateSettings runs on change so
   // persisted state matches the UI even if the user bails via Skip.
   let launchAtLogin = $derived($settings?.launchAtLogin ?? false);
+  let smartMicRouting = $derived($settings?.smartMicRouting ?? true);
 
   async function finish() {
     await updateSettings({ hotkey: selected });
@@ -92,6 +93,21 @@
       <Switch
         checked={launchAtLogin}
         onCheckedChange={(v) => updateSettings({ launchAtLogin: v })}
+      />
+    </div>
+    <div class="p-4 flex items-start justify-between gap-4">
+      <div class="flex items-start gap-3 min-w-0">
+        <Bluetooth class="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+        <div class="min-w-0">
+          <Label>{t('wizard.general.smart_mic_routing')}</Label>
+          <p class="text-xs text-muted-foreground mt-1">
+            {t('wizard.general.smart_mic_routing_helper')}
+          </p>
+        </div>
+      </div>
+      <Switch
+        checked={smartMicRouting}
+        onCheckedChange={(v) => updateSettings({ smartMicRouting: v })}
       />
     </div>
   </div>

@@ -144,6 +144,18 @@
             <AppWindow class="h-3 w-3" />{detail.targetApp}
           </span>
         {/if}
+        {#if detail.inputDevice}
+          <span class="inline-flex items-center gap-1">
+            <Mic class="h-3 w-3" />{detail.inputDevice}
+          </span>
+        {/if}
+        {#if detail.smartRoutingApplied}
+          <span
+            class="inline-flex items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-primary leading-none"
+          >
+            smart mic
+          </span>
+        {/if}
         <span class="inline-flex items-center gap-1 tabular-nums">
           inject {formatMs(detail.injectMs)}
         </span>

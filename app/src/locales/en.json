@@ -114,7 +114,9 @@
     "general": {
       "title": "Finish setup",
       "body": "Pick your push-to-talk key and decide how Lirevo lives on your Mac.",
-      "hotkey_label": "Push-to-talk key"
+      "hotkey_label": "Push-to-talk key",
+      "smart_mic_routing": "Smart Microphone",
+      "smart_mic_routing_helper": "When something is playing through Bluetooth headphones (e.g. AirPods), dictate with your backup mic so the audio stays in stereo."
     },
     "cleanup": {
       "title": "Cleanup model (optional)",
@@ -163,6 +165,11 @@
       "launch_at_login": "Launch at login",
       "record_history": "Record dictation history",
       "record_history_helper": "Keep a local history of your dictations on this device.",
+      "smart_mic_routing": "Smart Microphone",
+      "smart_mic_routing_helper": "When something is playing through Bluetooth headphones (e.g. AirPods), dictate with your backup mic so the audio stays in stereo.",
+      "backup_mic": "Backup microphone",
+      "backup_mic_helper": "Which mic to dictate with when smart routing kicks in.",
+      "backup_mic_auto": "Built-in microphone (auto)",
       "energy": "Energy",
       "energy_helper": "Auto adapts to system load. Pinning a profile overrides it, except when low battery or thermal pressure forces Power Saver.",
       "energy_auto": "Auto",

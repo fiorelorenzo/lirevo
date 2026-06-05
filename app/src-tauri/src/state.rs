@@ -27,6 +27,19 @@ pub enum ModelState {
 /// from many tasks without re-loading weights per call.
 pub type SttSlot = Arc<AsyncMutex<SttModelHandle>>;
 
+/// Per-dictation recording metadata, captured at `handle_down` time so the
+/// history-insert in `run_pipeline` can record which input device was actually
+/// used and whether smart Bluetooth routing kicked in.
+#[derive(Clone, Debug)]
+pub struct RecordingMeta {
+    /// Human-readable label of the input device actually opened.
+    pub input_device: String,
+    /// Whether the smart-mic-routing setting was enabled for this dictation.
+    pub smart_routing_enabled: bool,
+    /// Whether smart routing actually rerouted away from the configured mic.
+    pub smart_routing_applied: bool,
+}
+
 pub struct AppStateInner {
     pub settings: Settings,
     /// Unified model lifecycle owner: lazy-loads + resource-aware-unloads the
@@ -34,6 +47,9 @@ pub struct AppStateInner {
     /// fields. See `crate::engine`.
     pub engine: Arc<crate::engine::Engine>,
     pub recorder: Option<Recorder>,
+    /// Metadata for the in-flight recording, set alongside `recorder` in
+    /// `handle_down` and read by `run_pipeline` for the history row.
+    pub recording_meta: Option<RecordingMeta>,
     pub injector: Injector,
     pub current_load_token: u64,
     /// Live streaming worker for the in-flight dictation, if any. Installed
@@ -88,6 +104,7 @@ impl AppState {
                 settings,
                 engine,
                 recorder: None,
+                recording_meta: None,
                 injector,
                 current_load_token: 0,
                 streaming: None,

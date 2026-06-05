@@ -18,6 +18,8 @@ export interface Settings {
   hotkey: Hotkey;
   language: string;
   inputDeviceName: string | null;
+  smartMicRouting: boolean;
+  backupInputDevice: string | null;
   forcePasteboard: boolean;
   pasteDelayMs: number;
   launchAtLogin: boolean;
@@ -158,6 +160,9 @@ export interface Dictation {
   totalMs: number;
   targetApp: string | null;
   targetBundle: string | null;
+  inputDevice: string | null;
+  smartRoutingEnabled: boolean | null;
+  smartRoutingApplied: boolean | null;
 }
 
 export const lda = {

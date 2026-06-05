@@ -11,9 +11,13 @@
 mod device;
 mod recorder;
 mod resample;
+mod smart_input;
 
 pub use device::{list_inputs, InputDeviceInfo};
 pub use recorder::{Recorder, RecorderConfig, Recording};
+pub use smart_input::{
+    builtin_input_name, choose_input_device, input_is_bluetooth, output_is_active, InputChoice,
+};
 
 use thiserror::Error;
 
