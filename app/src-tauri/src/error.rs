@@ -24,8 +24,8 @@ pub enum AppError {
     Internal(String),
 }
 
-impl From<audiopipe::Error> for AppError {
-    fn from(e: audiopipe::Error) -> Self {
+impl From<crate::stt::SttError> for AppError {
+    fn from(e: crate::stt::SttError) -> Self {
         AppError::Inference(e.to_string())
     }
 }
