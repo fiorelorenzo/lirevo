@@ -31,8 +31,6 @@ struct Cli {
     #[arg(long, default_value = "auto")]
     language: String,
     #[arg(long)]
-    force_pasteboard: bool,
-    #[arg(long)]
     paste_delay_ms: Option<u64>,
 }
 
@@ -287,11 +285,7 @@ async fn run_hotkey_loop(cli: Cli, socket: PathBuf) -> ExitCode {
         }
     };
 
-    let injector = Arc::new(if cli.force_pasteboard {
-        Injector::with_force_pasteboard(true)
-    } else {
-        Injector::new()
-    });
+    let injector = Arc::new(Injector::new());
 
     eprintln!("lirevo-prototype ready. Hold {hotkey:?} to dictate. Ctrl+C to quit.");
 

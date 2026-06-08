@@ -67,7 +67,6 @@ impl HotkeyListener {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InjectionMethod {
-    Accessibility,
     Pasteboard,
 }
 
@@ -85,11 +84,6 @@ pub struct Injector;
 impl Injector {
     #[must_use]
     pub fn new() -> Self {
-        Self
-    }
-
-    #[must_use]
-    pub fn with_force_pasteboard(_force_pasteboard: bool) -> Self {
         Self
     }
 

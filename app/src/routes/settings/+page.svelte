@@ -352,16 +352,6 @@
             {t('settings.general.injection_section')}
           </h2>
           <div class="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden">
-            <div class="p-4 flex items-start justify-between gap-4">
-              <div class="min-w-0">
-                <Label>{t('settings.general.force_pasteboard')}</Label>
-                <p class="text-xs text-muted-foreground mt-1">{t('settings.general.force_pasteboard_helper')}</p>
-              </div>
-              <Switch
-                checked={$settings.forcePasteboard}
-                onCheckedChange={(v) => updateSettings({ forcePasteboard: v })}
-              />
-            </div>
             <div class="p-4 space-y-3">
               <div class="flex items-center justify-between gap-4">
                 <Label>{t('settings.general.paste_delay_ms')}</Label>

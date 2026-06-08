@@ -53,7 +53,6 @@ pub struct Settings {
     /// (the built-in mic, the sensible default).
     #[serde(default)]
     pub backup_input_device: Option<String>,
-    pub force_pasteboard: bool,
     pub paste_delay_ms: u32,
 
     pub launch_at_login: bool,
@@ -95,7 +94,6 @@ impl Default for Settings {
             input_device_name: None,
             smart_mic_routing: true,
             backup_input_device: None,
-            force_pasteboard: false,
             paste_delay_ms: 120,
             launch_at_login: false,
             start_minimized: false,
@@ -296,7 +294,6 @@ mod tests {
         assert_eq!(s.llm_ctx_size, 4096);
         assert_eq!(s.paste_delay_ms, 120);
         assert!(!s.onboarding_complete);
-        assert!(!s.force_pasteboard);
         assert!(s.record_history);
         assert!(s.smart_mic_routing);
         assert_eq!(s.profile_mode, "auto");

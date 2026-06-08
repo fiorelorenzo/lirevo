@@ -333,12 +333,11 @@ async fn run_pipeline(
 
     // Snapshot what we need; release the lock before any heavy work so we
     // never hold the std::sync::Mutex across an await.
-    let (engine, language, force_pasteboard, record_history, recording_meta) = {
+    let (engine, language, record_history, recording_meta) = {
         let inner = state.inner.lock().unwrap();
         (
             inner.engine.clone(),
             inner.settings.language.clone(),
-            inner.settings.force_pasteboard,
             inner.settings.record_history,
             inner.recording_meta.clone(),
         )
@@ -488,12 +487,7 @@ async fn run_pipeline(
     };
 
     // 3. Inject (graceful degrade to clipboard).
-    let injector = if force_pasteboard {
-        os_integration::Injector::with_force_pasteboard(true)
-    } else {
-        os_integration::Injector::new()
-    };
-    match injector.inject(&cleaned) {
+    match os_integration::Injector::new().inject(&cleaned) {
         Ok(method) => {
             let t3 = t0.elapsed();
             tracing::info!(

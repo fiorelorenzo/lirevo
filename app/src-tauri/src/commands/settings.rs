@@ -43,9 +43,6 @@ pub async fn update_settings(
     if before.hotkey != after.hotkey {
         crate::hotkey::reinstall(&app, after.hotkey)?;
     }
-    if before.force_pasteboard != after.force_pasteboard {
-        state.rebuild_injector(after.force_pasteboard);
-    }
     if before.paste_delay_ms != after.paste_delay_ms {
         apply_paste_delay(after.paste_delay_ms);
     }

@@ -41,7 +41,6 @@ describe('startSettingsSync', () => {
       inputDeviceName: null,
       smartMicRouting: true,
       backupInputDevice: null,
-      forcePasteboard: false,
       pasteDelayMs: 120,
       launchAtLogin: false,
       startMinimized: false,
