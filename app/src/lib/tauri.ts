@@ -23,6 +23,7 @@ export interface Settings {
   forcePasteboard: boolean;
   pasteDelayMs: number;
   launchAtLogin: boolean;
+  startMinimized: boolean;
   recordHistory: boolean;
   profileMode: string;
   uiLanguage: string;

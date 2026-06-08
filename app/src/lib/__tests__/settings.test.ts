@@ -44,6 +44,7 @@ describe('startSettingsSync', () => {
       forcePasteboard: false,
       pasteDelayMs: 120,
       launchAtLogin: false,
+      startMinimized: false,
       recordHistory: true,
       profileMode: 'auto',
       uiLanguage: 'en',

@@ -395,6 +395,18 @@
             </div>
             <div class="p-4 flex items-center justify-between gap-4">
               <div class="min-w-0">
+                <Label>{t('settings.general.start_minimized')}</Label>
+                <p class="text-xs text-muted-foreground mt-1">
+                  {t('settings.general.start_minimized_helper')}
+                </p>
+              </div>
+              <Switch
+                checked={$settings.startMinimized}
+                onCheckedChange={(v) => updateSettings({ startMinimized: v })}
+              />
+            </div>
+            <div class="p-4 flex items-center justify-between gap-4">
+              <div class="min-w-0">
                 <Label>{t('settings.general.record_history')}</Label>
                 <p class="text-xs text-muted-foreground mt-1">
                   {t('settings.general.record_history_helper')}
