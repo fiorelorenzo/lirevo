@@ -9,10 +9,10 @@
 //!     or [`LoadOutcome::NeedsDownload`] when the GGUF isn't on disk yet.
 
 mod types;
-pub use types::{PartialTranscript, SttError, SttOptions, Transcript};
+pub use types::{SttError, SttOptions, Transcript};
 
 pub mod catalog;
-pub use catalog::{STT_GGUF_FILENAME, STT_HF_REPO};
+pub use catalog::STT_GGUF_FILENAME;
 
 #[cfg(any(test, feature = "test-stt"))]
 pub mod mock;

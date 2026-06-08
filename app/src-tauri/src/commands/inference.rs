@@ -4,8 +4,10 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::{mpsc, oneshot};
 
-use audiopipe::{PartialTranscript, TranscribeOptions};
 use inference_core::ChatRequest;
+use parakeet_cpp::common_prefix_len;
+
+use crate::stt::SttOptions;
 
 use crate::state::{ModelState, SttSlot};
 use crate::stt;
@@ -20,9 +22,7 @@ const MAX_CLEAN_TEXT_BYTES: usize = 100 * 1024;
 
 /// WAV-bytes-in / text-out command used by the renderer for manual dictation
 /// and by `commands::dictation::manual_dictate`. Decodes the WAV to 16 kHz
-/// mono f32 on the audio worker (which audiopipe owns internally — we just
-/// hand the file off via the raw-sample-rate path) and runs audiopipe
-/// inference on the blocking pool.
+/// mono f32 and runs STT inference on the blocking pool.
 #[tauri::command]
 pub async fn transcribe(
     state: State<'_, AppState>,
@@ -52,11 +52,7 @@ pub async fn transcribe(
         let (samples, sample_rate) = decode_wav_to_mono_f32(&wav)?;
         let mut guard = stt_slot.blocking_lock();
         let result = guard
-            .transcribe(
-                &samples,
-                sample_rate,
-                TranscribeOptions { language: lang_opt, word_timestamps: false },
-            )
+            .transcribe(&samples, sample_rate, &SttOptions { language: lang_opt })
             .map_err(AppError::from)?;
         Ok(result.text.trim().to_string())
     })
@@ -382,7 +378,7 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
     state.set_model_state(app, next);
 
     // Register the macOS shutdown-safety atexit handler now that GPU
-    // backends (Metal via audiopipe / llama-cpp-2, plus CoreML when
+    // backends (Metal via parakeet-cpp / llama-cpp-2, plus CoreML when
     // enabled) may have been touched. This must happen AFTER the loads
     // above so our atexit is registered later than ggml's `__cxa_atexit`
     // and therefore runs earlier in the LIFO finalize order — see
@@ -435,7 +431,7 @@ pub(crate) async fn warm_up(engine: &Arc<crate::engine::Engine>) {
     match engine.ensure_stt().await {
         Ok(Some(slot)) => {
             // 1 second of silence at 16 kHz mono — long enough for any of
-            // the audiopipe backends to exercise their full encode/decode
+            // the STT backend to exercise its full encode/decode
             // path without producing real text.
             let warm = tokio::task::spawn_blocking(move || {
                 let silence = vec![0.0_f32; 16_000];
@@ -445,10 +441,7 @@ pub(crate) async fn warm_up(engine: &Arc<crate::engine::Engine>) {
                 match guard.transcribe(
                     &silence,
                     16_000,
-                    TranscribeOptions {
-                        language: Some("en".to_string()),
-                        word_timestamps: false,
-                    },
+                    &SttOptions { language: Some("en".to_string()) },
                 ) {
                     Ok(_) => tracing::info!(elapsed_ms = elapsed_ms(), "STT warm-up completed"),
                     Err(e) => {
@@ -482,7 +475,7 @@ pub(crate) async fn warm_up(engine: &Arc<crate::engine::Engine>) {
 }
 
 /// Hot-path entry used by the hotkey pipeline: lock the slot, run
-/// audiopipe inference on the blocking pool, return trimmed text.
+/// STT inference on the blocking pool, return trimmed text.
 ///
 /// The recorder already produces 16 kHz mono f32, so the caller passes
 /// `samples` directly without a WAV round-trip. The lock is held for the
@@ -498,11 +491,7 @@ pub async fn transcribe_samples_async(
     tokio::task::spawn_blocking(move || -> Result<String, AppError> {
         let mut guard = slot.blocking_lock();
         let result = guard
-            .transcribe(
-                &samples,
-                16_000,
-                TranscribeOptions { language, word_timestamps: false },
-            )
+            .transcribe(&samples, 16_000, &SttOptions { language })
             .map_err(AppError::from)?;
         Ok(result.text.trim().to_string())
     })
@@ -518,16 +507,15 @@ pub async fn transcribe_samples_async(
 /// `result_rx` resolves to:
 ///   * `Some(text)` — streaming produced a full transcript (skip the
 ///     one-shot stage).
-///   * `None`      — engine returned `Error::NotSupported`, the session
-///     errored mid-stream, or the loader couldn't acquire the slot;
-///     caller should fall back to the one-shot transcribe path.
+///   * `None`      — the worker errored mid-stream or the driver dropped
+///     early; caller should fall back to the one-shot transcribe path.
 pub struct StreamingHandle {
     pub stop_tx: oneshot::Sender<Vec<f32>>,
     pub result_rx: oneshot::Receiver<Option<String>>,
 }
 
-/// Cadence of the streaming push loop. Each tick: peek the recorder for
-/// new 16 kHz samples, push them into the audiopipe session, emit a
+/// Cadence of the pseudo-streaming loop. Each tick: peek the recorder for
+/// new 16 kHz samples, append to buffer, re-transcribe, emit a
 /// partial-transcript event.
 const STREAM_TICK: Duration = Duration::from_millis(400);
 
@@ -544,20 +532,8 @@ struct PartialTranscriptEvent {
 }
 
 impl PartialTranscriptEvent {
-    fn from_partial(p: &PartialTranscript) -> Self {
-        Self {
-            text: p.text.clone(),
-            delta: p.delta.clone(),
-            is_final: p.is_final,
-        }
-    }
-
     fn final_text(text: &str) -> Self {
-        Self {
-            text: text.to_string(),
-            delta: String::new(),
-            is_final: true,
-        }
+        Self { text: text.to_string(), delta: String::new(), is_final: true }
     }
 }
 
@@ -575,18 +551,17 @@ fn peek_recorder_tail(
 
 /// Spawn the live streaming worker for the current dictation.
 ///
-/// The worker opens an audiopipe `StreamSession` (graceful degrade on
-/// `NotSupported`), then loops every [`STREAM_TICK`]: peek the recorder
-/// for new 16 kHz samples, push them into the session, emit a
-/// `recording:partial_transcript` Tauri event. When `handle_up` sends
-/// the authoritative final samples on `stop_tx`, the worker pushes the
-/// remaining tail, calls `session.finish()`, emits one `is_final` event,
-/// and resolves `result_rx` with the cumulative text.
+/// The worker loops every [`STREAM_TICK`]: peek the recorder for new 16 kHz
+/// samples, append them to a growing buffer, re-transcribe the full buffer,
+/// compute an LCP delta against the previous text, and emit a
+/// `recording:partial_transcript` Tauri event. When `handle_up` sends the
+/// authoritative final samples on `stop_tx`, the worker transcribes them
+/// wholesale as the definitive result, emits one `is_final` event, and
+/// resolves `result_rx` with the trimmed text.
 ///
-/// Concurrency: the worker runs on `tokio::task::spawn_blocking` and
-/// holds the STT slot's `blocking_lock` for the entire dictation —
-/// matching the existing one-shot lock-for-duration pattern. Each
-/// `session.push` is synchronous and runs in the same blocking thread.
+/// Concurrency: the worker runs on `tokio::task::spawn_blocking` and holds
+/// the STT slot's `blocking_lock` for the entire dictation — matching the
+/// existing one-shot lock-for-duration pattern.
 pub fn spawn_streaming_session(
     app: AppHandle,
     slot: SttSlot,
@@ -647,77 +622,56 @@ fn run_streaming_worker(
 ) {
     let state = app.state::<AppState>();
     let mut guard = slot.blocking_lock();
-    let opts = TranscribeOptions { language, word_timestamps: false };
+    let opts = SttOptions { language };
 
-    let mut session = match guard.transcribe_stream(16_000, opts) {
-        Ok(s) => s,
-        Err(audiopipe::Error::NotSupported) => {
-            tracing::info!(
-                "streaming worker: engine reports NotSupported — falling back to one-shot path"
-            );
-            let _ = result_tx.send(None);
-            return;
-        }
-        Err(e) => {
-            tracing::warn!(?e, "streaming worker: transcribe_stream open failed");
-            let _ = result_tx.send(None);
-            return;
-        }
-    };
-
+    // Pseudo-streaming: accumulate new samples into a growing buffer and
+    // re-transcribe the whole buffer each tick, diffing against the last text.
+    let mut buffer: Vec<f32> = Vec::new();
     let mut cursor: usize = 0;
     let mut last_text = String::new();
-    let mut had_error = false;
 
     while let Some(event) = tick_rx.blocking_recv() {
         match event {
             TickEvent::Tick => {
                 let Some((tail, new_cursor)) = peek_recorder_tail(&state, cursor) else {
-                    // Recorder gone (handle_up already took it) — wait for
-                    // the Stop event to arrive with the final samples.
                     continue;
                 };
                 cursor = new_cursor;
                 if tail.is_empty() {
                     continue;
                 }
-                match session.push(&tail) {
-                    Ok(partial) => {
-                        last_text = partial.text.clone();
+                buffer.extend_from_slice(&tail);
+                match guard.transcribe(&buffer, 16_000, &opts) {
+                    Ok(t) => {
+                        let n = common_prefix_len(&last_text, &t.text);
+                        let delta = t.text[n..].to_string();
+                        last_text = t.text.clone();
                         let _ = app.emit(
                             PARTIAL_TRANSCRIPT_EVENT,
-                            PartialTranscriptEvent::from_partial(&partial),
+                            PartialTranscriptEvent { text: t.text, delta, is_final: false },
                         );
                     }
                     Err(e) => {
-                        tracing::warn!(?e, "streaming worker: session.push failed");
-                        // Bail to the fallback path below; the caller will
-                        // run the one-shot transcribe instead.
+                        tracing::warn!(?e, "streaming worker: transcribe failed");
                         break;
                     }
                 }
             }
             TickEvent::Stop(final_samples) => {
-                let tail_start = cursor.min(final_samples.len());
-                let tail = &final_samples[tail_start..];
-                if !tail.is_empty() {
-                    if let Err(e) = session.push(tail) {
-                        tracing::warn!(?e, "streaming worker: final session.push failed");
-                        had_error = true;
-                    }
-                }
-                match session.finish() {
-                    Ok(result) => {
-                        let text = result.text.trim().to_string();
+                // `final_samples` from handle_up is the authoritative full
+                // recording. Transcribe it wholesale for the final result.
+                match guard.transcribe(&final_samples, 16_000, &opts) {
+                    Ok(t) => {
+                        let text = t.text.trim().to_string();
                         let _ = app.emit(
                             PARTIAL_TRANSCRIPT_EVENT,
                             PartialTranscriptEvent::final_text(&text),
                         );
-                        let _ = result_tx.send(if had_error { None } else { Some(text) });
+                        let _ = result_tx.send(Some(text));
                         return;
                     }
                     Err(e) => {
-                        tracing::warn!(?e, "streaming worker: session.finish failed");
+                        tracing::warn!(?e, "streaming worker: final transcribe failed");
                         let _ = result_tx.send(None);
                         return;
                     }
@@ -726,8 +680,7 @@ fn run_streaming_worker(
         }
     }
 
-    // Channel closed without a Stop event (driver task dropped early).
-    // Emit a final event with whatever cumulative text we have and bail.
+    // Channel closed without a Stop (driver dropped early): emit final-from-last.
     let _ = app.emit(
         PARTIAL_TRANSCRIPT_EVENT,
         PartialTranscriptEvent::final_text(&last_text),
@@ -735,8 +688,8 @@ fn run_streaming_worker(
     let _ = result_tx.send(None);
 }
 
-/// Coerce a frontend-supplied language string into the `Option<String>`
-/// audiopipe expects (`None` = auto-detect). Empty string and the sentinel
+/// Coerce a frontend-supplied language string into `Option<String>` for
+/// `SttOptions` (`None` = auto-detect). Empty string and the sentinel
 /// `"auto"` both map to auto-detect; everything else passes through.
 fn normalize_language(lang: Option<String>) -> Option<String> {
     match lang {
@@ -746,8 +699,8 @@ fn normalize_language(lang: Option<String>) -> Option<String> {
 }
 
 /// Decode a WAV byte slice into `(mono_f32_samples, sample_rate_hz)`.
-/// audiopipe resamples internally via `transcribe_with_sample_rate`, so we
-/// only need to surface the source rate and mono-mix any stereo input.
+/// The STT backend expects 16 kHz mono f32; WAV files at other rates are
+/// decoded here and the source rate is surfaced to the transcribe call.
 #[allow(clippy::cast_precision_loss)]
 fn decode_wav_to_mono_f32(bytes: &[u8]) -> Result<(Vec<f32>, u32), AppError> {
     use hound::SampleFormat;
