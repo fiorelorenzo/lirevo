@@ -261,7 +261,7 @@ impl Settings {
             // M4: introduce `stt_model_id`. We deliberately leave it `None`
             // for users with a pre-M4 `whisper_model_path` configured — the
             // wizard's new model picker (see M4 plan Phase 4) is the right
-            // place to ask which audiopipe model they want, rather than
+            // place to ask which STT model they want, rather than
             // silently mapping their old ggml path to a different model.
             // `None` means "use the catalog default" at load time.
             if self.stt_model_id.is_none() {

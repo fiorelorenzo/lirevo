@@ -22,9 +22,9 @@ pub enum ModelState {
 }
 
 /// The STT model is held behind a `tokio::sync::Mutex` because
-/// `audiopipe::Model::transcribe_with_sample_rate` takes `&mut self` — a
-/// single shared handle plus this mutex lets the dictation pipeline run
-/// from many tasks without re-loading weights per call.
+/// `parakeet_cpp::Model::transcribe` takes `&mut self` — a single shared
+/// handle plus this mutex lets the dictation pipeline run from many tasks
+/// without re-loading weights per call.
 pub type SttSlot = Arc<AsyncMutex<SttModelHandle>>;
 
 /// Per-dictation recording metadata, captured at `handle_down` time so the

@@ -8,10 +8,8 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 
 use inference_core::backend::LlmBackendHandle;
-use inference_core::stt::{AudiopipeEngine, SttEngineHandle, StubEngine};
+use inference_core::stt::{SttEngineHandle, StubEngine};
 use inference_core::{llama, server, stub_llm};
-
-const DEFAULT_STT_MODEL_NAME: &str = "parakeet-tdt-0.6b-v3";
 
 fn socket_path_from_env() -> Result<PathBuf> {
     let path = env::var("SIDECAR_SOCKET_PATH")
@@ -22,36 +20,16 @@ fn socket_path_from_env() -> Result<PathBuf> {
 /// Picks the STT backend at startup based on env.
 ///
 /// `SIDECAR_STT_BACKEND` selects the lane:
-///   * unset → no STT loaded (`/v1/stt` returns 503). Mirrors the pre-M4
-///     behaviour where the sidecar started fast unless an explicit STT
-///     was configured; keeps test harnesses that only exercise `/v1/chat`
-///     or `/healthz` from waiting on a Hugging Face download.
-///   * `"stub"` → canned-text [`StubEngine`] for smoke tests.
-///   * `"audiopipe"` → loads [`AudiopipeEngine`] with the model name
-///     from `SIDECAR_STT_MODEL_NAME` (defaulting to
-///     [`DEFAULT_STT_MODEL_NAME`]). May block on a HF download the first
-///     time a given model name is loaded.
-fn load_stt_backend() -> Option<SttEngineHandle> {
-    let Ok(kind) = env::var("SIDECAR_STT_BACKEND") else {
-        tracing::info!("SIDECAR_STT_BACKEND not set; STT disabled (/v1/stt → 503)");
-        return None;
-    };
+///   * unset or `"stub"` → canned-text [`StubEngine`] for smoke tests and CI
+///     (the sidecar is stub-only; real STT runs in the Tauri host).
+///   * Any other value → logged as unknown; resolves to [`StubEngine`].
+fn load_stt_backend() -> SttEngineHandle {
+    let kind = env::var("SIDECAR_STT_BACKEND").unwrap_or_else(|_| "stub".to_string());
     match kind.as_str() {
-        "stub" => Some(Arc::new(StubEngine::new()) as SttEngineHandle),
-        "audiopipe" => {
-            let model_name = env::var("SIDECAR_STT_MODEL_NAME")
-                .unwrap_or_else(|_| DEFAULT_STT_MODEL_NAME.to_string());
-            match AudiopipeEngine::from_pretrained(&model_name) {
-                Ok(b) => Some(Arc::new(b) as SttEngineHandle),
-                Err(e) => {
-                    tracing::error!(error = ?e, model = %model_name, "audiopipe load failed; STT disabled");
-                    None
-                }
-            }
-        }
+        "stub" => Arc::new(StubEngine::new()) as SttEngineHandle,
         other => {
-            tracing::warn!(backend = %other, "unknown SIDECAR_STT_BACKEND, ignoring");
-            None
+            tracing::warn!(backend = %other, "unknown SIDECAR_STT_BACKEND; falling back to stub");
+            Arc::new(StubEngine::new()) as SttEngineHandle
         }
     }
 }
@@ -100,7 +78,7 @@ async fn main() -> Result<()> {
         .init();
 
     let socket_path = socket_path_from_env()?;
-    let stt = load_stt_backend();
+    let stt = Some(load_stt_backend());
     let llm = load_llm_backend();
     server::run(socket_path, stt, llm).await
 }

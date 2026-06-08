@@ -146,9 +146,9 @@ async fn stt(
         .into_response();
     };
 
-    // Audio decode is CPU-bound: run on the blocking pool. audiopipe owns
-    // the resample to 16 kHz internally, so we only mono-mix + extract the
-    // source rate here.
+    // Audio decode is CPU-bound: run on the blocking pool. We only mono-mix
+    // + extract the source rate here; the in-process STT backend owns the
+    // resample step.
     let body_vec = body.to_vec();
     let (samples, sample_rate) =
         match tokio::task::spawn_blocking(move || audio::decode_wav(&body_vec)).await {
@@ -169,7 +169,7 @@ async fn stt(
         language: q.language,
         want_segments: q.segments,
     };
-    let _ = q.translate; // translate flag is no longer supported by audiopipe
+    let _ = q.translate; // translate flag is not supported by the STT engine
     match stt_handle.transcribe(samples, sample_rate, opts).await {
         Ok(transcript) => WireResponse::ok(wire, transcript).into_response(),
         Err(e) => stt_error_to_response(wire, &e).into_response(),
@@ -182,7 +182,7 @@ fn stt_error_to_response(wire: Wire, err: &SttError) -> WireResponse<ErrorBody> 
         SttError::AudioUnsupported(_) => (StatusCode::BAD_REQUEST, "unsupported_audio"),
         SttError::ModelNotLoaded => (StatusCode::SERVICE_UNAVAILABLE, "stt_unavailable"),
         SttError::Busy => (StatusCode::SERVICE_UNAVAILABLE, "busy"),
-        SttError::Audiopipe(_) | SttError::Internal(_) => {
+        SttError::Backend(_) | SttError::Internal(_) => {
             (StatusCode::INTERNAL_SERVER_ERROR, "internal")
         }
     };

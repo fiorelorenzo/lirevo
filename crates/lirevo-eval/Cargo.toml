@@ -29,9 +29,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 ort = "2.0.0-rc.12"
 tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
 # Pinned to match the `ndarray` that `ort 2.0.0-rc.12`'s
-# `TensorRef::from_array_view` impl expects. inference-core's audiopipe dep
-# pulls ort with `ndarray` 0.17 transitively; a mismatched major here would
-# fail the `TensorArrayData` trait bound in the embedding scoring code.
+# `TensorRef::from_array_view` impl expects; a mismatched major would fail
+# the `TensorArrayData` trait bound in the embedding scoring code.
 ndarray = "0.17"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking"] }
 sha2 = "0.10"

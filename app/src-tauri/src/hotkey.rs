@@ -307,7 +307,7 @@ impl Drop for OverlayPhaseGuard {
 /// Full STT → cleanup → inject pipeline.
 ///
 /// Stages:
-///   1. audiopipe STT (blocking → `spawn_blocking`).
+///   1. parakeet-cpp STT (blocking → `spawn_blocking`).
 ///   2. LLM cleanup (blocking → `spawn_blocking`); graceful degrade to raw
 ///      transcript if the llama backend is missing or fails.
 ///   3. Text injection (AX → pasteboard fallback inside `Injector`); on hard
