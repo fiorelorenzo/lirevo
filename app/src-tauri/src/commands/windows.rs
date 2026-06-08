@@ -18,12 +18,14 @@ pub async fn complete_wizard(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), AppError> {
-    let hotkey = {
+    let (hotkey, settings_snapshot) = {
         let mut inner = state.inner.lock().unwrap();
         inner.settings.onboarding_complete = true;
         inner.settings.persist(&app)?;
-        inner.settings.hotkey
+        (inner.settings.hotkey, inner.settings.clone())
     };
+    use tauri::Emitter;
+    let _ = app.emit("settings:updated", &settings_snapshot);
     // Re-install the hotkey listener now that Accessibility has presumably
     // been granted during the wizard. The initial install at startup may
     // have failed silently if the permission was revoked or not-yet-given.
