@@ -19,6 +19,9 @@ pub fn stt_gguf_url() -> String {
     format!("https://huggingface.co/{STT_HF_REPO}/resolve/main/{STT_GGUF_FILENAME}")
 }
 
+// Additional variants (Global30, Multilingual99) are present for future
+// catalog entries; the single current model uses European25.
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum LanguageCoverage {

@@ -16,6 +16,9 @@ pub struct Transcript {
 }
 
 /// One incremental update emitted by the live (pseudo-)streaming worker.
+// Fields are consumed by the overlay channel receiver; the compiler sees
+// them as dead because the struct crosses a channel boundary.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Default)]
 pub struct PartialTranscript {
     /// Full cumulative transcript so far.

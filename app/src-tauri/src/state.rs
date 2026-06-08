@@ -77,7 +77,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(settings: Settings, db: Arc<crate::db::Db>) -> Self {
+    pub fn new(settings: Settings, db: Arc<crate::db::Db>, models_dir: std::path::PathBuf) -> Self {
         let injector = if settings.force_pasteboard {
             Injector::with_force_pasteboard(true)
         } else {
@@ -97,6 +97,7 @@ impl AppState {
                 stt_model_id: settings.stt_model_id.clone(),
             },
             inference_core::profile::ProfileName::Balanced,
+            models_dir,
         );
 
         Self {

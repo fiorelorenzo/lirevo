@@ -116,7 +116,9 @@ pub fn run() {
             let data_dir = paths::data_dir(app.handle())?;
             std::fs::create_dir_all(&data_dir).ok();
             let db = std::sync::Arc::new(crate::db::Db::open_or_memory(&data_dir.join("data.db")));
-            let app_state = AppState::new(settings, db);
+            let models_dir = crate::models::models_dir(app.handle())
+                .map_err(|e| Box::<dyn std::error::Error>::from(e.to_string()))?;
+            let app_state = AppState::new(settings, db, models_dir);
             app.manage(app_state);
 
             crate::models::init_active_downloads();

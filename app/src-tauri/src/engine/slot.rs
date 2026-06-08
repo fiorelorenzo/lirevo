@@ -9,7 +9,6 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use inference_core::profile::SttPrecision;
 use inference_core::LlamaBackend;
 
 use crate::state::SttSlot;
@@ -45,7 +44,6 @@ pub enum SttSlotState {
     Loaded {
         slot: SttSlot,
         last_use: Instant,
-        precision: SttPrecision,
     },
 }
 
@@ -54,13 +52,11 @@ pub enum SttSlotState {
 pub enum SlotSnapshot {
     Unloaded,
     Loading,
-    /// Loaded since this `last_use`. `loaded_n_threads` is `None` for STT
-    /// (threads are not a tunable for the STT backend in v0.6);
-    /// `loaded_stt_precision` is `None` for the LLM.
+    /// Loaded since this `last_use`. `loaded_n_threads` is `None` for the STT
+    /// slot (threads are not a tunable for the GGUF STT backend).
     Loaded {
         last_use: Instant,
         loaded_n_threads: Option<i32>,
-        loaded_stt_precision: Option<SttPrecision>,
     },
 }
 
@@ -72,7 +68,6 @@ impl LlmSlot {
             LlmSlot::Loaded { last_use, loaded_n_threads, .. } => SlotSnapshot::Loaded {
                 last_use: *last_use,
                 loaded_n_threads: Some(*loaded_n_threads),
-                loaded_stt_precision: None,
             },
         }
     }
@@ -83,10 +78,9 @@ impl SttSlotState {
         match self {
             SttSlotState::Unloaded => SlotSnapshot::Unloaded,
             SttSlotState::Loading { .. } => SlotSnapshot::Loading,
-            SttSlotState::Loaded { last_use, precision, .. } => SlotSnapshot::Loaded {
+            SttSlotState::Loaded { last_use, .. } => SlotSnapshot::Loaded {
                 last_use: *last_use,
                 loaded_n_threads: None,
-                loaded_stt_precision: Some(*precision),
             },
         }
     }
