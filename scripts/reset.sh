@@ -7,6 +7,18 @@
 # multi-GB and rarely the thing you actually want to re-download. Pass
 # `--models` (or `-m`) to also delete them.
 #
+# Handles BOTH the release build (bundle id `ai.lirevo.app`, data under
+# `~/Library/Application Support/Lirevo`) and the debug/dev-bundle build
+# (bundle id `ai.lirevo.app.dev`, data under `…/Lirevo (Dev)`). Data and
+# log directories are keyed by APP NAME, not bundle id — see
+# `app/src-tauri/src/paths.rs` (`app_dir_name` + `rebase`). TCC grants,
+# by contrast, are keyed by BUNDLE ID, so both ids are reset.
+#
+# The local SQLite history DB (`data.db`) is intentionally PRESERVED — a
+# permissions/first-run reset shouldn't cost you your dictation history.
+# Only settings + tauri-plugin-store JSON, logs, and (with `--models`)
+# the model files are removed.
+#
 # Intended for local dev iteration on first-run / permissions flows.
 # Does NOT touch source code, build caches, or the system installation
 # of the app itself; `just clean` covers the former and uninstalling
@@ -16,17 +28,17 @@
 
 set -euo pipefail
 
-readonly BUNDLE_ID="ai.lirevo.app"
 readonly PROC_NAME="Lirevo"
-# Legacy bundle ID from before the 2026-05-25 rename. Cleaned up alongside
-# the current one so a `just reset` doesn't leave orphaned model/log dirs
-# under the old name. Safe no-op if the legacy paths don't exist.
+# Release + debug variants. APP_NAMES index the data/log dirs (by app name);
+# BUNDLE_IDS index the TCC grants (by bundle id). Order is release, debug.
+readonly APP_NAMES=("Lirevo" "Lirevo (Dev)")
+readonly BUNDLE_IDS=("ai.lirevo.app" "ai.lirevo.app.dev")
+# Legacy bundle id from before the 2026-05-25 rename. Cleaned up alongside
+# the current ones so a reset doesn't leave orphaned dirs under the old name.
 readonly LEGACY_BUNDLE_ID="app.localdictation"
-readonly LEGACY_PROC_NAME="local-dictation-app"
-readonly APP_DATA="$HOME/Library/Application Support/$BUNDLE_ID"
-readonly APP_LOGS="$HOME/Library/Logs/$BUNDLE_ID"
-readonly MODELS_DIR="$APP_DATA/models"
-readonly SETTINGS_FILE="$APP_DATA/settings.json"
+
+readonly SUPPORT_BASE="$HOME/Library/Application Support"
+readonly LOGS_BASE="$HOME/Library/Logs"
 
 wipe_models=false
 for arg in "$@"; do
@@ -37,6 +49,8 @@ for arg in "$@"; do
 Usage: scripts/reset.sh [--models]
 
 Resets app runtime state so the next launch shows the setup wizard.
+Covers both the release (Lirevo / ai.lirevo.app) and debug
+(Lirevo (Dev) / ai.lirevo.app.dev) builds. The history DB is preserved.
 
 Options:
   -m, --models    Also delete the downloaded model files (multi-GB).
@@ -54,58 +68,64 @@ done
 
 # Refuse to run while the app is alive — tccutil + settings.json edits
 # while a live process is reading them produce confusing partial state.
-# Match by exact process name so we don't false-match on `just dev`'s
-# `cargo` / `node` processes.
+# Both the release and dev-bundle processes share the product name "Lirevo".
 if pgrep -x "$PROC_NAME" >/dev/null 2>&1; then
   echo "error: $PROC_NAME is running. Quit it first (Cmd+Q or tray → Quit) and re-run." >&2
   exit 1
 fi
 
+# Confirm before deleting model files (sum across both variants).
 if "$wipe_models"; then
-  if [[ -d "$MODELS_DIR" ]]; then
-    size=$(du -sh "$MODELS_DIR" 2>/dev/null | cut -f1 || echo "?")
-    echo "About to delete model files at $MODELS_DIR (size: $size)."
+  found_models=false
+  for name in "${APP_NAMES[@]}"; do
+    models_dir="$SUPPORT_BASE/$name/models"
+    if [[ -d "$models_dir" ]]; then
+      size=$(du -sh "$models_dir" 2>/dev/null | cut -f1 || echo "?")
+      echo "About to delete model files at $models_dir (size: $size)."
+      found_models=true
+    fi
+  done
+  if "$found_models"; then
     read -r -p "Continue? [y/N] " ans
     case "$ans" in [yY]|[yY][eE][sS]) ;; *) echo "aborted."; exit 0 ;; esac
   fi
 fi
 
-echo "→ resetting TCC grants for $BUNDLE_ID"
-# `-` prefix in shell would suppress errors but we use `|| true` for clarity.
-# tccutil exits 0 if the grant existed and was reset, 1 if it never existed
-# (e.g. first reset, or after a previous reset). Either is fine here.
-tccutil reset Accessibility "$BUNDLE_ID" 2>/dev/null || true
-tccutil reset Microphone    "$BUNDLE_ID" 2>/dev/null || true
+# TCC: reset for every bundle id (release + debug).
+for bid in "${BUNDLE_IDS[@]}"; do
+  echo "→ resetting TCC grants for $bid"
+  tccutil reset Accessibility "$bid" 2>/dev/null || true
+  tccutil reset Microphone    "$bid" 2>/dev/null || true
+done
 
-if [[ -f "$SETTINGS_FILE" ]]; then
-  echo "→ removing $SETTINGS_FILE"
-  rm -f "$SETTINGS_FILE"
-fi
+# Per variant: wipe settings + tauri-plugin-store JSON, logs, and (optional)
+# model files. The history DB (data.db*) is left untouched on purpose.
+for name in "${APP_NAMES[@]}"; do
+  data_dir="$SUPPORT_BASE/$name"
+  logs_dir="$LOGS_BASE/$name"
 
-# Other tauri-plugin-store files live alongside settings.json. Sweep
-# them too so the app starts with a fully blank slate.
-if [[ -d "$APP_DATA" ]]; then
-  find "$APP_DATA" -maxdepth 1 -name '*.json' -type f -print -delete 2>/dev/null || true
-fi
+  if [[ -d "$data_dir" ]]; then
+    echo "→ clearing settings/store JSON in $data_dir (history db kept)"
+    find "$data_dir" -maxdepth 1 -name '*.json' -type f -print -delete 2>/dev/null || true
+    if "$wipe_models" && [[ -d "$data_dir/models" ]]; then
+      echo "→ removing $data_dir/models"
+      rm -rf "$data_dir/models"
+    fi
+  fi
 
-if [[ -d "$APP_LOGS" ]]; then
-  echo "→ removing $APP_LOGS"
-  rm -rf "$APP_LOGS"
-fi
+  if [[ -d "$logs_dir" ]]; then
+    echo "→ removing $logs_dir"
+    rm -rf "$logs_dir"
+  fi
+done
 
-if "$wipe_models" && [[ -d "$MODELS_DIR" ]]; then
-  echo "→ removing $MODELS_DIR"
-  rm -rf "$MODELS_DIR"
-fi
-
-# Legacy bundle cleanup: 2026-05-25 rename moved data to ai.lirevo.app.
-# Any leftovers under app.localdictation are orphaned and should be wiped
-# alongside a fresh-start reset. Use scripts/migrate-from-legacy.sh first
-# if you want to PRESERVE the old models (multi-GB) by moving them over.
-readonly LEGACY_APP_DATA="$HOME/Library/Application Support/$LEGACY_BUNDLE_ID"
-readonly LEGACY_APP_LOGS="$HOME/Library/Logs/$LEGACY_BUNDLE_ID"
+# Legacy bundle cleanup: pre-2026-05-25 the app stored data under the
+# bundle id `app.localdictation`. Any leftovers are orphaned; wipe them.
+# Use scripts/migrate-from-legacy.sh first if you want to keep old models.
+readonly LEGACY_APP_DATA="$SUPPORT_BASE/$LEGACY_BUNDLE_ID"
+readonly LEGACY_APP_LOGS="$LOGS_BASE/$LEGACY_BUNDLE_ID"
 if [[ -d "$LEGACY_APP_DATA" ]] || [[ -d "$LEGACY_APP_LOGS" ]]; then
-  echo "→ wiping legacy $LEGACY_BUNDLE_ID dirs (run scripts/migrate-from-legacy.sh first if you want to keep models)"
+  echo "→ wiping legacy $LEGACY_BUNDLE_ID dirs (run scripts/migrate-from-legacy.sh first to keep models)"
   rm -rf "$LEGACY_APP_DATA" "$LEGACY_APP_LOGS"
   tccutil reset Accessibility "$LEGACY_BUNDLE_ID" 2>/dev/null || true
   tccutil reset Microphone    "$LEGACY_BUNDLE_ID" 2>/dev/null || true
