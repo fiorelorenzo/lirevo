@@ -8,7 +8,7 @@
   import Titlebar from '$lib/components/Titlebar.svelte';
 
   import { initI18n } from '$lib/i18n';
-  import { loadSettings } from '$lib/stores/settings.svelte';
+  import { loadSettings, startSettingsSync } from '$lib/stores/settings.svelte';
 
   // Side-effect imports: instantiate stores so they subscribe to backend events.
   import '$lib/stores/modelState';
@@ -35,6 +35,7 @@
     await initI18n('en');
     i18nReady = true;
     void loadSettings();
+    void startSettingsSync();
   });
 </script>
 

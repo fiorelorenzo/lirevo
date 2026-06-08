@@ -33,25 +33,32 @@ pub async fn models_download(
     crate::models::download(app, id).await
 }
 
-/// Download the STT (Parakeet-MLX) model into the HF cache, emitting the same
-/// `download:progress` events as the LLM/whisper downloads so the wizard can
-/// render one progress bar per model. The audiopipe call is BLOCKING and only
-/// populates the cache; the engine loads from cache afterward.
+/// Download the STT GGUF into the app's models dir, emitting the same
+/// `download:progress` events as the LLM downloads so the wizard renders one
+/// progress bar per model. Uses the same streaming mechanism as
+/// `crate::models::download_inner` (reqwest bytes_stream + 100ms throttle +
+/// `.partial` temp file → rename).
 #[tauri::command]
 pub async fn stt_download(app: AppHandle, id: String) -> Result<(), AppError> {
-    use crate::models::{DownloadProgress, DownloadProgressState};
+    use crate::models::{DownloadProgress, DownloadProgressState, models_dir};
+    use futures_util::StreamExt;
     use tauri::Emitter;
+    use tokio::io::AsyncWriteExt;
 
-    let name = crate::stt::catalog::audiopipe_name_for_platform(&id).to_string();
-    // Catalog download size, so the UI shows a total from the first event
-    // (mirrors the LLM path, which seeds bytesTotal from its catalog) and has a
-    // fallback when hf-hub's per-event total isn't populated yet.
     let known_total = crate::stt::catalog::model_metadata(&id)
         .map(|m| m.size_bytes)
         .unwrap_or(0);
-    tracing::info!(id = %id, name = %name, "stt_download: starting");
+    let url = crate::stt::catalog::stt_gguf_url();
+    let dest = models_dir(&app)
+        .map_err(|e| AppError::Fs(e.to_string()))?
+        .join(crate::stt::STT_GGUF_FILENAME);
+    let tmp = dest.with_extension(format!(
+        "{}.partial",
+        dest.extension().and_then(|e| e.to_str()).unwrap_or("")
+    ));
 
-    // Queued: tell the UI the download is registered before any bytes flow.
+    tracing::info!(id = %id, %url, "stt_download: starting");
+
     let _ = app.emit(
         "download:progress",
         DownloadProgress {
@@ -63,36 +70,68 @@ pub async fn stt_download(app: AppHandle, id: String) -> Result<(), AppError> {
         },
     );
 
-    let progress_app = app.clone();
-    let progress_id = id.clone();
-    let download_name = name.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        // Throttle to one emit per 100ms (plus the final received==total) so a
-        // multi-GB download doesn't flood the IPC channel with one event per
-        // network chunk — mirrors the LLM/whisper download path.
+    // Stream-download, mirroring download_inner exactly.
+    let do_download = async {
+        let client = reqwest::Client::new();
+        let resp = client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("http: {e}"))?;
+        if !resp.status().is_success() {
+            return Err(format!("HTTP {}", resp.status()));
+        }
+        let total = resp.content_length().unwrap_or(known_total);
+
+        let mut file = tokio::fs::File::create(&tmp)
+            .await
+            .map_err(|e| format!("create tmp: {e}"))?;
+
+        let mut received: u64 = 0;
+        let mut stream = resp.bytes_stream();
         let mut last_emit = std::time::Instant::now();
-        let on_progress = move |received: u64, total: u64| {
-            if received == total || last_emit.elapsed() >= std::time::Duration::from_millis(100) {
+        while let Some(chunk_result) = stream.next().await {
+            let chunk = chunk_result.map_err(|e| format!("stream: {e}"))?;
+            file.write_all(&chunk)
+                .await
+                .map_err(|e| format!("write: {e}"))?;
+            received += chunk.len() as u64;
+            if last_emit.elapsed() >= std::time::Duration::from_millis(100) {
                 last_emit = std::time::Instant::now();
-                let _ = progress_app.emit(
+                let _ = app.emit(
                     "download:progress",
                     DownloadProgress {
-                        id: progress_id.clone(),
+                        id: id.clone(),
                         state: DownloadProgressState::Downloading,
                         bytes_received: received,
-                        bytes_total: if total > 0 { total } else { known_total },
+                        bytes_total: total,
                         error_message: None,
                     },
                 );
             }
-        };
-        audiopipe::Model::download_pretrained_with_progress(&download_name, on_progress)
-    })
-    .await;
+        }
+        // Final 100% event before transitioning to Complete.
+        let _ = app.emit(
+            "download:progress",
+            DownloadProgress {
+                id: id.clone(),
+                state: DownloadProgressState::Downloading,
+                bytes_received: received,
+                bytes_total: total,
+                error_message: None,
+            },
+        );
+        file.flush().await.map_err(|e| format!("flush: {e}"))?;
+        drop(file);
+        tokio::fs::rename(&tmp, &dest)
+            .await
+            .map_err(|e| format!("rename: {e}"))?;
+        Ok::<(), String>(())
+    };
 
-    match result {
-        Ok(Ok(())) => {
-            tracing::info!(id = %id, name = %name, "stt_download: complete");
+    match do_download.await {
+        Ok(()) => {
+            tracing::info!(id = %id, "stt_download: complete");
             let _ = app.emit(
                 "download:progress",
                 DownloadProgress {
@@ -105,24 +144,9 @@ pub async fn stt_download(app: AppHandle, id: String) -> Result<(), AppError> {
             );
             Ok(())
         }
-        Ok(Err(e)) => {
-            let msg = e.to_string();
+        Err(msg) => {
             tracing::error!(id = %id, error = %msg, "stt_download: failed");
-            let _ = app.emit(
-                "download:progress",
-                DownloadProgress {
-                    id,
-                    state: DownloadProgressState::Error,
-                    bytes_received: 0,
-                    bytes_total: 0,
-                    error_message: Some(msg),
-                },
-            );
-            Err(AppError::from(e))
-        }
-        Err(join_err) => {
-            let msg = format!("stt download task panicked: {join_err}");
-            tracing::error!(id = %id, error = %msg, "stt_download: join error");
+            let _ = tokio::fs::remove_file(&tmp).await;
             let _ = app.emit(
                 "download:progress",
                 DownloadProgress {

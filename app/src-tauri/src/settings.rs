@@ -53,10 +53,13 @@ pub struct Settings {
     /// (the built-in mic, the sensible default).
     #[serde(default)]
     pub backup_input_device: Option<String>,
-    pub force_pasteboard: bool,
     pub paste_delay_ms: u32,
 
     pub launch_at_login: bool,
+    /// When true, the app starts silently in the menu bar without opening the
+    /// main window. The tray icon is always present; the user re-opens the
+    /// window from it. Ignored when `onboarding_complete` is false.
+    pub start_minimized: bool,
     /// Keep a local history of dictations on this device. Gates whether the
     /// dictation pipeline persists transcripts to the on-device history store
     /// (the capture itself lands in a later change). Defaults to `true` so
@@ -91,9 +94,9 @@ impl Default for Settings {
             input_device_name: None,
             smart_mic_routing: true,
             backup_input_device: None,
-            force_pasteboard: false,
             paste_delay_ms: 120,
             launch_at_login: false,
+            start_minimized: false,
             record_history: true,
             profile_mode: default_profile_mode(),
             ui_language: "en".into(),
@@ -291,7 +294,6 @@ mod tests {
         assert_eq!(s.llm_ctx_size, 4096);
         assert_eq!(s.paste_delay_ms, 120);
         assert!(!s.onboarding_complete);
-        assert!(!s.force_pasteboard);
         assert!(s.record_history);
         assert!(s.smart_mic_routing);
         assert_eq!(s.profile_mode, "auto");

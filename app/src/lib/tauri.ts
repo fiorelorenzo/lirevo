@@ -20,9 +20,9 @@ export interface Settings {
   inputDeviceName: string | null;
   smartMicRouting: boolean;
   backupInputDevice: string | null;
-  forcePasteboard: boolean;
   pasteDelayMs: number;
   launchAtLogin: boolean;
+  startMinimized: boolean;
   recordHistory: boolean;
   profileMode: string;
   uiLanguage: string;

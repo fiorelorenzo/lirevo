@@ -9,11 +9,12 @@ mod decision;
 mod slot;
 mod streak;
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
 use arc_swap::{ArcSwap, ArcSwapOption};
-use inference_core::profile::{policy_for, ProfileName, ProfilePolicy, SttPrecision};
+use inference_core::profile::{policy_for, ProfileName, ProfilePolicy};
 use inference_core::{ChatRequest, ChatResponse, LlamaBackend, LlmError};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
@@ -56,6 +57,9 @@ pub struct Engine {
     llm: AsyncMutex<LlmSlot>,
     stt: AsyncMutex<SttSlotState>,
     last_dictation: std::sync::Mutex<Instant>,
+    /// Resolved path to the app's models directory; used by `ensure_stt` to
+    /// locate the GGUF on disk without needing a Tauri handle at call time.
+    models_dir: PathBuf,
     /// Optional Tauri handle used to emit the informational
     /// `engine:llm_state_changed` event. `None` in unit tests (the Engine is
     /// constructed without a running Tauri app); set via
@@ -66,13 +70,14 @@ pub struct Engine {
 
 impl Engine {
     #[must_use]
-    pub fn new(config: EngineConfig, initial_profile: ProfileName) -> Arc<Self> {
+    pub fn new(config: EngineConfig, initial_profile: ProfileName, models_dir: PathBuf) -> Arc<Self> {
         Arc::new(Self {
             config: ArcSwap::from_pointee(config),
             current_policy: ArcSwap::from_pointee(policy_for(initial_profile)),
             llm: AsyncMutex::new(LlmSlot::Unloaded),
             stt: AsyncMutex::new(SttSlotState::Unloaded),
             last_dictation: std::sync::Mutex::new(Instant::now()),
+            models_dir,
             state_reporter: ArcSwapOption::empty(),
         })
     }
@@ -247,8 +252,8 @@ impl Engine {
             *state = SttSlotState::Loading { since: Instant::now() };
         }
 
-        let precision = self.current_policy().stt_precision;
-        let outcome = tokio::task::spawn_blocking(move || crate::stt::load(&id, precision))
+        let models_dir = self.models_dir.clone();
+        let outcome = tokio::task::spawn_blocking(move || crate::stt::load(&id, &models_dir))
             .await
             .map_err(|e| format!("stt load join: {e}"))?
             .map_err(|e| e.to_string())?;
@@ -260,18 +265,11 @@ impl Engine {
                 *state = SttSlotState::Loaded {
                     slot: slot.clone(),
                     last_use: Instant::now(),
-                    precision,
                 };
                 Ok(Some(slot))
             }
-            // Real variant carries `audiopipe_name` (see stt::LoadOutcome);
-            // the slot stays Unloaded — caller surfaces a "downloading"
-            // status and retries once the background fetch finishes.
-            crate::stt::LoadOutcome::Downloading { audiopipe_name } => {
-                tracing::info!(
-                    model = %audiopipe_name,
-                    "engine: STT weights downloading in background; slot stays unloaded"
-                );
+            crate::stt::LoadOutcome::NeedsDownload => {
+                tracing::info!("engine: STT GGUF not present; slot stays unloaded");
                 let mut state = self.stt.lock().await;
                 *state = SttSlotState::Unloaded;
                 Ok(None)
@@ -328,25 +326,6 @@ impl Engine {
         }
     }
 
-    async fn reload_stt_for_precision(self: &Arc<Self>, precision: SttPrecision) {
-        // Reload only if currently loaded and NOT in use (the streaming worker
-        // holds the slot lock during a dictation). Drop, then lazy-reload at the
-        // new precision on the next ensure_stt.
-        {
-            let state = self.stt.lock().await;
-            match &*state {
-                SttSlotState::Loaded { slot, .. } if slot.try_lock().is_ok() => {}
-                _ => return,
-            }
-        }
-        {
-            let mut state = self.stt.lock().await;
-            *state = SttSlotState::Unloaded;
-        }
-        tracing::info!(?precision, "engine: STT precision changed; reloading on next use");
-        let _ = self.ensure_stt().await;
-    }
-
     async fn preload_llm(self: &Arc<Self>) {
         // Best-effort: ignore errors (next chat will retry / surface).
         let _ = self.ensure_llm().await;
@@ -362,9 +341,6 @@ impl Engine {
                 self.reload_llm_for_threads(n_threads).await;
             }
             Action::PreloadLlm => self.preload_llm().await,
-            Action::ReloadSttForPrecision { precision } => {
-                self.reload_stt_for_precision(precision).await;
-            }
         }
     }
 
@@ -433,19 +409,20 @@ mod tests {
         }
     }
 
+    fn test_engine(path: Option<std::path::PathBuf>) -> Arc<Engine> {
+        Engine::new(cfg(path), ProfileName::Balanced, std::path::PathBuf::from("/tmp"))
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn ensure_llm_none_when_no_path() {
-        let e = Engine::new(cfg(None), ProfileName::Balanced);
+        let e = test_engine(None);
         assert!(e.ensure_llm().await.unwrap().is_none());
         assert_eq!(e.llm_snapshot(), SlotSnapshot::Unloaded);
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn ensure_llm_errors_and_resets_on_bad_path() {
-        let e = Engine::new(
-            cfg(Some("/definitely/missing.gguf".into())),
-            ProfileName::Balanced,
-        );
+        let e = test_engine(Some("/definitely/missing.gguf".into()));
         let r = e.ensure_llm().await;
         assert!(r.is_err());
         // Slot must be back to Unloaded so a retry / auto-recover can run.
@@ -473,7 +450,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn unload_llm_is_idempotent() {
-        let e = Engine::new(cfg(None), ProfileName::Balanced);
+        let e = test_engine(None);
         e.unload_llm(UnloadReason::IdleTimeout).await; // no-op, no panic
         assert_eq!(e.llm_snapshot(), SlotSnapshot::Unloaded);
     }
@@ -487,7 +464,7 @@ mod tests {
         // without needing a GGUF. We assert it doesn't panic and exits on
         // channel close.
         let (tx, rx) = tokio::sync::broadcast::channel(16);
-        let e = Engine::new(cfg(None), ProfileName::Balanced);
+        let e = test_engine(None);
         let handle = tokio::spawn(e.clone().lifecycle_loop(rx));
 
         let sig = Signals {

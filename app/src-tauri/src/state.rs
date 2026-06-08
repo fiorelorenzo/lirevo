@@ -77,12 +77,8 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(settings: Settings, db: Arc<crate::db::Db>) -> Self {
-        let injector = if settings.force_pasteboard {
-            Injector::with_force_pasteboard(true)
-        } else {
-            Injector::new()
-        };
+    pub fn new(settings: Settings, db: Arc<crate::db::Db>, models_dir: std::path::PathBuf) -> Self {
+        let injector = Injector::new();
         let (model_state_tx, _) = watch::channel(ModelState::Idle);
         let (recording_state_tx, _) = watch::channel(false);
         let (audio_level_tx, _) = watch::channel(0.0_f32);
@@ -97,6 +93,7 @@ impl AppState {
                 stt_model_id: settings.stt_model_id.clone(),
             },
             inference_core::profile::ProfileName::Balanced,
+            models_dir,
         );
 
         Self {
@@ -148,14 +145,6 @@ impl AppState {
         self.model_state_tx.borrow().clone()
     }
 
-    pub fn rebuild_injector(&self, force_pasteboard: bool) {
-        let mut inner = self.inner.lock().unwrap();
-        inner.injector = if force_pasteboard {
-            Injector::with_force_pasteboard(true)
-        } else {
-            Injector::new()
-        };
-    }
 }
 
 #[cfg(test)]
