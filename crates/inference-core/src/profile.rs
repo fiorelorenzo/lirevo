@@ -113,8 +113,8 @@ pub enum NThreads {
 }
 
 /// STT weight precision per profile. `Int8` is reserved (dormant in v0.6;
-/// audiopipe currently falls back to bf16). Resource-aware precision rides the
-/// profile, parallel to `n_threads` for the LLM.
+/// the in-process STT backend currently runs bf16). Resource-aware precision
+/// rides the profile, parallel to `n_threads` for the LLM.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum SttPrecision {
     Bf16,

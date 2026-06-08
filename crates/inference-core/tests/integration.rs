@@ -176,11 +176,12 @@ async fn sigterm_removes_socket_file() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn healthz_reports_stt_ready_false_when_no_backend() {
+async fn healthz_reports_stt_ready_true_by_default() {
+    // STT is always loaded as stub when SIDECAR_STT_BACKEND is unset.
     let server = TestServer::spawn();
     let (status, body) = unix_get(&server.socket, "/healthz").await;
     assert!(status.is_success(), "got {status}");
-    assert!(body.contains("\"stt_ready\":false"), "body: {body}");
+    assert!(body.contains("\"stt_ready\":true"), "body: {body}");
     assert!(body.contains("\"llm_ready\":false"), "body: {body}");
 }
 
@@ -205,21 +206,24 @@ async fn stt_with_stub_returns_text() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn stt_503_when_no_backend_loaded() {
-    let server = TestServer::spawn(); // no SIDECAR_STT_BACKEND, no model path => no backend
+async fn stt_returns_stub_response_by_default() {
+    // SIDECAR_STT_BACKEND unset → stub is always loaded; /v1/stt returns 200.
+    let server = TestServer::spawn();
     let pcm: Vec<i16> = vec![0; 16];
     let wav = synth_wav_i16_mono_16k(&pcm);
     let (status, body) = unix_post(&server.socket, "/v1/stt", "audio/wav", wav).await;
-    assert_eq!(status, hyper::StatusCode::SERVICE_UNAVAILABLE, "body: {body}");
-    assert!(body.contains("\"error\":\"stt_unavailable\""), "body: {body}");
+    assert!(status.is_success(), "body: {body}");
+    assert!(body.contains("\"backend\":\"stub\""), "body: {body}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn models_empty_when_no_backend() {
+async fn models_lists_stub_stt_by_default() {
+    // STT stub is always loaded; only LLM is absent when no SIDECAR_LLM_* is set.
     let server = TestServer::spawn();
     let (status, body) = unix_get(&server.socket, "/v1/models").await;
     assert!(status.is_success(), "body: {body}");
-    assert!(body.contains("\"models\":[]"), "body: {body}");
+    assert!(body.contains("\"kind\":\"stt\""), "body: {body}");
+    assert!(body.contains("\"backend\":\"stub\""), "body: {body}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -231,33 +235,6 @@ async fn models_lists_stub_when_loaded() {
     assert!(body.contains("\"loaded\":true"), "body: {body}");
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "requires the chosen audiopipe model to be cached in ~/.cache/huggingface + sample-30s.wav fixture"]
-async fn stt_real_audiopipe_transcribes_sample() {
-    // Default mirrors the sidecar's own DEFAULT_STT_MODEL_NAME.
-    let model_name = std::env::var("SIDECAR_STT_MODEL_NAME")
-        .unwrap_or_else(|_| "parakeet-tdt-0.6b-v3".to_string());
-
-    let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/sample-30s.wav");
-    let wav = std::fs::read(&fixture).expect(
-        "place a 30s WAV sample at crates/inference-core/tests/fixtures/sample-30s.wav (gitignored)",
-    );
-
-    let server = TestServer::spawn_with_env(&[
-        ("SIDECAR_STT_BACKEND", "audiopipe"),
-        ("SIDECAR_STT_MODEL_NAME", model_name.as_str()),
-    ]);
-    let (status, body) = unix_post(&server.socket, "/v1/stt", "audio/wav", wav).await;
-    assert!(status.is_success(), "body: {body}");
-    assert!(body.contains("\"backend\":\"audiopipe\""), "body: {body}");
-    let text_idx = body.find("\"text\":\"").expect("text field");
-    let after = &body[text_idx + 8..];
-    let close = after.find('"').expect("text close");
-    let transcript = &after[..close];
-    assert!(!transcript.is_empty(), "transcript was empty: {body}");
-    eprintln!("transcript: {transcript}");
-}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn stt_returns_503_busy_on_concurrent_requests() {
@@ -335,7 +312,7 @@ async fn healthz_negotiates_msgpack() {
     let decoded: H = rmp_serde::from_slice(&bytes).expect("valid msgpack");
     assert_eq!(decoded.status, "ok");
     assert_eq!(decoded.version, "0.0.1");
-    assert!(!decoded.stt_ready);
+    assert!(decoded.stt_ready); // stub STT is always loaded
     assert!(!decoded.llm_ready);
 }
 

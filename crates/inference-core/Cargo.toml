@@ -21,22 +21,6 @@ tower = "0.5"
 async-trait = "0.1"
 thiserror = "2"
 hound = "3"
-# M4: STT goes through audiopipe (same git pin as the Tauri host crate).
-# Feature set matches `app/src-tauri/Cargo.toml`; with whisper-rs gone, the
-# `whisper` feature on audiopipe can stay enabled here too.
-audiopipe = { git = "https://github.com/fiorelorenzo/audiopipe", rev = "5fb8a00e34fc6712806cc0e7955cda709f7af39a", default-features = false, features = [
-    "parakeet",
-    "parakeet-mlx",
-    "qwen3-asr-ggml",
-    "whisper",
-    "metal",
-    "coreml",
-] }
-# audiopipe enables `ort` with `default-features = false`, which strips the
-# `std` feature it relies on and `download-binaries` needed for linking.
-# Re-enable both here so the workspace resolves the same feature set the
-# Tauri host uses.
-ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "half", "download-binaries", "tls-rustls"] }
 llama-cpp-2 = { version = "0.1", features = ["metal"] }
 num_cpus = "1"
 

@@ -1,9 +1,9 @@
 //! Minimal WAV decoder used by the dev-only HTTP sidecar.
 //!
-//! Returns mono f32 samples plus the WAV's source sample rate; audiopipe
-//! does the resample to 16 kHz internally via
-//! `Model::transcribe_with_sample_rate`. Pre-M4 this file also held a
-//! rubato-based resampler — gone now that audiopipe owns that step.
+//! Returns mono f32 samples plus the WAV's source sample rate. The in-process
+//! STT backend handles resampling to 16 kHz internally. Pre-M4 this file also
+//! held a rubato-based resampler — gone now that resampling is owned by the STT
+//! engine.
 
 use std::io::Cursor;
 
