@@ -2781,7 +2781,7 @@ checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
 
 [[package]]
 name = "lirevo"
-version = "0.4.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -2795,6 +2795,7 @@ dependencies = [
  "once_cell",
  "ort",
  "os-integration",
+ "parakeet-cpp",
  "reqwest 0.13.3",
  "resource-monitor",
  "rusqlite",
@@ -3807,6 +3808,24 @@ dependencies = [
  "gobject-sys",
  "libc",
  "system-deps",
+]
+
+[[package]]
+name = "parakeet-cpp"
+version = "0.1.0"
+source = "git+https://github.com/fiorelorenzo/parakeet-cpp?rev=2e79c88f76c83c8d8bf98010823d27e8afca6b35#2e79c88f76c83c8d8bf98010823d27e8afca6b35"
+dependencies = [
+ "parakeet-cpp-sys",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "parakeet-cpp-sys"
+version = "0.1.0"
+source = "git+https://github.com/fiorelorenzo/parakeet-cpp?rev=2e79c88f76c83c8d8bf98010823d27e8afca6b35#2e79c88f76c83c8d8bf98010823d27e8afca6b35"
+dependencies = [
+ "bindgen 0.70.1",
+ "cmake",
 ]
 
 [[package]]

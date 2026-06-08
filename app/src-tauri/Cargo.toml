@@ -57,6 +57,10 @@ num_cpus          = "1"
 # Phase-2 (T8) re-enabled the `whisper` feature now that `whisper-rs` was
 # dropped from `inference-core` — both packages link the native `whisper`
 # library, so they couldn't coexist before.
+# STT backend: our own Rust bindings to mudler/parakeet.cpp (ggml).
+# Metal auto-enabled on macOS by the binding's build.rs.
+parakeet-cpp = { git = "https://github.com/fiorelorenzo/parakeet-cpp", rev = "2e79c88f76c83c8d8bf98010823d27e8afca6b35" }
+
 audiopipe = { git = "https://github.com/fiorelorenzo/audiopipe", rev = "5fb8a00e34fc6712806cc0e7955cda709f7af39a", default-features = false, features = [
     "parakeet",
     # `parakeet-mlx` pulls in mlx-sys, which compiles MLX 0.25.1's Metal

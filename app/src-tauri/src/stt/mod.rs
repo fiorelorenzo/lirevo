@@ -9,6 +9,9 @@
 //!     or a [`LoadOutcome::Downloading`] status when the HF cache is empty
 //!     (a background download is spawned in that case).
 
+mod types;
+pub use types::{PartialTranscript, SttError, SttOptions, Transcript};
+
 pub mod catalog;
 
 #[cfg(any(test, feature = "test-stt"))]
