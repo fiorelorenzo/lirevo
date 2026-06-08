@@ -59,6 +59,27 @@ pub(crate) fn register_quit_safety_atexit() {
     // Non-macOS hosts don't have the ggml-metal teardown crash path.
 }
 
+/// Show the Dock icon (Regular) when any real (non-overlay) window is visible;
+/// otherwise stay menu-bar-only (Accessory). macOS-only effect; a no-op on
+/// other platforms so it is safe to call unconditionally.
+pub(crate) fn refresh_activation_policy(app: &tauri::AppHandle) {
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::Manager;
+        let any_visible = app
+            .webview_windows()
+            .iter()
+            .filter(|(label, _)| label.as_str() != "overlay")
+            .any(|(_, w)| w.is_visible().unwrap_or(false));
+        let policy = if any_visible {
+            tauri::ActivationPolicy::Regular
+        } else {
+            tauri::ActivationPolicy::Accessory
+        };
+        let _ = app.set_activation_policy(policy);
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -96,6 +117,7 @@ pub fn run() {
             // Settings + AppState.
             let settings = Settings::load(app.handle())?;
             let onboarding_complete = settings.onboarding_complete;
+            let start_minimized = settings.start_minimized;
             // Apply the persisted paste delay before any pasteboard inject
             // could run — the injector reads it from env on every paste.
             commands::settings::apply_paste_delay(settings.paste_delay_ms);
@@ -146,12 +168,12 @@ pub fn run() {
             }
 
             // Open the initial window: wizard on first run, home otherwise.
-            // A login auto-launch starts silently in the tray (the autostart
-            // LaunchAgent passes `--minimized`); a manual launch always opens a
-            // window. The wizard always opens on first run regardless, since
-            // hiding it would leave the user no way to configure the app.
+            // A login auto-launch passes `--minimized`; the `start_minimized`
+            // setting achieves the same effect on every launch. The wizard
+            // always opens on first run regardless — hiding it would leave the
+            // user no way to configure the app.
             let autostarted = std::env::args().any(|a| a == "--minimized");
-            let should_open_window = !(onboarding_complete && autostarted);
+            let should_open_window = !onboarding_complete || (!autostarted && !start_minimized);
             if should_open_window {
                 let route = if onboarding_complete { "home" } else { "wizard" };
                 if let Err(e) = commands::windows::open_window_internal(app.handle(), route) {
@@ -159,9 +181,11 @@ pub fn run() {
                 }
             } else {
                 tracing::info!(
-                    "launched at login — starting silently in the tray (no initial window)"
+                    "starting silently in the tray (no initial window)"
                 );
             }
+            // Dock icon: show when a real window is visible, hide otherwise.
+            refresh_activation_policy(app.handle());
 
             // Always create the recording overlay up-front so it's ready to
             // be shown the moment the user hits the hotkey. It stays hidden
@@ -435,6 +459,7 @@ pub fn run() {
                     if let Some(w) = app.get_webview_window(label) {
                         let _ = w.hide();
                     }
+                    refresh_activation_policy(app);
                     return;
                 }
             }

@@ -86,6 +86,7 @@ pub fn open_window_internal_with_query(
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_focus();
+        crate::refresh_activation_policy(app);
         return Ok(());
     }
     // Note: wizard is NOT always_on_top — the user must be able to switch to
@@ -119,6 +120,7 @@ pub fn open_window_internal_with_query(
     builder
         .build()
         .map_err(|e| AppError::Internal(format!("window build: {e}")))?;
+    crate::refresh_activation_policy(app);
     Ok(())
 }
 
