@@ -23,6 +23,16 @@
 
 use serde::Serialize;
 
+/// Hugging Face repo + file for the single shipped STT model.
+pub const STT_HF_REPO: &str = "mudler/parakeet-cpp-gguf";
+pub const STT_GGUF_FILENAME: &str = "tdt-0.6b-v3-q4_k.gguf";
+
+/// Direct download URL for [`STT_GGUF_FILENAME`].
+#[must_use]
+pub fn stt_gguf_url() -> String {
+    format!("https://huggingface.co/{STT_HF_REPO}/resolve/main/{STT_GGUF_FILENAME}")
+}
+
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum LanguageCoverage {
