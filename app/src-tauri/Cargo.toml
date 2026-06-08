@@ -49,56 +49,12 @@ os-integration    = { path = "../../crates/os-integration" }
 lirevo-prompts    = { path = "../../crates/lirevo-prompts" }
 num_cpus          = "1"
 
-# M4: STT migration to audiopipe. Pinned on our fork (fiorelorenzo/audiopipe)
-# so we can ship streaming on the fork independently of the upstream PR cadence.
-# Feature set for the macOS-first M4 build; Linux/Windows builds (v2) will
-# add `directml` and `vulkan-ggml` via target-specific dependencies.
-#
-# Phase-2 (T8) re-enabled the `whisper` feature now that `whisper-rs` was
-# dropped from `inference-core` — both packages link the native `whisper`
-# library, so they couldn't coexist before.
 # STT backend: our own Rust bindings to mudler/parakeet.cpp (ggml).
 # Metal auto-enabled on macOS by the binding's build.rs.
 parakeet-cpp = { git = "https://github.com/fiorelorenzo/parakeet-cpp", rev = "2e79c88f76c83c8d8bf98010823d27e8afca6b35" }
 
-audiopipe = { git = "https://github.com/fiorelorenzo/audiopipe", rev = "5fb8a00e34fc6712806cc0e7955cda709f7af39a", default-features = false, features = [
-    "parakeet",
-    # `parakeet-mlx` pulls in mlx-sys, which compiles MLX 0.25.1's Metal
-    # kernels. Those need Metal 3.1 (macOS 14+): rust's default macOS 11
-    # deployment target for `aarch64-apple-darwin` caps Metal at 2.3, where
-    # `simd_shuffle_and_fill_up` is missing and program-scope `constexpr` is
-    # rejected, so the release `--target aarch64-apple-darwin` build (DMG /
-    # CI build-mac) fails to compile the kernels. The repo pins
-    # MACOSX_DEPLOYMENT_TARGET=14.0 (see `../../.cargo/config.toml` and
-    # `tauri.conf.json` `minimumSystemVersion`) so the build selects Metal
-    # 3.1 and the kernels compile. See rust-ml-contrib notes M5.2.
-    "parakeet-mlx",
-    "qwen3-asr-ggml",
-    "whisper",
-    "metal",
-    "coreml",
-] }
-# audiopipe enables `ort` with `default-features = false`, which strips the
-# `std` feature it relies on (`SessionBuilder::commit_from_file` is gated on
-# `std`) and also strips `download-binaries` (without which the linker fails
-# with the deliberately-loud "add_ort_library_path_or_enable_feature_…"
-# placeholder lib name). Cargo unifies features across the graph, so
-# re-enabling both here lets audiopipe build + link without forking it.
-ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "half", "download-binaries", "tls-rustls"] }
-
 [features]
-default = ["audiopipe-whisper", "audiopipe-mlx"]
-# Mirror flag for `audiopipe`'s `whisper` feature. The STT loader checks
-# this with `cfg!(feature = ...)` to gate the whisper-large-v3-turbo
-# catalog entry; keeping it as a local feature (instead of poking at
-# `audiopipe`'s own feature flag) makes the gating switchable per build
-# target if a future Linux/Windows lane wants to disable Whisper.
-audiopipe-whisper = []
-# Mirror flag for `audiopipe`'s `parakeet-mlx` feature. When enabled, the
-# catalog silently upgrades parakeet-tdt-0.6b-v3 to the -mlx variant on
-# Apple Silicon. Requires macOS 14+ at build and run time (Metal 3.1); see
-# the MACOSX_DEPLOYMENT_TARGET note on the `audiopipe` dependency above.
-audiopipe-mlx = []
+default = []
 # In-process STT mock. Pulls in `stt::mock::MockModel` and lets the loader
 # honour `LIREVO_DEV_USE_MOCK_STT=1`. Debug-only by design — release builds
 # must never ship the canned-text path.

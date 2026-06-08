@@ -61,18 +61,6 @@ pub(crate) fn register_quit_safety_atexit() {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Default the Parakeet-MLX download to our pre-converted bf16 repo (half the
-    // download of the upstream fp32 model, bit-identical transcripts since we run
-    // bf16 anyway). audiopipe reads this env var to resolve the HF repo. Set here
-    // at process start (single-threaded) so it is in place before any STT load; a
-    // pre-existing override is respected.
-    if std::env::var_os("AUDIOPIPE_PARAKEET_MLX_REPO").is_none() {
-        std::env::set_var(
-            "AUDIOPIPE_PARAKEET_MLX_REPO",
-            "fiorelorenzo/parakeet-tdt-0.6b-v3-mlx-bf16",
-        );
-    }
-
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
