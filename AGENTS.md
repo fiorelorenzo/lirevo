@@ -175,8 +175,35 @@ grants, wipe `settings.json`, and remove logs. `reset` keeps downloaded models;
 `reset-all` deletes them too (with a confirmation prompt). Both refuse to run
 while the app is alive. `just eval` is a dev-only refiner-stage model bake-off.
 
+### Notarization (release `.dmg`)
+
+`just dmg` notarizes the release `.app` and `.dmg` via
+`scripts/notarize-macos.sh` — but **only** when Apple credentials are in the
+env. Without them it prints a warning and exits 0, so `just dmg` (and CI) still
+produce an **un-notarized** build: it runs on the build machine but is
+Gatekeeper-rejected ("developer cannot be verified") on any other Mac. To
+notarize, set ONE of these credential sets in the untracked `.env`:
+
+- **App Store Connect API key (preferred):** `APPLE_API_KEY` (path to the `.p8`
+  key), `APPLE_API_KEY_ID` (10-char Key ID), `APPLE_API_ISSUER` (issuer UUID).
+- **Apple ID:** `APPLE_ID` (email), `APPLE_PASSWORD` (app-specific password, not
+  the account password), `APPLE_TEAM_ID`.
+
+These are on top of `APPLE_SIGNING_IDENTITY`, which is still required to sign.
+
+Ordering is load-bearing: `tauri build` (sign only) → `bundle-macos-install.sh`
+(relocate dylibs + re-sign) → notarize + staple the `.app` → roll the `.dmg`
+from the stapled `.app` → notarize + staple the `.dmg`. Notarizing before the
+re-sign would be invalidated by it. To keep this order, the `dmg` recipe scopes
+the notarization vars OUT of `tauri build`'s env (`env -u APPLE_ID …`) so
+**Tauri does not auto-notarize the pre-bundling `.app`** (it would otherwise,
+since `APPLE_SIGNING_IDENTITY` + a notarization cred set triggers it). All
+notarization happens in the explicit post-bundle step.
+
 CI (`.github/workflows/build-mac.yml`) runs `just check`, `just test`, and
-`just dmg` on `macos-15`. A change that breaks any of those breaks CI.
+`just dmg` on `macos-15`. A change that breaks any of those breaks CI. CI has no
+Apple creds, so its `just dmg` produces an un-notarized build (the skip path
+exits 0).
 
 ## Code conventions
 

@@ -63,13 +63,41 @@ dev-bundle:
 # only, relocate+re-sign the inference engines into it (preserving the dual-ggml
 # `lirevo_pk_` disambiguation, rpath -> @loader_path/../Frameworks), then roll the
 # .dmg from the fixed-up .app ourselves. Uses APPLE_SIGNING_IDENTITY if set.
+#
+# Notarization (gated on Apple creds):
+#   The order MUST be build (sign only) -> bundle+re-sign -> notarize+staple .app
+#   -> roll .dmg from the stapled .app -> notarize+staple the .dmg. Notarizing
+#   before the bundle/re-sign would be invalidated by it; rolling the .dmg before
+#   stapling the .app would ship an un-stapled app inside.
+#
+#   We must NOT let `tauri build` auto-notarize: it would notarize the
+#   PRE-bundling .app, which bundle-macos-install.sh then invalidates. Tauri
+#   auto-notarizes when APPLE_SIGNING_IDENTITY is set AND a full notarization
+#   cred set is also in the env, so we run the build with the notarization vars
+#   scoped OUT (`env -u ...`) — keeping APPLE_SIGNING_IDENTITY so it still signs.
+#   All notarization happens in our explicit scripts/notarize-macos.sh step.
+#
+#   scripts/notarize-macos.sh exits 0 with a warning when no APPLE_* creds are
+#   present, so this recipe (and CI's build-mac, which runs it credential-less)
+#   still produces an un-notarized build. See the script header for the env vars.
 dmg:
     #!/usr/bin/env bash
     set -euo pipefail
     bundle="app/src-tauri/target/aarch64-apple-darwin/release/bundle"
     app="$bundle/macos/Lirevo.app"
-    ( cd app && npm install --no-audit --no-fund && npx tauri build --target aarch64-apple-darwin --bundles app )
+    # Sign-only build: strip the notarization creds from tauri's env so it does
+    # not auto-notarize the pre-bundling .app (APPLE_SIGNING_IDENTITY is kept).
+    ( cd app && env -u APPLE_ID -u APPLE_PASSWORD -u APPLE_TEAM_ID \
+        -u APPLE_API_KEY -u APPLE_API_KEY_ID -u APPLE_API_ISSUER -u APPLE_API_KEY_PATH \
+        npm install --no-audit --no-fund && \
+      env -u APPLE_ID -u APPLE_PASSWORD -u APPLE_TEAM_ID \
+        -u APPLE_API_KEY -u APPLE_API_KEY_ID -u APPLE_API_ISSUER -u APPLE_API_KEY_PATH \
+        npx tauri build --target aarch64-apple-darwin --bundles app )
     scripts/bundle-macos-install.sh "$app" release aarch64-apple-darwin
+    # Notarize + staple the bundled, re-signed .app BEFORE rolling the .dmg, so
+    # the app inside the .dmg carries its stapled ticket. No-op (exit 0) without
+    # Apple creds.
+    scripts/notarize-macos.sh app "$app"
     mkdir -p "$bundle/dmg"
     dmg="$bundle/dmg/Lirevo_0.6.0_aarch64.dmg"
     rm -f "$dmg"
@@ -78,6 +106,9 @@ dmg:
     ln -s /Applications "$staging/Applications"
     hdiutil create -volname "Lirevo" -srcfolder "$staging" -ov -format UDZO "$dmg"
     rm -rf "$staging"
+    # Notarize + staple the .dmg itself so the download passes Gatekeeper before
+    # it is mounted. No-op (exit 0) without Apple creds.
+    scripts/notarize-macos.sh dmg "$dmg"
     echo "dmg: $dmg"
 
 # Run all tests (Rust nextest + frontend vitest).
