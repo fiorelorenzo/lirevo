@@ -30,6 +30,14 @@ jobs:
 
       # Tauri 2 Linux system deps + a C/C++ toolchain (cmake/clang) for the
       # vendored ggml CPU build and bindgen.
+      #
+      # The os-integration Linux backend (evdev hotkey, enigo paste, arboard
+      # clipboard with wayland-data-control) needs NO extra system -dev packages
+      # to COMPILE: evdev/enigo/x11rb/xkbcommon/wl-clipboard-rs have no build
+      # scripts that link system libs, and wayland-sys uses its pure-Rust default
+      # (no `client`/`dlopen` feature) so its pkg-config probe is skipped.
+      # libxdo-dev below is already present and unrelated to enigo here (enigo's
+      # X11 path is x11rb, pure Rust). See crates/os-integration/src/linux/.
       - name: Install build deps (Linux)
         if: runner.os == 'Linux'
         run: |

@@ -73,7 +73,62 @@ unsafe fn apply_floating_click_through_impl(
     Ok(())
 }
 
-#[cfg(not(target_os = "macos"))]
+/// Windows: make the overlay click-through (`WS_EX_TRANSPARENT` +
+/// `WS_EX_LAYERED`) and topmost so synthetic input and mouse clicks fall
+/// through to the app underneath while the overlay floats above it.
+///
+/// The `native_window` pointer is the Win32 `HWND` of the overlay window. The
+/// macOS path receives an `NSWindow *` from `tauri::WebviewWindow::ns_window()`;
+/// the Windows analogue is `tauri::WebviewWindow::hwnd()`. The host currently
+/// only wires the macOS call site, so this path is UNVALIDATED — it is kept
+/// signature-compatible so a future host branch can call it unchanged.
+#[cfg(target_os = "windows")]
+unsafe fn apply_floating_click_through_impl(
+    native_window: *mut std::ffi::c_void,
+) -> Result<(), OverlayError> {
+    use ::windows::Win32::Foundation::HWND;
+    use ::windows::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, HWND_TOPMOST,
+        SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TRANSPARENT,
+    };
+
+    if native_window.is_null() {
+        return Err(OverlayError::Internal("hwnd is null".into()));
+    }
+    let hwnd = HWND(native_window);
+
+    // SAFETY: forwarded contract — `native_window` is a live HWND owned by this
+    // process for the duration of the call.
+    unsafe {
+        let current = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        // WS_EX_TRANSPARENT: clicks pass through; WS_EX_LAYERED: required for a
+        // transparent window to actually be hit-test-transparent; WS_EX_NOACTIVATE:
+        // never steal focus from the dictation target.
+        // The three ex-style bits fit comfortably in 32 bits; widening the u32
+        // mask to the isize the API takes never wraps.
+        #[allow(clippy::cast_possible_wrap)]
+        let added = (WS_EX_TRANSPARENT.0 | WS_EX_LAYERED.0 | WS_EX_NOACTIVATE.0) as isize;
+        let new = current | added;
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, new);
+        // Float above the frontmost app's windows (analogue of macOS
+        // NSStatusWindowLevel) without moving, resizing, or activating it.
+        if let Err(e) = SetWindowPos(
+            hwnd,
+            Some(HWND_TOPMOST),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        ) {
+            return Err(OverlayError::Internal(format!("SetWindowPos: {e}")));
+        }
+        tracing::info!(exstyle = new, "overlay: HWND ex-style after set");
+    }
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 unsafe fn apply_floating_click_through_impl(
     _ns_window: *mut std::ffi::c_void,
 ) -> Result<(), OverlayError> {
@@ -125,5 +180,9 @@ fn primary_top_inset_impl() -> f64 {
 
 #[cfg(not(target_os = "macos"))]
 fn primary_top_inset_impl() -> f64 {
+    // Windows/Linux have no always-on top system bar that overlaps the
+    // primary display the way the macOS menu bar does (the taskbar is at the
+    // bottom by default and is excluded from the work area separately), so
+    // top-anchored UI needs no inset here.
     0.0
 }
