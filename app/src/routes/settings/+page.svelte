@@ -13,6 +13,7 @@
   import SkeletonRow from '$lib/components/SkeletonRow.svelte';
   import { settings, updateSettings } from '$lib/stores/settings.svelte';
   import { profile, setProfileMode } from '$lib/stores/profile';
+  import { backend, type BackendState } from '$lib/stores/backend.svelte';
   import type { ProfileName } from '$lib/tauri';
   import { t } from '$lib/i18n';
   import { navigate } from '$lib/router';
@@ -82,6 +83,18 @@
     energyMode === 'auto' && $profile?.active
       ? t('settings.general.energy_auto_active', { profile: PROFILE_LABELS[$profile.active] })
       : null,
+  );
+
+  // Status-dot color per backend state: green = GPU, amber = CPU fallback,
+  // muted/pulsing = still resolving (no model loaded yet).
+  function backendDotClass(state: BackendState): string {
+    if (state === 'gpu') return 'bg-emerald-500';
+    if (state === 'cpu') return 'bg-amber-500';
+    return 'bg-muted-foreground/40 animate-pulse';
+  }
+  // Show a CPU-fallback hint when any resolved engine landed on CPU.
+  let backendCpuFallback = $derived(
+    backend.stt.state === 'cpu' || backend.llm.state === 'cpu',
   );
 
   let devices = $state<InputDeviceEntry[]>([]);
@@ -433,6 +446,38 @@
                 </Select.Root>
                 {#if resolvedActive}
                   <span class="text-xs text-muted-foreground">{resolvedActive}</span>
+                {/if}
+              </div>
+            </div>
+            <div class="p-4 flex items-start justify-between gap-4">
+              <div class="min-w-0">
+                <Label>{t('settings.general.backend')}</Label>
+                <p class="text-xs text-muted-foreground mt-1">
+                  {t('settings.general.backend_helper')}
+                </p>
+                {#if backendCpuFallback}
+                  <p class="text-xs text-amber-600 dark:text-amber-500 mt-1">
+                    {t('settings.general.backend_cpu_hint')}
+                  </p>
+                {/if}
+              </div>
+              <div class="shrink-0 flex flex-col items-end gap-1.5 text-sm">
+                {#if backend.unified}
+                  <span class="inline-flex items-center gap-2">
+                    <span class={['h-2 w-2 rounded-full', backendDotClass(backend.stt.state)].join(' ')}></span>
+                    <span class="font-medium tabular-nums">{backend.stt.label}</span>
+                  </span>
+                {:else}
+                  <span class="inline-flex items-center gap-2">
+                    <span class="text-xs text-muted-foreground w-14 text-right">{t('settings.general.backend_stt')}</span>
+                    <span class={['h-2 w-2 rounded-full', backendDotClass(backend.stt.state)].join(' ')}></span>
+                    <span class="font-medium tabular-nums">{backend.stt.label}</span>
+                  </span>
+                  <span class="inline-flex items-center gap-2">
+                    <span class="text-xs text-muted-foreground w-14 text-right">{t('settings.general.backend_llm')}</span>
+                    <span class={['h-2 w-2 rounded-full', backendDotClass(backend.llm.state)].join(' ')}></span>
+                    <span class="font-medium tabular-nums">{backend.llm.label}</span>
+                  </span>
                 {/if}
               </div>
             </div>

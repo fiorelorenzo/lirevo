@@ -177,6 +177,12 @@
       "energy_balanced": "Balanced",
       "energy_performance": "Performance",
       "energy_auto_active": "Auto ({{profile}})",
+      "backend": "Backend",
+      "backend_helper": "The compute device inference runs on. Resolves after the first model loads.",
+      "backend_resolving": "Resolving…",
+      "backend_cpu_hint": "Running on CPU — GPU acceleration is unavailable on this machine.",
+      "backend_stt": "Speech",
+      "backend_llm": "Cleanup",
       "microphone": {
         "section": "Microphone check",
         "section_helper": "Test your selected input device — useful when switching headsets or after macOS audio changes.",
