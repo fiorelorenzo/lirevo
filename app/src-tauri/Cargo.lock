@@ -3449,7 +3449,7 @@ dependencies = [
 [[package]]
 name = "parakeet-cpp"
 version = "0.1.0"
-source = "git+https://github.com/fiorelorenzo/parakeet-cpp?rev=c5eb66d591555618be76d1a0542fdcb9d151ec26#c5eb66d591555618be76d1a0542fdcb9d151ec26"
+source = "git+https://github.com/fiorelorenzo/parakeet-cpp?rev=27ce3bec9bcca1aa90110e2770c937df2c83d9eb#27ce3bec9bcca1aa90110e2770c937df2c83d9eb"
 dependencies = [
  "parakeet-cpp-sys",
  "thiserror 2.0.18",
@@ -3458,7 +3458,7 @@ dependencies = [
 [[package]]
 name = "parakeet-cpp-sys"
 version = "0.1.0"
-source = "git+https://github.com/fiorelorenzo/parakeet-cpp?rev=c5eb66d591555618be76d1a0542fdcb9d151ec26#c5eb66d591555618be76d1a0542fdcb9d151ec26"
+source = "git+https://github.com/fiorelorenzo/parakeet-cpp?rev=27ce3bec9bcca1aa90110e2770c937df2c83d9eb#27ce3bec9bcca1aa90110e2770c937df2c83d9eb"
 dependencies = [
  "bindgen 0.70.1",
  "cmake",
