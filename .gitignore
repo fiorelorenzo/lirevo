@@ -57,3 +57,6 @@ crates/inference-core/tests/fixtures/*.wav
 
 # Local-only env (e.g. APPLE_SIGNING_IDENTITY for dev-bundle signing)
 .env
+
+# Local working notes (not source)
+notes.md
