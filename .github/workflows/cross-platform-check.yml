@@ -1,0 +1,55 @@
+name: cross-platform-check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Compile-only guard that the app builds on Linux + Windows (CPU backends).
+# This catches cross-platform breakage early (per AGENTS.md). It does NOT mean
+# Lirevo is functional there — global hotkey / text injection / overlay
+# (os-integration) are macOS-only with stubs elsewhere, and GPU support ships
+# via the dynamic-backend distribution. Both are separate v2 milestones.
+# macOS is fully covered by build-mac.yml (check + test + dmg).
+#
+# `cargo check` runs build scripts (so the parakeet.cpp / llama.cpp native libs
+# are compiled via cmake) and type-checks the Rust, but does not link final
+# binaries — enough to prove the workspace compiles cross-platform.
+
+jobs:
+  check:
+    name: check-${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      # Tauri 2 Linux system deps + a C/C++ toolchain (cmake/clang) for the
+      # vendored ggml CPU build and bindgen.
+      - name: Install build deps (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev libssl-dev \
+            build-essential cmake clang libclang-dev
+
+      # Windows MAX_PATH(260): the nested cargo target + cmake build paths
+      # overflow it for the native ggml builds. A short target dir avoids it.
+      - name: Use a short target dir (Windows, avoid MAX_PATH)
+        if: runner.os == 'Windows'
+        run: echo "CARGO_TARGET_DIR=C:\b" >> $env:GITHUB_ENV
+        shell: pwsh
+
+      # rust-toolchain.toml pins the channel; rustup on the runner honors it.
+      - name: cargo check (root workspace)
+        run: cargo check --workspace --all-targets
+
+      - name: cargo check (host crate)
+        working-directory: app/src-tauri
+        run: cargo check --all-targets
