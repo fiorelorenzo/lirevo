@@ -205,6 +205,15 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
         return;
     }
 
+    // Thin-fetch of the GPU backend module on first run (Linux). DORMANT on
+    // macOS (Metal is bundled → returns immediately, no network) and on Windows
+    // (static engines → nothing to fetch). On Linux wanting CUDA/Vulkan it
+    // downloads + verifies + places the module and wires the engines at it,
+    // BEFORE the ensure_stt/ensure_llm below create the ggml backends. A failure
+    // here is non-fatal: the engines fall back to the bundled CPU module.
+    let manifest_url = crate::engine::backend_manifest_url();
+    crate::engine::BackendManager::ensure_fetched_backends(app, manifest_url).await;
+
     // Runtime existence check: settings migration clears stale paths at
     // startup, but the file can disappear mid-session (model manager remove,
     // user deleted the .gguf manually). Treating a missing file as "not

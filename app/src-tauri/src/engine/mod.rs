@@ -7,6 +7,7 @@
 
 mod backend;
 mod decision;
+pub mod fetch;
 mod slot;
 mod streak;
 
@@ -25,7 +26,7 @@ use crate::engine::decision::resolve_n_threads;
 use crate::engine::slot::{LlmSlot, SlotSnapshot, SttSlotState};
 use crate::state::SttSlot;
 
-pub use crate::engine::backend::{ActiveBackends, BackendManager};
+pub use crate::engine::backend::{backend_manifest_url, ActiveBackends, BackendManager};
 pub use crate::engine::decision::UnloadReason;
 // `Action` is consumed by `apply_action` (lifecycle_loop); re-exported here so
 // the public surface is in one place.
