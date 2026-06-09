@@ -29,5 +29,7 @@ pub use backend::{
     ChatMessage, ChatRequest, ChatResponse, ChatRole, LlmBackend, LlmBackendHandle, LlmError,
     ModelInfo, StoppedBy, TokenUsage,
 };
-pub use llama::LlamaBackend;
+pub use llama::{
+    active_llm_backend_name, llm_backends_dir, load_llm_backends_from_path, LlamaBackend,
+};
 pub use stt::{Segment, SttEngine, SttEngineHandle, SttError, SttOptions, StubEngine, Transcript};

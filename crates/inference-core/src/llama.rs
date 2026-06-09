@@ -31,6 +31,40 @@ fn global_backend() -> Result<Arc<LlamaCppBackend>, LlmError> {
     Ok(LLAMA_BACKEND.get().expect("set just now").clone())
 }
 
+/// Compile-time directory of the loadable ggml backend MODULES (Metal, the CPU
+/// variants, …) built for `llama-cpp-2` under the `dynamic-backends` feature.
+/// `None` on a static build. Mirrors `llama_cpp_2::llama_backend::BACKENDS_DIR`.
+#[must_use]
+pub fn llm_backends_dir() -> Option<&'static str> {
+    llama_cpp_2::llama_backend::BACKENDS_DIR
+}
+
+/// Load the ggml backend modules from `dir` (dlopen of `libggml-metal.so`
+/// etc.). MUST run before the global llama backend is initialized (i.e. before
+/// the first [`LlamaBackend::load`]); idempotent at the ggml level. Thin wrapper
+/// over `llama_cpp_2::llama_backend::load_backends_from_path` so host code does
+/// not depend on `llama-cpp-2` directly.
+pub fn load_llm_backends_from_path(dir: &std::path::Path) {
+    llama_cpp_2::llama_backend::load_backends_from_path(dir);
+}
+
+/// Name of the compute device the LLM backend resolved to, e.g. `"Metal"` /
+/// `"CUDA"` / `"Vulkan"` / `"CPU"`. Returns the first non-CPU (GPU/iGPU/accel)
+/// device's backend name if any was discovered, else the first device's, else
+/// an empty string. Meaningful only after [`load_llm_backends_from_path`] has
+/// run (the dynamic modules must be loaded for a GPU device to register).
+#[must_use]
+pub fn active_llm_backend_name() -> String {
+    use llama_cpp_2::LlamaBackendDeviceType as Ty;
+    let devices = llama_cpp_2::list_llama_ggml_backend_devices();
+    devices
+        .iter()
+        .find(|d| !matches!(d.device_type, Ty::Cpu))
+        .or_else(|| devices.first())
+        .map(|d| d.backend.clone())
+        .unwrap_or_default()
+}
+
 pub struct LlamaBackend {
     model: Arc<LlamaModel>,
     // std::sync::Mutex is used because all llama.cpp work runs inside

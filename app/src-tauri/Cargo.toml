@@ -54,6 +54,27 @@ num_cpus          = "1"
 # ggml backends (incl. Metal on macOS) as loadable modules (GGML_BACKEND_DL).
 parakeet-cpp = { git = "https://github.com/fiorelorenzo/parakeet-cpp", rev = "27ce3bec9bcca1aa90110e2770c937df2c83d9eb", features = ["dynamic-backends"] }
 
+# Direct deps on the two `links` sys crates so their `links` metadata
+# (`DEP_PARAKEET_*` / `DEP_LLAMA_*`) is exposed to THIS crate's `build.rs`. Cargo
+# only forwards a `links` crate's `cargo:KEY=VALUE` metadata to the build scripts
+# of crates that DIRECTLY depend on it as a *normal* dependency — the host
+# otherwise reaches them only transitively (via `parakeet-cpp` /
+# `inference-core`), so the rpath/backends-dir metadata never arrives. We use
+# that metadata in `build.rs` to re-emit the runtime rpaths the final host binary
+# needs (cargo does NOT propagate a sys crate's own link-args to the binary) and
+# to disambiguate the two engines' colliding ggml dylibs.
+# Features mirror the transitive resolution so cargo unifies and does not rebuild
+# the native libs a second time (both `dynamic-backends`; `metal` for llama on
+# Apple Silicon, matching `inference-core`'s `llama-cpp-2` feature set). These are
+# build-glue only; no Rust code in the host references them directly.
+parakeet-cpp-sys = { git = "https://github.com/fiorelorenzo/parakeet-cpp", rev = "27ce3bec9bcca1aa90110e2770c937df2c83d9eb", features = ["dynamic-backends"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+llama-cpp-sys-2 = { version = "0.1.146", features = ["dynamic-backends", "metal"] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+llama-cpp-sys-2 = { version = "0.1.146", features = ["dynamic-backends"] }
+
 [features]
 default = []
 # In-process STT mock. Pulls in `stt::mock::MockModel` and lets the loader
