@@ -1,0 +1,187 @@
+# publish-backends — build + publish the fetchable GPU backend module bundles
+# and the manifest the app reads at runtime (see app/src-tauri/src/engine/fetch.rs).
+#
+# STATUS: SKELETON. This wires the moving parts (per-OS build matrix, sha256,
+# release upload, manifest generation) but the actual `make`/`cargo` build steps
+# that PRODUCE a CUDA/Vulkan ggml module bundle are TODO and UNVERIFIED — they
+# depend on:
+#   * The Lirevo Linux/Windows DL build landing end-to-end (today the app is
+#     dynamic-backends on macOS+Linux, STATIC on Windows — so a Windows "bundle"
+#     is not meaningful yet; see fetch.rs module docs).
+#   * The parakeet-cpp binding shipping its own GPU module bundles (the parakeet
+#     half is the BINDING repo's CI, out of scope for this workflow — documented
+#     below, not implemented here).
+#
+# Do not enable as a required check until the build steps are real.
+#
+# Output contract (consumed by the app):
+#   * One archive per (os, arch, backend, engine) tuple, uploaded as a release
+#     asset on a `backends-v<N>` tag.
+#   * `backends-manifest.json` (schema: app/src-tauri/src/engine/fetch.rs
+#     `BackendManifest`) uploaded alongside, with each entry's url/sha256/version.
+#     The app's DEFAULT_BACKEND_MANIFEST_URL points at this asset.
+
+name: publish-backends
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish backend bundles under (e.g. backends-v1)"
+        required: true
+        default: backends-v1
+  push:
+    tags:
+      - "backends-v*"
+
+permissions:
+  contents: write # create/upload release assets
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Build one GPU module bundle per (os, arch, backend, engine). SKELETON: the
+  # build step is a TODO placeholder; only the package/sha256/upload plumbing is
+  # real so the manifest job has something to consume.
+  # ---------------------------------------------------------------------------
+  build:
+    name: build ${{ matrix.os }}/${{ matrix.backend }}/${{ matrix.engine }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux is the real near-term target (dynamic-backends; CPU bundled,
+          # GPU fetched). CUDA = NVIDIA, Vulkan = everyone else.
+          - { os: linux, arch: x86_64, backend: cuda, engine: llama, runner: ubuntu-latest }
+          - { os: linux, arch: x86_64, backend: vulkan, engine: llama, runner: ubuntu-latest }
+          # parakeet's modules come from the BINDING repo's own CI (see the
+          # "parakeet (binding repo)" note at the bottom). Listed here only so the
+          # manifest shape is obvious; the build step short-circuits for it.
+          - { os: linux, arch: x86_64, backend: cuda, engine: parakeet, runner: ubuntu-latest }
+          # Windows is STATIC today (no dynamic backends) — a fetchable bundle is
+          # not meaningful until the Windows DL port lands. Kept commented so the
+          # intent is recorded without producing a bogus asset.
+          # - { os: windows, arch: x86_64, backend: cuda, engine: llama, runner: windows-latest }
+    steps:
+      - uses: actions/checkout@v4
+
+      # TODO(real build): build the engine with the GPU backend as a loadable
+      # ggml module and collect the resulting libggml-<backend>.so into ./bundle/.
+      # For llama: build llama-cpp-2 with `dynamic-backends` + the GPU feature
+      # (cuda/vulkan) and harvest its BACKENDS_DIR module(s). The CUDA build needs
+      # the CUDA toolkit on the runner (nvidia/cuda container or jimver/cuda-toolkit).
+      # This placeholder just proves the packaging path; it produces an EMPTY
+      # bundle and MUST be replaced before enabling the workflow.
+      - name: Build GPU module bundle (PLACEHOLDER — not a real build)
+        id: build
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::warning::publish-backends is a SKELETON — no real GPU build runs yet"
+          mkdir -p bundle
+          # A real run writes e.g. bundle/libggml-${{ matrix.backend }}.so here.
+          : > "bundle/libggml-${{ matrix.backend }}.PLACEHOLDER"
+          archive="ggml-${{ matrix.backend }}-${{ matrix.engine }}-${{ matrix.os }}-${{ matrix.arch }}.tar.zst"
+          tar --zstd -cf "$archive" -C bundle .
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+
+      - name: Compute sha256
+        id: sha
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="${{ steps.build.outputs.archive }}"
+          if command -v sha256sum >/dev/null; then
+            sum=$(sha256sum "$archive" | awk '{print $1}')
+          else
+            sum=$(shasum -a 256 "$archive" | awk '{print $1}')
+          fi
+          echo "sha256=$sum" >> "$GITHUB_OUTPUT"
+
+      # Emit a per-bundle manifest fragment the gather job stitches together.
+      # The `version` ties to the engine rev: llama = the llama-cpp-2 version,
+      # parakeet = the parakeet-cpp git rev. TODO: derive these from the lockfile
+      # / Cargo.toml instead of hardcoding.
+      - name: Emit manifest fragment
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          case "${{ matrix.engine }}" in
+            llama)    version="0.1.146" ;;  # TODO: read llama-cpp-2 version from Cargo
+            parakeet) version="27ce3bec9bcca1aa90110e2770c937df2c83d9eb" ;; # TODO: read parakeet-cpp rev
+            *)        version="unknown" ;;
+          esac
+          url="https://github.com/${{ github.repository }}/releases/download/${tag}/${{ steps.build.outputs.archive }}"
+          cat > "fragment-${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.backend }}-${{ matrix.engine }}.json" <<EOF
+          {
+            "os": "${{ matrix.os }}",
+            "arch": "${{ matrix.arch }}",
+            "backend": "${{ matrix.backend }}",
+            "engine": "${{ matrix.engine }}",
+            "version": "${version}",
+            "url": "${url}",
+            "sha256": "${{ steps.sha.outputs.sha256 }}",
+            "files": ["libggml-${{ matrix.backend }}.so"]
+          }
+          EOF
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backend-${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.backend }}-${{ matrix.engine }}
+          path: |
+            ${{ steps.build.outputs.archive }}
+            fragment-*.json
+
+  # ---------------------------------------------------------------------------
+  # Stitch the fragments into backends-manifest.json and publish everything as
+  # release assets on the tag. This half IS real; it just needs real bundles.
+  # ---------------------------------------------------------------------------
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+
+      - name: Assemble backends-manifest.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Merge every fragment-*.json into one manifest (schema_version 1).
+          # jq -s slurps the fragments into an array → the `entries` field.
+          mapfile -t fragments < <(find assets -name 'fragment-*.json' | sort)
+          jq -s '{schema_version: 1, entries: .}' "${fragments[@]}" > backends-manifest.json
+          echo "=== backends-manifest.json ==="
+          cat backends-manifest.json
+
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          # Create the release if it doesn't exist (idempotent).
+          gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1 \
+            || gh release create "$tag" --repo "${{ github.repository }}" \
+                 --title "$tag" --notes "GPU backend module bundles + manifest (SKELETON)"
+          # Upload all archives + the manifest, clobbering prior copies.
+          archives=$(find assets -name '*.tar.zst')
+          gh release upload "$tag" $archives backends-manifest.json \
+            --repo "${{ github.repository }}" --clobber
+
+# ---------------------------------------------------------------------------
+# parakeet (binding repo) — OUT OF SCOPE for this workflow.
+#
+# The parakeet GPU modules are built + published by the parakeet-cpp BINDING
+# repo's own release CI (it owns the parakeet.cpp source + its ggml). That repo
+# should run an analogous job and either:
+#   (a) publish its own parakeet manifest fragments that this workflow's gather
+#       step pulls in (cross-repo), or
+#   (b) upload parakeet bundles as assets on the binding repo's releases, with
+#       this manifest's parakeet entries' `url` pointing at the binding repo.
+# Until that exists, the parakeet matrix rows above are placeholders. Tracking
+# this in the binding repo is the remaining publish work for the STT half.
+# ---------------------------------------------------------------------------

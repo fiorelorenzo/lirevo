@@ -21,6 +21,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::Once;
 
+use crate::engine::fetch;
+
 /// The loadable-backend-modules dir for parakeet, captured at build time by the
 /// host `build.rs` from the sys crate's `DEP_PARAKEET_BACKENDS_DIR`. `None` on a
 /// static build (or any build where the metadata was absent). This is the DEV
@@ -35,6 +37,29 @@ const PARAKEET_BACKENDS_DIR: Option<&str> = option_env!("LIREVO_PARAKEET_BACKEND
 const LLAMA_BACKENDS_DIR: Option<&str> = option_env!("LIREVO_LLAMA_BACKENDS_DIR");
 
 static PREPARE: Once = Once::new();
+
+/// Default URL of the backend-modules manifest (see [`fetch::BackendManifest`]).
+/// Hosted as a release asset on the Lirevo repo; the publish CI
+/// (`.github/workflows/publish-backends.yml`) generates + uploads it. Overridable
+/// at runtime via `LIREVO_BACKEND_MANIFEST_URL` (for staging / testing). The
+/// pinned tag keeps the app fetching modules built against ITS engine revisions,
+/// not whatever `latest` happens to be.
+const DEFAULT_BACKEND_MANIFEST_URL: &str =
+    "https://github.com/fiorelorenzo/lirevo/releases/download/backends-v1/backends-manifest.json";
+
+/// The manifest URL the thin-fetch path should use. Honours
+/// `LIREVO_BACKEND_MANIFEST_URL` so dev/CI can point at a local or staging
+/// manifest without a rebuild; falls back to [`DEFAULT_BACKEND_MANIFEST_URL`].
+///
+/// Returns an owned `&'static str` only when the env var is unset; when set it
+/// leaks the override string (called once at startup, so the leak is bounded).
+#[must_use]
+pub fn backend_manifest_url() -> &'static str {
+    match std::env::var("LIREVO_BACKEND_MANIFEST_URL") {
+        Ok(url) if !url.is_empty() => Box::leak(url.into_boxed_str()),
+        _ => DEFAULT_BACKEND_MANIFEST_URL,
+    }
+}
 
 /// Backend-module directories resolved from the running macOS `.app` bundle.
 ///
@@ -150,6 +175,185 @@ impl BackendManager {
             llm: inference_core::active_llm_backend_name(),
         }
     }
+
+    /// Whether the desired GPU backend ships BUNDLED on this platform, so the
+    /// thin-fetch path is a no-op. This is the kill-switch that keeps the whole
+    /// fetch mechanism DORMANT on macOS:
+    ///
+    /// - **macOS:** Metal + CPU are bundled in the `.app` → always `true`,
+    ///   regardless of [`fetch::detect_gpu`]. The fetch never runs.
+    /// - **Linux:** CPU is bundled but CUDA / Vulkan are not → `false` for those
+    ///   (the case the fetch is built for); `true` for CPU/Metal.
+    /// - **Windows:** the engines link STATICALLY (no dynamic backends at all —
+    ///   see the host `Cargo.toml`), so there is nothing to dlopen and nothing a
+    ///   fetch could usefully add → always `true` (treat everything as
+    ///   "satisfied" so the fetch never runs). Real Windows GPU support is the
+    ///   v2 Windows DL + os-integration port; until then a fetch is meaningless.
+    #[must_use]
+    pub fn backend_is_bundled(desired: fetch::DesiredBackend) -> bool {
+        // CPU + Metal are bundled everywhere we ship them.
+        let always_bundled = matches!(desired, fetch::BackendKind::Cpu | fetch::BackendKind::Metal);
+        // On macOS (Metal-only, bundled) and Windows (static link, no dynamic
+        // backends to fetch into) EVERYTHING is treated as already-satisfied, so
+        // the fetch never runs. On Linux, CUDA / Vulkan are genuine fetch
+        // targets and are NOT bundled.
+        let platform_has_no_fetchable = cfg!(any(target_os = "macos", target_os = "windows"));
+        always_bundled || platform_has_no_fetchable
+    }
+
+    /// App-data directory that holds fetched (non-bundled) backend modules,
+    /// laid out as `<data>/backends/{parakeet,llama}` to mirror the bundled
+    /// `.app` layout. Created on demand.
+    fn fetched_backends_root(app: &tauri::AppHandle) -> std::io::Result<PathBuf> {
+        let dir = crate::paths::data_dir(app)
+            .map_err(|e| std::io::Error::other(e.to_string()))?
+            .join("backends");
+        std::fs::create_dir_all(&dir)?;
+        Ok(dir)
+    }
+
+    /// DORMANT-ON-MACOS thin-fetch entry point: ensure the desired GPU backend's
+    /// loadable modules are present for both engines, downloading them on first
+    /// run if they aren't bundled.
+    ///
+    /// Wiring + dormancy contract:
+    /// - Resolves [`fetch::detect_gpu`] for the running machine.
+    /// - If that backend [`is bundled`](Self::backend_is_bundled) (always the
+    ///   case on macOS, and for CPU/Metal anywhere) this returns immediately
+    ///   with NO network call — the existing bundled load path in [`prepare`]
+    ///   already covers it. This is what keeps macOS dormant.
+    /// - Otherwise (Linux CUDA/Vulkan) it fetches the manifest, downloads +
+    ///   verifies the module bundle for each engine, places it under the
+    ///   app-data backends dir, and points the engines at that dir so their
+    ///   `ggml_backend_load_all_from_path` discovers the GPU module.
+    ///
+    /// Returns the app-data backend dirs that were made available (to merge into
+    /// the load path), or an empty vec when nothing was fetched (the dormant /
+    /// already-bundled case).
+    ///
+    /// UNVERIFIED: the real download + dlopen of a CUDA/Vulkan module on target
+    /// GPU hardware is untested (no target box; modules not yet published). The
+    /// decision + manifest + place/verify logic is unit-tested in isolation.
+    pub async fn ensure_fetched_backends(
+        app: &tauri::AppHandle,
+        manifest_url: &str,
+    ) -> Vec<PathBuf> {
+        let desired = fetch::detect_gpu();
+        if Self::backend_is_bundled(desired) {
+            tracing::debug!(
+                ?desired,
+                "thin-fetch dormant: desired backend is bundled (no fetch)"
+            );
+            return Vec::new();
+        }
+
+        // Past this point we are on Linux wanting CUDA/Vulkan. Resolve the
+        // app-data backends root + fetch the manifest.
+        let root = match Self::fetched_backends_root(app) {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(?e, "thin-fetch: could not resolve backends dir; skipping");
+                return Vec::new();
+            }
+        };
+
+        let fetcher = fetch::ReqwestFetcher;
+        let manifest_bytes = match fetcher_get(manifest_url).await {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::warn!(%manifest_url, %e, "thin-fetch: manifest fetch failed; falling back to bundled CPU");
+                return Vec::new();
+            }
+        };
+        let manifest = match fetch::parse_manifest(&manifest_bytes) {
+            Ok(m) => m,
+            Err(e) => {
+                tracing::warn!(%e, "thin-fetch: manifest parse failed; falling back to bundled CPU");
+                return Vec::new();
+            }
+        };
+
+        let os = std::env::consts::OS;
+        let arch = std::env::consts::ARCH;
+        let mut dirs = Vec::new();
+        for engine in [fetch::Engine::Parakeet, fetch::Engine::Llama] {
+            let target = fetch::FetchTarget {
+                desired,
+                engine,
+                os,
+                arch,
+                backends_root: &root,
+            };
+            match fetch::ensure_backend(&target, &manifest, &fetcher, fetch::unpack_single_file)
+                .await
+            {
+                Ok(fetch::FetchOutcome::Fetched(dir))
+                | Ok(fetch::FetchOutcome::AlreadyPresent(dir)) => {
+                    tracing::info!(engine = engine.dir_name(), dir = %dir.display(), "thin-fetch: backend available");
+                    // Point the engine at the fetched modules' dir so its ggml
+                    // `load_all_from_path` discovers the GPU module. For llama
+                    // we can load now (idempotent at the ggml level, must run
+                    // before the first LlamaBackend::init); for parakeet we
+                    // EXTEND its env var, which is read once on the first STT
+                    // load — so this must run before any model loads (it does:
+                    // load_models calls this before ensure_stt/ensure_llm).
+                    Self::wire_fetched_dir(engine, &dir);
+                    dirs.push(dir);
+                }
+                Ok(fetch::FetchOutcome::Bundled | fetch::FetchOutcome::NotInManifest) => {}
+                Err(e) => {
+                    tracing::warn!(engine = engine.dir_name(), %e, "thin-fetch: backend fetch failed; engine falls back to bundled CPU");
+                }
+            }
+        }
+        dirs
+    }
+
+    /// Point an engine at a freshly-fetched backend-modules dir.
+    ///
+    /// - **llama:** `inference_core::load_llm_backends_from_path` is idempotent
+    ///   at the ggml level and may be called again with the fetched dir, so the
+    ///   GPU module registers alongside the ones [`prepare`] already loaded from
+    ///   the bundled dir. Must precede the first `LlamaBackend::init`.
+    /// - **parakeet:** only honours a SINGLE `PARAKEET_BACKENDS_DIR`, read once
+    ///   on the first STT load. KNOWN v2 GAP: to expose both the bundled CPU
+    ///   module and the fetched GPU module, the fetched dir must contain the
+    ///   full module set (or parakeet must grow multi-dir support upstream).
+    ///   Today we point the env at the fetched dir; the Linux CPU+GPU coexistence
+    ///   is part of the deferred Linux bundling work and is UNVERIFIED here.
+    fn wire_fetched_dir(engine: fetch::Engine, dir: &Path) {
+        match engine {
+            fetch::Engine::Llama => {
+                inference_core::load_llm_backends_from_path(dir);
+            }
+            fetch::Engine::Parakeet => {
+                // SAFETY: runs at startup (load_models) before the first STT
+                // model load creates the parakeet backend and reads this var,
+                // and before other threads can race on the environment.
+                unsafe { std::env::set_var("PARAKEET_BACKENDS_DIR", dir) };
+            }
+        }
+    }
+}
+
+/// One-shot manifest GET, mirroring `fetch::ReqwestFetcher` but returning the
+/// raw bytes for the JSON manifest. Kept here (rather than reusing the
+/// `BytesFetcher` trait) so the manifest fetch is independent of the per-bundle
+/// fetcher and easy to log distinctly.
+async fn fetcher_get(url: &str) -> Result<Vec<u8>, String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| format!("http: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    resp.bytes()
+        .await
+        .map(|b| b.to_vec())
+        .map_err(|e| format!("body: {e}"))
 }
 
 #[cfg(test)]
@@ -162,6 +366,53 @@ mod tests {
         // to call repeatedly (the Once guard).
         BackendManager::prepare();
         BackendManager::prepare();
+    }
+
+    #[test]
+    fn thin_fetch_is_dormant_for_the_detected_backend_on_this_platform() {
+        // The dormancy gate: on macOS (Metal bundled) and Windows (static), the
+        // backend the machine wants is always treated as bundled, so
+        // `ensure_fetched_backends` returns before any network call. On Linux
+        // this holds only when no GPU is present (CPU fallback). We assert the
+        // gate matches the platform contract.
+        let detected = fetch::detect_gpu();
+        let bundled = BackendManager::backend_is_bundled(detected);
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        assert!(bundled, "fetch must be dormant on macOS/Windows");
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        {
+            // Linux: bundled iff the detected backend is CPU/Metal (no GPU
+            // module to fetch); CUDA/Vulkan are the non-bundled fetch targets.
+            let expected = matches!(
+                detected,
+                fetch::BackendKind::Cpu | fetch::BackendKind::Metal
+            );
+            assert_eq!(bundled, expected);
+        }
+    }
+
+    #[test]
+    fn cpu_and_metal_are_always_bundled() {
+        assert!(BackendManager::backend_is_bundled(fetch::BackendKind::Cpu));
+        assert!(BackendManager::backend_is_bundled(
+            fetch::BackendKind::Metal
+        ));
+    }
+
+    #[test]
+    fn manifest_url_honours_env_override() {
+        // Default when unset.
+        // SAFETY: single-threaded test; we set then immediately read + restore.
+        let prev = std::env::var("LIREVO_BACKEND_MANIFEST_URL").ok();
+        unsafe { std::env::remove_var("LIREVO_BACKEND_MANIFEST_URL") };
+        assert!(backend_manifest_url().starts_with("https://"));
+        unsafe { std::env::set_var("LIREVO_BACKEND_MANIFEST_URL", "https://staging/m.json") };
+        assert_eq!(backend_manifest_url(), "https://staging/m.json");
+        // Restore.
+        match prev {
+            Some(v) => unsafe { std::env::set_var("LIREVO_BACKEND_MANIFEST_URL", v) },
+            None => unsafe { std::env::remove_var("LIREVO_BACKEND_MANIFEST_URL") },
+        }
     }
 
     #[test]
