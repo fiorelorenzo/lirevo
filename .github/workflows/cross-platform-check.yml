@@ -46,6 +46,17 @@ jobs:
         run: echo "CARGO_TARGET_DIR=C:\b" >> $env:GITHUB_ENV
         shell: pwsh
 
+      # The parakeet-cpp build.rs uses the Ninja generator on Windows; Ninja
+      # needs an MSVC dev environment (cl.exe on PATH) + ninja itself.
+      - name: Setup MSVC dev environment (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install Ninja (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ninja
+        shell: pwsh
+
       # rust-toolchain.toml pins the channel; rustup on the runner honors it.
       # Check the SHIPPED app only. The root workspace also has Unix-only dev
       # tooling (the HTTP-over-unix-socket sidecar + lirevo-cli/prototype) that
