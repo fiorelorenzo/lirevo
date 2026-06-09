@@ -2,11 +2,17 @@
 //! accessibility / microphone permissions, and small native helpers
 //! (audio cue, overlay window tweaks).
 //!
-//! Today only macOS has real implementations; non-macOS targets get a
-//! stub module that returns `NotSupported` errors and `Denied`
+//! macOS and Windows have real implementations; remaining targets (Linux,
+//! others) get a stub module that returns `NotSupported` errors and `Denied`
 //! permission status so the workspace compiles everywhere. Adding a new
 //! platform means filling in a sibling module — consumer code keeps the
 //! same imports.
+//!
+//! NOTE: the Windows backend (`windows/`) is implemented entirely against the
+//! Win32 API on a macOS host and has only been compile-validated via CI. None
+//! of its runtime behaviour (hotkey Down/Up delivery, `SendInput` paste,
+//! overlay click-through, foreground-app lookup) has been exercised on real
+//! Windows hardware. Treat it as unvalidated until smoke-tested there.
 
 #![warn(clippy::pedantic)]
 #![allow(clippy::missing_errors_doc, clippy::missing_panics_doc)]
@@ -38,9 +44,19 @@ pub mod clipboard {
     pub use crate::pasteboard::set_text;
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
+mod windows;
+
+#[cfg(target_os = "windows")]
+pub use windows::{
+    check_accessibility, check_microphone, clipboard, dev_skip_perms, prompt_accessibility,
+    prompt_microphone, Hotkey, HotkeyError, HotkeyEvent, HotkeyListener, InjectError,
+    InjectionMethod, Injector, PermissionStatus,
+};
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 mod stub;
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub use stub::{
     check_accessibility, check_microphone, clipboard, dev_skip_perms, prompt_accessibility,
     prompt_microphone, Hotkey, HotkeyError, HotkeyEvent, HotkeyListener, InjectError,
@@ -51,8 +67,10 @@ pub mod audio_cue;
 pub mod overlay;
 
 /// A focused application identified by its localized name and bundle id.
-/// Either field may be `None` if macOS doesn't report it (e.g. a process
-/// without an `Info.plist`).
+/// Either field may be `None` if the OS doesn't report it (e.g. a macOS
+/// process without an `Info.plist`, or a Windows process whose image path
+/// can't be read). On Windows `bundle_id` carries the full executable path
+/// (there is no bundle-id concept).
 #[derive(Debug, Clone)]
 pub struct FrontmostApp {
     pub name: Option<String>,
@@ -67,7 +85,11 @@ pub fn frontmost_app() -> Option<FrontmostApp> {
     {
         frontmost::frontmost_app()
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        windows::frontmost::frontmost_app()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         None
     }
