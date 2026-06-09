@@ -51,7 +51,7 @@ num_cpus          = "1"
 
 # STT backend: our own Rust bindings to mudler/parakeet.cpp (ggml).
 # Metal auto-enabled on macOS by the binding's build.rs.
-parakeet-cpp = { git = "https://github.com/fiorelorenzo/parakeet-cpp", rev = "2e79c88f76c83c8d8bf98010823d27e8afca6b35" }
+parakeet-cpp = { git = "https://github.com/fiorelorenzo/parakeet-cpp", rev = "c5eb66d591555618be76d1a0542fdcb9d151ec26" }
 
 [features]
 default = []

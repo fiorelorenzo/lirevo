@@ -17,6 +17,9 @@ pub mod backend;
 pub mod catalog;
 pub mod llama;
 pub mod profile;
+// The HTTP sidecar binds a Unix-domain socket (dev-only tooling) — Unix-only,
+// so non-Unix targets (Windows) compile the rest of the crate cleanly.
+#[cfg(unix)]
 pub mod server;
 pub mod stt;
 pub mod stub_llm;
