@@ -35,8 +35,18 @@ fn global_backend() -> Result<Arc<LlamaCppBackend>, LlmError> {
 /// variants, …) built for `llama-cpp-2` under the `dynamic-backends` feature.
 /// `None` on a static build. Mirrors `llama_cpp_2::llama_backend::BACKENDS_DIR`.
 #[must_use]
+#[cfg(not(target_os = "windows"))]
 pub fn llm_backends_dir() -> Option<&'static str> {
     llama_cpp_2::llama_backend::BACKENDS_DIR
+}
+
+/// Windows builds llama-cpp-2 without `dynamic-backends` (Windows DL is deferred
+/// — MSVC can't defer the direct ggml-cpu symbol refs at DLL link), so the
+/// `dynamic-backends`-gated API is absent. Stub to keep host code portable.
+#[must_use]
+#[cfg(target_os = "windows")]
+pub fn llm_backends_dir() -> Option<&'static str> {
+    None
 }
 
 /// Load the ggml backend modules from `dir` (dlopen of `libggml-metal.so`
@@ -44,9 +54,14 @@ pub fn llm_backends_dir() -> Option<&'static str> {
 /// the first [`LlamaBackend::load`]); idempotent at the ggml level. Thin wrapper
 /// over `llama_cpp_2::llama_backend::load_backends_from_path` so host code does
 /// not depend on `llama-cpp-2` directly.
+#[cfg(not(target_os = "windows"))]
 pub fn load_llm_backends_from_path(dir: &std::path::Path) {
     llama_cpp_2::llama_backend::load_backends_from_path(dir);
 }
+
+/// No-op on Windows (static llama; `dynamic-backends` deferred — see above).
+#[cfg(target_os = "windows")]
+pub fn load_llm_backends_from_path(_dir: &std::path::Path) {}
 
 /// Name of the compute device the LLM backend resolved to, e.g. `"Metal"` /
 /// `"CUDA"` / `"Vulkan"` / `"CPU"`. Returns the first non-CPU (GPU/iGPU/accel)
