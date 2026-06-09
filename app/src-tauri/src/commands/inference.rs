@@ -104,6 +104,56 @@ pub fn get_model_state(state: State<'_, AppState>) -> Result<ModelState, AppErro
     Ok(state.current_model_state())
 }
 
+/// Wire type for [`get_active_backend`]: the compute backend each engine
+/// resolved to, plus a convenience GPU flag the UI can render without
+/// re-implementing the "is this CPU?" check. `*_is_gpu` is true when the
+/// backend string is non-empty and not (case-insensitively) `"cpu"`.
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActiveBackendInfo {
+    pub stt: String,
+    pub llm: String,
+    pub stt_is_gpu: bool,
+    pub llm_is_gpu: bool,
+}
+
+/// A backend is "GPU" when it resolved to a real, non-CPU compute backend
+/// (e.g. ggml's `"MTL0"` / `"Metal"`). Empty (no model loaded yet) and any
+/// case spelling of `"cpu"` count as not-GPU.
+fn is_gpu_backend(name: &str) -> bool {
+    !name.is_empty() && !name.eq_ignore_ascii_case("cpu")
+}
+
+/// Report the active STT + LLM compute backends to the frontend (consumed by
+/// Settings → Engine).
+///
+/// The backends are resolved lazily — the ggml backend is created on the
+/// first model load, so `Engine::active_backends()` is `None` until then. In
+/// that not-ready case we return empty strings with `*_is_gpu = false` rather
+/// than erroring, so the UI can render a neutral "resolving" state.
+#[tauri::command]
+pub fn get_active_backend(state: State<'_, AppState>) -> Result<ActiveBackendInfo, AppError> {
+    let engine = {
+        let inner = state.inner.lock().unwrap();
+        inner.engine.clone()
+    };
+    let info = match engine.active_backends() {
+        Some(active) => ActiveBackendInfo {
+            stt_is_gpu: is_gpu_backend(&active.stt),
+            llm_is_gpu: is_gpu_backend(&active.llm),
+            stt: active.stt,
+            llm: active.llm,
+        },
+        None => ActiveBackendInfo {
+            stt: String::new(),
+            llm: String::new(),
+            stt_is_gpu: false,
+            llm_is_gpu: false,
+        },
+    };
+    Ok(info)
+}
+
 /// Refresh the Engine config from current settings, eagerly load both
 /// backends, and emit the resulting `ModelState` for the UI.
 ///
