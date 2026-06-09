@@ -18,20 +18,57 @@
 //! resolves which compute backend each engine actually selected
 //! ([`ActiveBackends`]), which the Engine caches after the first model load.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Once;
 
 /// The loadable-backend-modules dir for parakeet, captured at build time by the
 /// host `build.rs` from the sys crate's `DEP_PARAKEET_BACKENDS_DIR`. `None` on a
-/// static build (or any build where the metadata was absent).
+/// static build (or any build where the metadata was absent). This is the DEV
+/// (absolute, in-`target/`) path; a shipped `.app` resolves the bundled dir at
+/// runtime instead (see [`bundled_backends`]).
 const PARAKEET_BACKENDS_DIR: Option<&str> = option_env!("LIREVO_PARAKEET_BACKENDS_DIR");
 
 /// The loadable-backend-modules dir for llama, captured the same way from
 /// `DEP_LLAMA_BACKENDS_DIR`. Used as a fallback if `inference-core` does not
-/// surface llama-cpp-2's own compile-time `BACKENDS_DIR`.
+/// surface llama-cpp-2's own compile-time `BACKENDS_DIR`. Also the DEV path; the
+/// bundle resolves its own dir at runtime (see [`bundled_backends`]).
 const LLAMA_BACKENDS_DIR: Option<&str> = option_env!("LIREVO_LLAMA_BACKENDS_DIR");
 
 static PREPARE: Once = Once::new();
+
+/// Backend-module directories resolved from the running macOS `.app` bundle.
+///
+/// `bundle_macos_install.sh` (run by `just dev-bundle` / `just dmg`) lays the
+/// `.so` backend modules under `Contents/Resources/backends/{parakeet,llama}`
+/// and the engines' dylibs under `Contents/Frameworks`. We discover those dirs
+/// relative to the running executable so the runtime path is the BUNDLED one, not
+/// the build-time `target/` path baked into `option_env!`.
+struct BundledBackends {
+    parakeet: PathBuf,
+    llama: PathBuf,
+}
+
+/// Resolve the bundled backend-module dirs if (and only if) we are running from
+/// inside the staged `.app` layout. Returns `None` for a bare `just dev` binary
+/// (or any non-bundle run), so the caller falls back to the build-time dev paths.
+///
+/// The executable in a bundle lives at `Foo.app/Contents/MacOS/<bin>`, so the
+/// backend modules are at `../Resources/backends/{parakeet,llama}`. We require
+/// BOTH dirs to exist before treating this as a bundle run; otherwise a partially
+/// staged tree would silently disable one engine's Metal module.
+fn bundled_backends() -> Option<BundledBackends> {
+    let exe = std::env::current_exe().ok()?;
+    // .../Contents/MacOS/<bin> -> .../Contents
+    let contents = exe.parent()?.parent()?;
+    let base = contents.join("Resources").join("backends");
+    let parakeet = base.join("parakeet");
+    let llama = base.join("llama");
+    if parakeet.is_dir() && llama.is_dir() {
+        Some(BundledBackends { parakeet, llama })
+    } else {
+        None
+    }
+}
 
 /// The compute backend each engine resolved to, e.g. `stt = "MTL0"` / `"cpu"`,
 /// `llm = "Metal"` / `"CPU"`. Resolvable only after the corresponding model has
@@ -51,30 +88,48 @@ impl BackendManager {
     /// Idempotent: subsequent calls are no-ops (guarded by a `Once`).
     pub fn prepare() {
         PREPARE.call_once(|| {
+            // When running from a shipped `.app`, the backend modules live inside
+            // the bundle; that runtime location takes precedence over the
+            // build-time `target/` paths baked into `option_env!`. A bare
+            // `just dev` binary (no bundle) falls back to the dev paths.
+            let bundle = bundled_backends();
+            if bundle.is_some() {
+                tracing::info!("running from .app bundle; resolving backends from the bundle");
+            }
+
             // parakeet reads PARAKEET_BACKENDS_DIR lazily, on first model load.
-            if let Some(dir) = PARAKEET_BACKENDS_DIR {
+            let parakeet_dir: Option<String> = bundle
+                .as_ref()
+                .map(|b| b.parakeet.to_string_lossy().into_owned())
+                .or_else(|| PARAKEET_BACKENDS_DIR.map(str::to_string));
+            if let Some(dir) = &parakeet_dir {
                 // SAFETY: called once, at Engine construction, before any STT
                 // model load creates the parakeet backend and before other
                 // threads can race on the environment.
                 unsafe { std::env::set_var("PARAKEET_BACKENDS_DIR", dir) };
-                tracing::info!(parakeet_backends_dir = dir, "prepared STT dynamic backends");
+                tracing::info!(parakeet_backends_dir = %dir, "prepared STT dynamic backends");
             } else {
                 tracing::warn!(
-                    "LIREVO_PARAKEET_BACKENDS_DIR unset at build time; \
+                    "LIREVO_PARAKEET_BACKENDS_DIR unset at build time and not in a bundle; \
                      STT may fall back to a non-dynamic backend"
                 );
             }
 
-            // llama: load the modules now, before LlamaBackend::init(). Prefer
-            // llama-cpp-2's own compile-time BACKENDS_DIR (via inference-core);
-            // fall back to the host-captured env. Same path in practice.
-            let llm_dir = inference_core::llm_backends_dir().or(LLAMA_BACKENDS_DIR);
-            if let Some(dir) = llm_dir {
+            // llama: load the modules now, before LlamaBackend::init(). In a
+            // bundle use the bundled dir; otherwise prefer llama-cpp-2's own
+            // compile-time BACKENDS_DIR (via inference-core), then the
+            // host-captured env. Same path in practice for the dev build.
+            let llm_dir: Option<String> = bundle
+                .as_ref()
+                .map(|b| b.llama.to_string_lossy().into_owned())
+                .or_else(|| inference_core::llm_backends_dir().map(str::to_string))
+                .or_else(|| LLAMA_BACKENDS_DIR.map(str::to_string));
+            if let Some(dir) = &llm_dir {
                 inference_core::load_llm_backends_from_path(Path::new(dir));
-                tracing::info!(llama_backends_dir = dir, "prepared LLM dynamic backends");
+                tracing::info!(llama_backends_dir = %dir, "prepared LLM dynamic backends");
             } else {
                 tracing::warn!(
-                    "no llama backends dir at build time; \
+                    "no llama backends dir at build time and not in a bundle; \
                      LLM may fall back to a non-dynamic backend"
                 );
             }
