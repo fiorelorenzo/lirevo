@@ -416,6 +416,7 @@ pub fn run() {
             commands::inference::transcribe,
             commands::inference::clean,
             commands::inference::get_model_state,
+            commands::inference::get_active_backend,
             commands::dictation::manual_dictate,
             commands::dictation::test_mic,
             commands::dictation::cancel_test_mic,

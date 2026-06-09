@@ -104,6 +104,17 @@ export interface UpdateInfo {
   version: string | null;
 }
 
+/** Active compute backend each engine resolved to. Backends resolve lazily
+ *  (only after the first model load), so before then the strings are empty
+ *  and `*IsGpu` is false. Device names look like `"MTL0"` / `"MTL"` (Metal),
+ *  `"cpu"`, etc. */
+export interface ActiveBackendInfo {
+  stt: string;
+  llm: string;
+  sttIsGpu: boolean;
+  llmIsGpu: boolean;
+}
+
 export interface TestMicResult {
   peak: number;
   sampleCount: number;
@@ -175,6 +186,7 @@ export const lda = {
   modelsCancelDownload: (id: string) => invoke<void>('models_cancel_download', { id }),
   modelsDelete: (id: string) => invoke<void>('models_delete', { id }),
   getModelState: () => invoke<ModelState>('get_model_state'),
+  getActiveBackend: () => invoke<ActiveBackendInfo>('get_active_backend'),
   checkAccessibility: () => invoke<PermissionStatus>('check_accessibility'),
   promptAccessibility: () => invoke<PermissionStatus>('prompt_accessibility'),
   checkMicrophone: () => invoke<PermissionStatus>('check_microphone'),

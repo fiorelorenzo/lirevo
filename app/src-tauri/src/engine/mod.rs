@@ -5,6 +5,7 @@
 //! worker, `resource_monitor`, and `inference_core::profile::ProfileSelector`.
 //! See `docs/superpowers/plans/2026-05-29-m53-engine-lifecycle.md`.
 
+mod backend;
 mod decision;
 mod slot;
 mod streak;
@@ -24,6 +25,7 @@ use crate::engine::decision::resolve_n_threads;
 use crate::engine::slot::{LlmSlot, SlotSnapshot, SttSlotState};
 use crate::state::SttSlot;
 
+pub use crate::engine::backend::{ActiveBackends, BackendManager};
 pub use crate::engine::decision::UnloadReason;
 // `Action` is consumed by `apply_action` (lifecycle_loop); re-exported here so
 // the public surface is in one place.
@@ -66,11 +68,23 @@ pub struct Engine {
     /// [`Engine::set_state_reporter`] from `lib.rs` startup. Lock-free reads
     /// on the hot path (every load/unload) via `ArcSwapOption`.
     state_reporter: ArcSwapOption<AppHandle>,
+    /// Compute backends each engine resolved to (e.g. STT "MTL0", LLM "Metal").
+    /// `None` until the first STT model loads (the ggml backend is created
+    /// lazily on load, so `parakeet_cpp::Model::backend_name()` is only valid
+    /// afterwards). Cached here so a future `get_active_backend` command / the
+    /// validating test can read it without re-querying the model. Lock-free.
+    active_backends: ArcSwapOption<ActiveBackends>,
 }
 
 impl Engine {
     #[must_use]
     pub fn new(config: EngineConfig, initial_profile: ProfileName, models_dir: PathBuf) -> Arc<Self> {
+        // Point both engines at their loadable ggml backend modules BEFORE any
+        // model is created. parakeet reads `PARAKEET_BACKENDS_DIR` on its first
+        // load; the LLM modules must be loaded before `LlamaBackend::init()`.
+        // Idempotent (guarded by a `Once`), so this is safe even when several
+        // Engines are constructed in tests.
+        BackendManager::prepare();
         Arc::new(Self {
             config: ArcSwap::from_pointee(config),
             current_policy: ArcSwap::from_pointee(policy_for(initial_profile)),
@@ -79,7 +93,15 @@ impl Engine {
             last_dictation: std::sync::Mutex::new(Instant::now()),
             models_dir,
             state_reporter: ArcSwapOption::empty(),
+            active_backends: ArcSwapOption::empty(),
         })
+    }
+
+    /// The compute backends each engine resolved to, if known yet. Populated
+    /// after the first STT model load (see [`Engine::ensure_stt`]).
+    #[must_use]
+    pub fn active_backends(&self) -> Option<ActiveBackends> {
+        self.active_backends.load_full().map(|a| (*a).clone())
     }
 
     /// Install the Tauri handle the Engine uses to emit
@@ -260,6 +282,16 @@ impl Engine {
 
         match outcome {
             crate::stt::LoadOutcome::Ready(handle) => {
+                // The ggml backend is created lazily on model load, so the
+                // resolved STT compute backend is only known now. Cache the
+                // active backends (STT name from the model; LLM from device
+                // enumeration) for `active_backends()` / the validating test.
+                let stt_name = handle.backend_name();
+                if !stt_name.is_empty() {
+                    self.active_backends
+                        .store(Some(Arc::new(BackendManager::active(&stt_name))));
+                    tracing::info!(stt_backend = %stt_name, "STT dynamic backend resolved");
+                }
                 let slot: SttSlot = Arc::new(AsyncMutex::new(handle));
                 let mut state = self.stt.lock().await;
                 *state = SttSlotState::Loaded {

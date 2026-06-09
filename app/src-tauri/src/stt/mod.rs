@@ -61,6 +61,19 @@ impl SttModelHandle {
             Self::Mock(m) => m.transcribe(audio, sample_rate, opts),
         }
     }
+
+    /// Name of the compute backend the (process-global) ggml backend resolved
+    /// to for this model — e.g. `"MTL0"` for Metal, `"cpu"` for the CPU
+    /// fallback. Only meaningful for a real model (the ggml backend is created
+    /// lazily on load); the mock returns an empty string.
+    #[must_use]
+    pub fn backend_name(&self) -> String {
+        match self {
+            Self::Real(m) => m.backend_name(),
+            #[cfg(any(test, feature = "test-stt"))]
+            Self::Mock(_) => String::new(),
+        }
+    }
 }
 
 /// Absolute path of the shipped STT GGUF inside the app's models dir.

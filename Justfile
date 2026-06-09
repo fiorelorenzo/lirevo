@@ -44,18 +44,41 @@ dev-bundle:
     set -euo pipefail
     app="app/src-tauri/target/aarch64-apple-darwin/debug/bundle/macos/Lirevo.app"
     ( cd app && npm install --no-audit --no-fund && env -u APPLE_SIGNING_IDENTITY npx tauri build --debug --config '{"identifier":"{{dev_identifier}}"}' --target aarch64-apple-darwin --bundles app )
-    if [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then
-        codesign --force --deep -s "$APPLE_SIGNING_IDENTITY" "$app"
-    else
+    # Relocate the two inference engines' dylibs + ggml backend modules into the
+    # .app (preserving the dual-ggml `lirevo_pk_` disambiguation), rewrite the
+    # binary rpath to @loader_path/../Frameworks, and re-sign. Uses
+    # APPLE_SIGNING_IDENTITY if set (stable TCC), else ad-hoc.
+    scripts/bundle-macos-install.sh "$app" debug aarch64-apple-darwin
+    if [ -z "${APPLE_SIGNING_IDENTITY:-}" ]; then
         tccutil reset Accessibility {{dev_identifier}} || true
         tccutil reset Microphone {{dev_identifier}} || true
     fi
     open "$app"
 
-# Release build → .app + .dmg under app/src-tauri/target/aarch64-apple-darwin/release/bundle/
+# Release build → self-contained .app + .dmg under
+# app/src-tauri/target/aarch64-apple-darwin/release/bundle/
+#
+# Tauri packages the .dmg from the .app it builds in the SAME pass, so we can't
+# inject the engine-relocation between them via the CLI. Instead: build the .app
+# only, relocate+re-sign the inference engines into it (preserving the dual-ggml
+# `lirevo_pk_` disambiguation, rpath -> @loader_path/../Frameworks), then roll the
+# .dmg from the fixed-up .app ourselves. Uses APPLE_SIGNING_IDENTITY if set.
 dmg:
-    cd app && npm install --no-audit --no-fund
-    cd app && npx tauri build --target aarch64-apple-darwin
+    #!/usr/bin/env bash
+    set -euo pipefail
+    bundle="app/src-tauri/target/aarch64-apple-darwin/release/bundle"
+    app="$bundle/macos/Lirevo.app"
+    ( cd app && npm install --no-audit --no-fund && npx tauri build --target aarch64-apple-darwin --bundles app )
+    scripts/bundle-macos-install.sh "$app" release aarch64-apple-darwin
+    mkdir -p "$bundle/dmg"
+    dmg="$bundle/dmg/Lirevo_0.6.0_aarch64.dmg"
+    rm -f "$dmg"
+    staging="$(mktemp -d)"
+    cp -R "$app" "$staging/"
+    ln -s /Applications "$staging/Applications"
+    hdiutil create -volname "Lirevo" -srcfolder "$staging" -ov -format UDZO "$dmg"
+    rm -rf "$staging"
+    echo "dmg: $dmg"
 
 # Run all tests (Rust nextest + frontend vitest).
 test:

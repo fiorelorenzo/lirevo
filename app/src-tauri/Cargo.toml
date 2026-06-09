@@ -49,9 +49,32 @@ os-integration    = { path = "../../crates/os-integration" }
 lirevo-prompts    = { path = "../../crates/lirevo-prompts" }
 num_cpus          = "1"
 
-# STT backend: our own Rust bindings to mudler/parakeet.cpp (ggml).
-# Metal auto-enabled on macOS by the binding's build.rs.
-parakeet-cpp = { git = "https://github.com/fiorelorenzo/parakeet-cpp", rev = "c5eb66d591555618be76d1a0542fdcb9d151ec26" }
+# STT/LLM engines. DYNAMIC backends (GGML_BACKEND_DL — ggml backends incl. Metal
+# built as loadable modules) on macOS + Linux; STATIC on Windows, where DL is
+# deferred (MSVC can't defer the direct ggml-cpu symbol refs at DLL link, so the
+# parakeet DL build fails — and Windows isn't functional yet anyway).
+#
+# `parakeet-cpp-sys` / `llama-cpp-sys-2` are DIRECT deps on the DL targets so their
+# `links` metadata (`DEP_PARAKEET_*` / `DEP_LLAMA_*`) reaches THIS crate's
+# `build.rs` (cargo only forwards a `links` crate's `cargo:KEY=VALUE` to its DIRECT
+# normal dependents). build.rs uses it to re-emit the runtime rpaths the final
+# host binary needs (cargo doesn't propagate a sys crate's link-args) and to
+# disambiguate the two engines' colliding ggml dylibs. Feature sets mirror the
+# transitive resolution so cargo unifies and doesn't rebuild the native libs.
+
+[target.'cfg(target_os = "macos")'.dependencies]
+parakeet-cpp = { git = "https://github.com/fiorelorenzo/parakeet-cpp", rev = "27ce3bec9bcca1aa90110e2770c937df2c83d9eb", features = ["dynamic-backends"] }
+parakeet-cpp-sys = { git = "https://github.com/fiorelorenzo/parakeet-cpp", rev = "27ce3bec9bcca1aa90110e2770c937df2c83d9eb", features = ["dynamic-backends"] }
+llama-cpp-sys-2 = { version = "0.1.146", features = ["dynamic-backends", "metal"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+parakeet-cpp = { git = "https://github.com/fiorelorenzo/parakeet-cpp", rev = "27ce3bec9bcca1aa90110e2770c937df2c83d9eb", features = ["dynamic-backends"] }
+parakeet-cpp-sys = { git = "https://github.com/fiorelorenzo/parakeet-cpp", rev = "27ce3bec9bcca1aa90110e2770c937df2c83d9eb", features = ["dynamic-backends"] }
+llama-cpp-sys-2 = { version = "0.1.146", features = ["dynamic-backends"] }
+
+# Windows: static parakeet (DL deferred); llama resolves static via inference-core.
+[target.'cfg(target_os = "windows")'.dependencies]
+parakeet-cpp = { git = "https://github.com/fiorelorenzo/parakeet-cpp", rev = "27ce3bec9bcca1aa90110e2770c937df2c83d9eb" }
 
 [features]
 default = []
