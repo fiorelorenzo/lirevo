@@ -2,17 +2,18 @@
 //! accessibility / microphone permissions, and small native helpers
 //! (audio cue, overlay window tweaks).
 //!
-//! macOS and Windows have real implementations; remaining targets (Linux,
-//! others) get a stub module that returns `NotSupported` errors and `Denied`
-//! permission status so the workspace compiles everywhere. Adding a new
-//! platform means filling in a sibling module — consumer code keeps the
-//! same imports.
+//! macOS, Windows, and Linux have real implementations; remaining targets get
+//! a stub module that returns `NotSupported` errors and `Denied` permission
+//! status so the workspace compiles everywhere. Adding a new platform means
+//! filling in a sibling module — consumer code keeps the same imports.
 //!
-//! NOTE: the Windows backend (`windows/`) is implemented entirely against the
-//! Win32 API on a macOS host and has only been compile-validated via CI. None
-//! of its runtime behaviour (hotkey Down/Up delivery, `SendInput` paste,
-//! overlay click-through, foreground-app lookup) has been exercised on real
-//! Windows hardware. Treat it as unvalidated until smoke-tested there.
+//! NOTE: the Windows backend (`windows/`) and the Linux backend (`linux/`) are
+//! both implemented on a macOS host and have only been compile-validated via
+//! CI. None of their runtime behaviour (hotkey Down/Up delivery, synthetic
+//! paste, overlay click-through, foreground-app lookup) has been exercised on
+//! real Windows / Linux hardware. Treat them as unvalidated until smoke-tested
+//! there. On Linux specifically, Wayland is best-effort by design (no global
+//! input grab; synthetic paste depends on the compositor) — see `linux/mod.rs`.
 
 #![warn(clippy::pedantic)]
 #![allow(clippy::missing_errors_doc, clippy::missing_panics_doc)]
@@ -20,18 +21,18 @@
 #[cfg(target_os = "macos")]
 mod frontmost;
 #[cfg(target_os = "macos")]
-mod permissions;
-#[cfg(target_os = "macos")]
 mod hotkey;
 #[cfg(target_os = "macos")]
 mod inject;
 #[cfg(target_os = "macos")]
 mod pasteboard;
+#[cfg(target_os = "macos")]
+mod permissions;
 
 #[cfg(target_os = "macos")]
-pub use hotkey::{Hotkey, HotkeyEvent, HotkeyError, HotkeyListener};
+pub use hotkey::{Hotkey, HotkeyError, HotkeyEvent, HotkeyListener};
 #[cfg(target_os = "macos")]
-pub use inject::{InjectError, Injector, InjectionMethod};
+pub use inject::{InjectError, InjectionMethod, Injector};
 #[cfg(target_os = "macos")]
 pub use permissions::{
     check_accessibility, check_microphone, dev_skip_perms, prompt_accessibility, prompt_microphone,
@@ -54,9 +55,19 @@ pub use windows::{
     InjectionMethod, Injector, PermissionStatus,
 };
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(target_os = "linux")]
+mod linux;
+
+#[cfg(target_os = "linux")]
+pub use linux::{
+    check_accessibility, check_microphone, clipboard, dev_skip_perms, prompt_accessibility,
+    prompt_microphone, Hotkey, HotkeyError, HotkeyEvent, HotkeyListener, InjectError,
+    InjectionMethod, Injector, PermissionStatus,
+};
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 mod stub;
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 pub use stub::{
     check_accessibility, check_microphone, clipboard, dev_skip_perms, prompt_accessibility,
     prompt_microphone, Hotkey, HotkeyError, HotkeyEvent, HotkeyListener, InjectError,

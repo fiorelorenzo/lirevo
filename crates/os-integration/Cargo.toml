@@ -36,3 +36,14 @@ windows = { version = "0.62", features = [
     "Win32_System_Threading",
     "Win32_System_LibraryLoader",
 ] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Hotkey: read raw key transitions from /dev/input (works on X11 AND Wayland,
+# unlike X-server grabs which can't bind a lone modifier).
+evdev = "0.13"
+# Synthetic Ctrl+V for pasteboard-style injection. XTEST on X11; Wayland
+# backend is experimental/best-effort (see inject.rs caveats).
+enigo = "0.6"
+# Clipboard. The `wayland-data-control` feature gives clipboard access under
+# Wayland via the wlr-data-control protocol (in addition to X11).
+arboard = { version = "3", features = ["wayland-data-control"] }
