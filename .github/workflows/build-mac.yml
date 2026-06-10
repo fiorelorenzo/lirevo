@@ -41,12 +41,5 @@ jobs:
       - name: Tests
         run: just test
 
-      - name: Build DMG
-        run: just dmg
-
-      - name: Upload DMG artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: lirevo-${{ github.sha }}
-          path: app/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
-          retention-days: 30
+      # Base CI is checks only (no artifacts). The signed + notarized .dmg is
+      # produced by the release workflow (.github/workflows/release.yml) on a tag.

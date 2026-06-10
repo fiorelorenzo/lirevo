@@ -1,0 +1,93 @@
+name: release
+
+# Signed + notarized release on a version tag. The base CI (build-mac.yml) is
+# checks-only and produces no artifacts; the distributable .dmg is built here.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write # create the GitHub Release + upload the .dmg
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            app/src-tauri
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: app/package-lock.json
+
+      - uses: taiki-e/install-action@just
+
+      - name: Install npm deps
+        working-directory: app
+        run: npm ci --no-audit --no-fund
+
+      # Import the Developer ID Application cert + private key into a temporary
+      # keychain so codesign/Tauri can sign non-interactively (the runner's
+      # keychain is empty). Standard macOS-CI signing recipe.
+      - name: Import signing certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          CERT_PATH="$RUNNER_TEMP/certificate.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 24)"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          # Empty .p12 password is intentional (the secret is GitHub-encrypted).
+          security import "$CERT_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" >/dev/null
+          # Prepend our keychain to the user search list so codesign finds the identity.
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | sed s/\"//g)
+          rm -f "$CERT_PATH"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+      # Decode the App Store Connect API key (.p8) used for notarization.
+      - name: Prepare notarization API key
+        env:
+          APPLE_API_KEY_B64: ${{ secrets.APPLE_API_KEY_B64 }}
+        run: echo "$APPLE_API_KEY_B64" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
+
+      # `just dmg`: tauri build (signs via the keychain identity; its own
+      # auto-notarization is suppressed in the recipe) -> bundle DL dylibs +
+      # re-sign -> notarize + staple (App Store Connect API key) -> .dmg.
+      - name: Build, sign + notarize DMG
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY: ${{ runner.temp }}/AuthKey.p8
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: just dmg
+
+      - name: Clean up keychain + API key
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/AuthKey.p8"
+          security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" || true
+
+      - name: Upload DMG to the GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: app/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+          fail_on_unmatched_files: true
