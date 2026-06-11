@@ -29,7 +29,7 @@
     defaultModelId,
     formatSize as fmtSttSize,
   } from '$lib/models/catalog';
-  import { Check, Sparkles } from '@lucide/svelte';
+  import { Check, Sparkles, Zap, Cpu } from '@lucide/svelte';
   import { toastInfo, toastError, withErrorToast } from '$lib/stores/toasts';
   import type { UnlistenFn } from '@tauri-apps/api/event';
   import { page } from '$app/state';
@@ -85,17 +85,16 @@
       : null,
   );
 
-  // Status-dot color per backend state: green = GPU, amber = CPU fallback,
-  // muted/pulsing = still resolving (no model loaded yet).
-  function backendDotClass(state: BackendState): string {
-    if (state === 'gpu') return 'bg-emerald-500';
-    if (state === 'cpu') return 'bg-amber-500';
-    return 'bg-muted-foreground/40 animate-pulse';
-  }
-  // Show a CPU-fallback hint when any resolved engine landed on CPU.
-  let backendCpuFallback = $derived(
-    backend.stt.state === 'cpu' || backend.llm.state === 'cpu',
-  );
+  // About tab: surface the overall compute backend as a single status. The
+  // engines almost always agree on Apple Silicon (both Metal); when they
+  // diverge or any one falls back to CPU we surface the worst-case state so
+  // the hint copy stays honest. Order of precedence: resolving < cpu < gpu.
+  let backendOverall = $derived.by<BackendState>(() => {
+    const states = [backend.stt.state, backend.llm.state];
+    if (states.includes('resolving')) return 'resolving';
+    if (states.includes('cpu')) return 'cpu';
+    return 'gpu';
+  });
 
   let devices = $state<InputDeviceEntry[]>([]);
 
@@ -449,38 +448,6 @@
                 {/if}
               </div>
             </div>
-            <div class="p-4 flex items-start justify-between gap-4">
-              <div class="min-w-0">
-                <Label>{t('settings.general.backend')}</Label>
-                <p class="text-xs text-muted-foreground mt-1">
-                  {t('settings.general.backend_helper')}
-                </p>
-                {#if backendCpuFallback}
-                  <p class="text-xs text-amber-600 dark:text-amber-500 mt-1">
-                    {t('settings.general.backend_cpu_hint')}
-                  </p>
-                {/if}
-              </div>
-              <div class="shrink-0 flex flex-col items-end gap-1.5 text-sm">
-                {#if backend.unified}
-                  <span class="inline-flex items-center gap-2">
-                    <span class={['h-2 w-2 rounded-full', backendDotClass(backend.stt.state)].join(' ')}></span>
-                    <span class="font-medium tabular-nums">{backend.stt.label}</span>
-                  </span>
-                {:else}
-                  <span class="inline-flex items-center gap-2">
-                    <span class="text-xs text-muted-foreground w-14 text-right">{t('settings.general.backend_stt')}</span>
-                    <span class={['h-2 w-2 rounded-full', backendDotClass(backend.stt.state)].join(' ')}></span>
-                    <span class="font-medium tabular-nums">{backend.stt.label}</span>
-                  </span>
-                  <span class="inline-flex items-center gap-2">
-                    <span class="text-xs text-muted-foreground w-14 text-right">{t('settings.general.backend_llm')}</span>
-                    <span class={['h-2 w-2 rounded-full', backendDotClass(backend.llm.state)].join(' ')}></span>
-                    <span class="font-medium tabular-nums">{backend.llm.label}</span>
-                  </span>
-                {/if}
-              </div>
-            </div>
           </div>
         </section>
       </div>
@@ -658,6 +625,8 @@
       </div>
 
     {:else if $settings && activeTab === 'about'}
+      {@const isGpu = backendOverall === 'gpu'}
+      {@const isResolving = backendOverall === 'resolving'}
       <div class="space-y-6 max-w-lg">
         <div class="rounded-xl border border-border bg-surface p-5 space-y-1">
           <div class="font-semibold text-lg">Lirevo</div>
@@ -665,6 +634,64 @@
             {t('settings.about.version')}: {$settings.appVersion}
           </div>
           <div class="text-sm text-muted-foreground">macOS · arm64</div>
+        </div>
+
+        <div
+          class={[
+            'backend-card relative overflow-hidden rounded-xl border bg-surface p-4 shadow-sm transition-colors',
+            isGpu ? 'border-primary/30' : isResolving ? 'border-border' : 'border-warning/40',
+          ].join(' ')}
+        >
+          <div class="relative flex items-center gap-4">
+            <div
+              class={[
+                'flex h-11 w-11 shrink-0 items-center justify-center rounded-lg',
+                isGpu
+                  ? 'bg-primary/10 text-primary'
+                  : isResolving
+                    ? 'bg-muted text-muted-foreground'
+                    : 'bg-warning/10 text-warning',
+              ].join(' ')}
+            >
+              {#if isGpu}
+                <Zap class="h-5 w-5" />
+              {:else}
+                <Cpu class={['h-5 w-5', isResolving ? 'backend-pulse' : ''].join(' ')} />
+              {/if}
+            </div>
+
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2">
+                <span class="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  {t('settings.about.backend')}
+                </span>
+                {#if isGpu}
+                  <span class="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium leading-none text-primary">
+                    {t('settings.about.backend_gpu_hint')}
+                  </span>
+                {/if}
+              </div>
+              <div class="mt-0.5 truncate text-base font-semibold tabular-nums">
+                {isResolving ? t('settings.about.backend_resolving') : backend.stt.label}
+              </div>
+              {#if !backend.unified && !isResolving}
+                <!-- Engines disagree (rare): show both so the label isn't a lie. -->
+                <div class="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground tabular-nums">
+                  <span><span class="text-muted-foreground/70">{t('settings.about.backend_stt')}:</span> {backend.stt.label}</span>
+                  <span><span class="text-muted-foreground/70">{t('settings.about.backend_llm')}:</span> {backend.llm.label}</span>
+                </div>
+              {/if}
+              <p class="mt-1 text-xs text-muted-foreground">
+                {#if isResolving}
+                  {t('settings.about.backend_resolving_hint')}
+                {:else if isGpu}
+                  {t('settings.about.backend_helper')}
+                {:else}
+                  <span class="text-warning">{t('settings.about.backend_cpu_hint')}</span>
+                {/if}
+              </p>
+            </div>
+          </div>
         </div>
 
         <div class="flex flex-wrap gap-3">
@@ -683,3 +710,22 @@
     {/if}
   </section>
 </div>
+
+<style>
+  /* Backend card: only a subtle pulse on the transient resolving icon, gated on
+     prefers-reduced-motion (see Logo.svelte / overlay for the same pattern). */
+  .backend-card .backend-pulse {
+    animation: backend-fade 1.6s var(--ease-in-out-soft) infinite;
+  }
+
+  @keyframes backend-fade {
+    0%, 100% { opacity: 0.45; }
+    50%      { opacity: 1; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .backend-card .backend-pulse {
+      animation: none;
+    }
+  }
+</style>
