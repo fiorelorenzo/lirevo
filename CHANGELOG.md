@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file. The format foll
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.6.0] - Unreleased — v0.6: STT switch to parakeet-cpp, dynamic GPU backends, energy profiles, resource-aware Engine, history, native menu-bar posture, signed/notarized release pipeline
+## [0.6.0] - 2026-06-11 — v0.6: STT switch to parakeet-cpp, dynamic GPU backends, energy profiles, resource-aware Engine, history, native menu-bar posture, signed/notarized release pipeline
 
 ### Added
 - **STT engine switched to `parakeet-cpp`.** Speech-to-text now runs through
