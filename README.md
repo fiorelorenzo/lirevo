@@ -71,8 +71,9 @@ Lirevo ships as a signed, notarized arm64 `.dmg` for Apple Silicon Macs
   actively playing.
 - **Dictation history.** Optional local SQLite history of every dictation, shown
   on the home screen. It never leaves your machine and can be cleared any time.
-- **Native menu-bar app.** Runs as an accessory app (no Dock icon); the tray
-  icon is its only persistent presence. Closing a window hides it to the tray.
+- **Native menu-bar app.** Lives in the menu-bar tray; a Dock icon appears only
+  while a window is open and disappears when you close it back to the tray.
+  Can optionally start minimized (tray-only) at login.
 
 ## Platform support
 
@@ -93,9 +94,9 @@ runs there.
 
 ## Using the app
 
-Lirevo is a **menu-bar app** with no Dock icon. Closing the home or settings
-window hides it back to the tray instead of quitting; reopen it from the tray's
-**Show Lirevo** item.
+Lirevo is a **menu-bar app**. A Dock icon appears while a window is open;
+closing the home or settings window hides it back to the tray (the Dock icon
+disappears) instead of quitting. Reopen it from the tray's **Show Lirevo** item.
 
 ### First run: the setup wizard
 
