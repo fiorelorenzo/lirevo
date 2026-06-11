@@ -2,21 +2,20 @@ Lirevo
 Copyright 2026 Lorenzo Fiore
 
 This product includes software developed by:
-- screenpipe/audiopipe (MIT) — speech-to-text inference layer
-- llama-cpp-2 / llama.cpp (MIT) — LLM inference (M5 swaps to mistral.rs)
-- ort (MIT OR Apache-2.0) — ONNX Runtime bindings (used by audiopipe Parakeet engine)
-- mlx-rs (Apache-2.0) — MLX bindings (used by audiopipe Parakeet MLX engine on Apple Silicon)
+- parakeet.cpp (MIT) — ggml speech-to-text engine, via our own Rust binding
+  parakeet-cpp (https://github.com/fiorelorenzo/parakeet-cpp)
+- llama-cpp-2 / llama.cpp (MIT) — LLM inference (GGUF)
+- ggml (MIT) — tensor library and dynamic compute backends (Metal/CPU)
 - cpal (Apache-2.0 OR MIT) — cross-platform microphone capture
 - Tauri (MIT OR Apache-2.0) — app shell
 - Svelte (MIT) — frontend framework
 
-This product can use the following speech-to-text models at the user's choice:
+This product can use the following speech-to-text model:
 - NVIDIA Parakeet TDT 0.6B v3 (CC-BY-4.0) — https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3
-- Alibaba Qwen3-ASR 0.6B (Apache-2.0) — https://huggingface.co/Qwen/Qwen3-ASR-0.6B
-- OpenAI Whisper large-v3-turbo (MIT) — https://huggingface.co/openai/whisper-large-v3-turbo
 
 Model weights are downloaded by the user at first run; no model is bundled
 with the application.
 
 Full third-party license texts are available in the THIRD_PARTY_LICENSES file
 in distributed binaries (auto-generated at build time).
+</content>

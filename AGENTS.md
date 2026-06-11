@@ -22,11 +22,15 @@ See `README.md` for end-user setup and `CHANGELOG.md` for milestone status.
 - **Frontend:** Svelte 5 + SvelteKit + Tailwind v4 + shadcn-svelte, running in
   WKWebView via Tauri 2.
 - **Backend:** Rust (workspace, edition 2021, toolchain pinned in
-  `rust-toolchain.toml`). The Tauri 2 host process loads `audiopipe` (STT) and
-  `llama-cpp-2` (LLM) directly as libraries, in-process — no separate sidecar
-  process in the shipped app. STT today is `audiopipe` (Parakeet by default on
-  Apple Silicon, with Whisper as a fallback via an `audiopipe` feature); the LLM
-  cleanup stage is `llama-cpp-2` (GGUF).
+  `rust-toolchain.toml`). The Tauri 2 host process loads both inference engines
+  directly as libraries, in-process — no separate sidecar process in the shipped
+  app. STT is `parakeet-cpp` (our own open-source Rust binding to
+  `mudler/parakeet.cpp`, ggml; git-pinned), single model
+  `parakeet-tdt-0.6b-v3` GGUF q4_k; the LLM cleanup stage is `llama-cpp-2`
+  (GGUF). Both engines use **dynamic ggml backends** (`GGML_BACKEND_DL`): the
+  app auto-selects the best compute backend at runtime (Metal on macOS, CPU
+  fallback) and surfaces it in **Settings → About**. DL is enabled on
+  macOS + Linux; Windows is static-linked (DL deferred there).
 - **OS integration:** `cocoa` / `core-foundation` / `core-graphics` for
   CGEventTap (global hotkey) and AXUIElement (text injection).
 - **Build tooling:** `just`, `cargo`, `npm`, `cargo-nextest`. Node 22 (see
@@ -42,9 +46,10 @@ See `README.md` for end-user setup and `CHANGELOG.md` for milestone status.
 ├── crates/                   # Rust workspace (8 crates)
 │   ├── audio-capture/        # cpal mic capture, device resolution,
 │   │                         #   resampling to 16 kHz mono, Smart Mic routing
-│   ├── inference-core/       # audiopipe (STT) + llama-cpp-2 (LLM) wrappers and
-│   │                         #   model catalog. Its HTTP/axum sidecar layer is
-│   │                         #   dev-only; the library surface is used in-process.
+│   ├── inference-core/       # llama-cpp-2 (LLM) wrapper + cleanup model catalog.
+│   │                         #   Its HTTP/axum sidecar layer is dev-only; the
+│   │                         #   library surface is used in-process. (STT lives
+│   │                         #   in the Tauri host's stt/ module over parakeet-cpp.)
 │   ├── lirevo-cli/           # Dev-only CLI talking to inference-core's sidecar
 │   ├── lirevo-eval/          # Dev-only cleanup-stage eval harness (corpus,
 │   │                         #   scoring, judge reports)
@@ -66,7 +71,7 @@ DMG. Production code paths run inside the Tauri host (`app/src-tauri/`).
 
 ### Tauri host modules (`app/src-tauri/src/`)
 
-This is the only crate shipped in the DMG. STT (`audiopipe`) and LLM
+This is the only crate shipped in the DMG. STT (`parakeet-cpp`) and LLM
 (`llama-cpp-2`) run in-process here — there is no child process, Unix socket,
 or HTTP endpoint in the shipped app.
 
@@ -81,8 +86,8 @@ app/src-tauri/src/
 ├── engine/                   # Resource-aware Engine lifecycle: lazy load/unload
 │                             #   of LLM + STT, auto-recover, energy-profile
 │                             #   integration (decision.rs, slot.rs, streak.rs)
-├── stt/                      # Host STT layer over audiopipe::Model
-│                             #   (catalog.rs, mock.rs); HF-cache download
+├── stt/                      # Host STT layer over parakeet-cpp (catalog.rs,
+│                             #   types.rs, mock.rs); GGUF download into models/
 ├── error.rs                  # AppError enum serialized over IPC
 ├── hotkey.rs                 # Push-to-talk coordinator: bridges os-integration's
 │                             #   CFRunLoop HotkeyListener into tokio, drives the
@@ -165,8 +170,8 @@ only by `just dmg`.
 `APPLE_SIGNING_IDENTITY` (a "Developer ID Application" cert) in an untracked
 `.env` (auto-loaded by the Justfile). It re-signs with that identity but
 **without** hardened runtime — Tauri's identity-sign would enable hardened
-runtime, which blocks the bundled inference libs (ggml/Metal, llama, audiopipe)
-from loading. A stable identity keeps the code-signing hash constant so TCC
+runtime, which blocks the bundled inference libs (ggml/Metal dynamic backends,
+llama, parakeet-cpp) from loading. A stable identity keeps the code-signing hash constant so TCC
 grants persist across rebuilds. Without an identity it falls back to ad-hoc and
 resets the stale grants on each build.
 
@@ -179,10 +184,10 @@ while the app is alive. `just eval` is a dev-only refiner-stage model bake-off.
 
 `just dmg` notarizes the release `.app` and `.dmg` via
 `scripts/notarize-macos.sh` — but **only** when Apple credentials are in the
-env. Without them it prints a warning and exits 0, so `just dmg` (and CI) still
-produce an **un-notarized** build: it runs on the build machine but is
+env. Without them it prints a warning and exits 0, so a credential-less `just dmg`
+still produces an **un-notarized** build: it runs on the build machine but is
 Gatekeeper-rejected ("developer cannot be verified") on any other Mac. To
-notarize, set ONE of these credential sets in the untracked `.env`:
+notarize locally, set ONE of these credential sets in the untracked `.env`:
 
 - **App Store Connect API key (preferred):** `APPLE_API_KEY` (path to the `.p8`
   key), `APPLE_API_KEY_ID` (10-char Key ID), `APPLE_API_ISSUER` (issuer UUID).
@@ -200,10 +205,37 @@ the notarization vars OUT of `tauri build`'s env (`env -u APPLE_ID …`) so
 since `APPLE_SIGNING_IDENTITY` + a notarization cred set triggers it). All
 notarization happens in the explicit post-bundle step.
 
-CI (`.github/workflows/build-mac.yml`) runs `just check`, `just test`, and
-`just dmg` on `macos-15`. A change that breaks any of those breaks CI. CI has no
-Apple creds, so its `just dmg` produces an un-notarized build (the skip path
-exits 0).
+### CI and the release pipeline
+
+Base CI is **checks-only**:
+
+- **`build-mac.yml`** (`macos-15`, on push/PR) runs `just check` + `just test`.
+  No artifacts. A change that breaks either breaks CI.
+- **`cross-platform-check.yml`** (Ubuntu + Windows, on push/PR) `cargo check`s
+  the shipped app (`app/src-tauri`) to guard cross-platform compilation. It
+  proves the workspace **compiles** on those targets — it does **not** mean
+  Lirevo runs there (see "Platform support status" below).
+
+The distributable, signed + notarized `.dmg` is built by a separate workflow:
+
+- **`release.yml`** (`macos-15`, on a `v*` tag) imports the Developer ID cert +
+  the App Store Connect API key into a temporary keychain, runs `just dmg` (which
+  signs, notarizes, and staples), and uploads the `.dmg` to the GitHub Release.
+  Signing/notarization secrets live in the repo's GitHub Actions secrets;
+  base CI has no Apple creds.
+- **`publish-backends.yml`** is a **skeleton** for publishing fetchable GPU
+  backend module bundles (Linux/Windows Vulkan/CUDA) consumed by
+  `engine/fetch.rs`. The actual build steps are TODO and the workflow is not
+  enabled as a required check.
+
+### Platform support status
+
+macOS (Apple Silicon) is the only platform Lirevo is functional on end-to-end
+today. `os-integration` has real Linux (evdev hotkey, enigo paste, arboard
+clipboard) and Windows (Win32 hotkey, inject, overlay) backends behind the
+platform-neutral abstractions, plus a stub fallback, and `cross-platform-check`
+keeps them compiling — but they are **compile-validated only, not runtime-tested**.
+Do not describe Linux/Windows as usable; they are in progress / planned for v2.
 
 ## Code conventions
 
@@ -251,7 +283,8 @@ hotkey, microphone, or injection code paths.
    prompt. To exercise real permission UX use `just dev-bundle` (debug `.app`)
    or `just dmg` (release `.app`).
 4. **Hardened runtime is intentionally omitted from `dev-bundle`.** The bundled
-   inference libraries (ggml/Metal, llama-cpp-2, audiopipe) are not all signed
+   inference libraries (ggml/Metal dynamic backends, llama-cpp-2, parakeet-cpp)
+   are not all signed
    by the same Team ID and JIT Metal shaders at runtime, so hardened runtime
    stops the app from launching. `dev-bundle` re-signs without `--options
    runtime`; `entitlements.plist` (`cs.disable-library-validation`,
