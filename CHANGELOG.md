@@ -4,9 +4,55 @@ All notable changes to this project are documented in this file. The format foll
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.6.0] - Unreleased — v0.6: energy profiles, resource-aware Engine, history, native menu-bar posture
+## [0.6.0] - Unreleased — v0.6: STT switch to parakeet-cpp, dynamic GPU backends, energy profiles, resource-aware Engine, history, native menu-bar posture, signed/notarized release pipeline
 
 ### Added
+- **STT engine switched to `parakeet-cpp`.** Speech-to-text now runs through
+  [`parakeet-cpp`](https://github.com/fiorelorenzo/parakeet-cpp), our own
+  open-source Rust binding to [`parakeet.cpp`](https://github.com/mudler/parakeet.cpp)
+  (ggml), replacing `audiopipe`. The shipped model is a single entry,
+  `parakeet-tdt-0.6b-v3` (GGUF q4_k, ~644 MB, CC-BY-4.0, 25 European languages),
+  downloaded over `reqwest` into the app data directory's `models/` folder
+  (`tdt-0.6b-v3-q4_k.gguf` from `mudler/parakeet-cpp-gguf`) — no Hugging Face
+  cache and no separate CoreML encoder. The STT catalog (`app/src-tauri/src/stt/`)
+  was de-leaked to neutral types and reduced to this single model; a
+  pseudo-streaming worker over the neutral `transcribe` API drives the live
+  overlay. The frontend STT catalog is single-model to match.
+- **Dynamic GPU backends (`GGML_BACKEND_DL`).** Both engines build their ggml
+  backends as loadable modules and the app **auto-selects the best backend at
+  runtime** (Metal on macOS, CPU fallback), instead of a statically-linked
+  single backend. Dynamic backends are enabled on macOS + Linux; Windows is
+  static-linked (DL deferred there). `app/src-tauri/build.rs` relocates the two
+  engines' ggml dylibs into the bundle (with `lirevo_pk_` disambiguation for the
+  dual-ggml collision) and rewrites the runtime rpaths.
+- **Active compute backend shown in Settings → About.** A `get_active_backend`
+  Tauri command reports the resolved STT + LLM backend (e.g. Metal vs CPU) and a
+  GPU/CPU flag; the About tab renders it (the backend is resolved lazily on first
+  model load, so it shows a neutral "resolving" state until then).
+- **Cross-platform compile foundation.** `os-integration` gained real Linux
+  (evdev hotkey, enigo paste, arboard clipboard with wayland-data-control) and
+  Windows (Win32 hotkey, inject, overlay) backends behind the existing
+  platform-neutral abstractions, plus a stub fallback. A `cross-platform-check`
+  CI job (`.github/workflows/cross-platform-check.yml`) `cargo check`s the
+  shipped app on Ubuntu + Windows on every push. **Compile-validated only — not
+  runtime-tested; Linux/Windows are not yet usable.**
+- **Thin-fetch GPU backend foundation.** Engine plumbing
+  (`app/src-tauri/src/engine/fetch.rs`) to fetch GPU backend module bundles on
+  first run from a release-hosted manifest (for Linux/Windows Vulkan/CUDA). The
+  publishing workflow (`.github/workflows/publish-backends.yml`) is a skeleton;
+  the actual backend-bundle build steps are TODO and the path is not yet enabled.
+- **Signed + notarized release pipeline.** Base CI (`build-mac.yml`) is now
+  checks-only (`just check` + `just test` on `macos-15`, no artifacts). The
+  distributable `.dmg` is built, **signed, notarized, and stapled** by a separate
+  `release` workflow (`.github/workflows/release.yml`) on a `v*` tag and uploaded
+  to the GitHub Release. `just dmg` notarizes via `scripts/notarize-macos.sh`
+  when Apple credentials are present and otherwise produces an un-notarized build
+  (exit 0).
+- **Pasteboard-only injection mode with full clipboard preservation.** The
+  **Always use pasteboard** path preserves and restores the user's clipboard
+  around the paste.
+- **Start-minimized window posture.** A "Start minimized" settings toggle; the
+  Dock icon appears only while real windows are visible.
 - **Resource-aware Engine lifecycle.** A single `Engine` (`app/src-tauri/src/engine/`)
   now owns both inference backends. It lazy-loads STT/LLM on first dictation,
   auto-recovers from a failed load, and unloads idle models to free memory. A
@@ -75,10 +121,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 - **In-process inference, no sidecar in the shipped app.** Both `LlamaBackend`
-  (`llama-cpp-2`) and `audiopipe::Model` are loaded directly into the Tauri host
-  process. There is no child process, Unix socket, or HTTP endpoint in the
-  shipped DMG. `inference-core`'s axum sidecar, `lirevo-cli`, `lirevo-prototype`,
-  and `lirevo-eval` are all dev-only.
+  (`llama-cpp-2`) and the `parakeet-cpp` STT model are loaded directly into the
+  Tauri host process. There is no child process, Unix socket, or HTTP endpoint in
+  the shipped DMG. `inference-core`'s axum sidecar, `lirevo-cli`,
+  `lirevo-prototype`, and `lirevo-eval` are all dev-only.
 - **Cleanup prompt** (`lirevo-prompts::build_clean_system_prompt`) now edits out
   speech disfluencies and adds punctuation while preserving the dictation
   language — it never translates. When no LLM is configured or cleanup fails, the
@@ -97,15 +143,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (Caches / WebKit / Preferences / TCC) with the release app.
 - **Stable dev code-signing.** `just dev-bundle` re-signs the bundle with a
   Developer ID identity (from `APPLE_SIGNING_IDENTITY` in `.env`) **without**
-  hardened runtime, so the bundled native inference libraries (ggml/Metal,
-  whisper, llama, audiopipe) still load and TCC grants persist across rebuilds.
-  Without an identity it falls back to ad-hoc and resets TCC for
+  hardened runtime, so the bundled native inference libraries (ggml/Metal
+  dynamic backends, llama, parakeet-cpp) still load and TCC grants persist across
+  rebuilds. Without an identity it falls back to ad-hoc and resets TCC for
   `ai.lirevo.app.dev` each build.
 - **Tray menu** dropped the "Re-run setup wizard" and "View logs" items;
   "Energy" was renamed to "Energy Profile". Re-running the wizard now lives in
   **Settings → About**.
 
 ### Removed
+- **`audiopipe` STT dependency** (and the multi-model STT catalog it backed:
+  Qwen3-ASR and Whisper entries, the ONNX/MLX/CoreML acceleration lanes, STT
+  precision plumbing). STT is now single-model via `parakeet-cpp`. The
+  `inference-core` sidecar's STT path is reduced to a stub.
 - **`keep_models_warm` setting and toggle.** Warm-up is now derived from the
   active energy profile (Balanced/Performance warm; Power Saver does not).
 - M3-era tray "Re-run setup wizard" / "View logs" menu items (see Changed).
@@ -119,7 +169,7 @@ The project is evolving into a **personal agent that learns how you write and he
 - **v0.5 (~month 3-4): free dictation public** — clean, fast, local-first dictation app with style learning, released as the OSS foundation. Free forever under AGPL-3.0-or-later. Serves as both the audience-building loss leader and the runtime base for the agent.
 - **v1.0 (~month 10-12): paid agent launch** — full personal agent built on top of the dictation base. Observes (opt-in), learns, acts. Paid €129 one-time perpetual license. Free dictation users get conversion path; agent buyers get the loss-leader features included.
 
-The inference stack runs on Rust-native, multi-vendor foundations to support both v0.5 and v1.0. M4 (STT swap to audiopipe) shipped in 0.5.0. M5 attempted an LLM-runtime swap to mistral.rs but was abandoned — the app stays on `llama-cpp-2` (GGUF); two salvage upstream PRs to mistral.rs came out of it (build fix #2176, tokenizer #2177). The v0.6 line that replaced it (single llama.cpp backend + resource-aware Engine lifecycle + energy profiles, all in this changelog's unreleased section) is the current dictation work. Next the agent stack is built out (M6-M7), then polish + license + launch (M8-M10).
+The inference stack runs on Rust-native, multi-vendor foundations to support both v0.5 and v1.0. M4 (STT swap to audiopipe) shipped in 0.5.0; v0.6 then swapped STT again to `parakeet-cpp` (our own ggml binding, single Parakeet TDT v3 GGUF model). M5 attempted an LLM-runtime swap to mistral.rs but was abandoned — the app stays on `llama-cpp-2` (GGUF); two salvage upstream PRs to mistral.rs came out of it (build fix #2176, tokenizer #2177). The v0.6 line (parakeet-cpp STT + dynamic ggml GPU backends + resource-aware Engine lifecycle + energy profiles + cross-platform compile + signed/notarized release pipeline, all in this changelog's unreleased section) is the current dictation work. Next the agent stack is built out (M6-M7), then polish + license + launch (M8-M10).
 
 - **M5 — LLM runtime (resolved on `llama-cpp-2`).** The planned migration to `mistral.rs` + a Gemma 4 default was attempted and rolled back; Lirevo keeps `llama-cpp-2` and the in-app GGUF catalog (recommended default: `gemma-3-1b-it-Q4_K_M.gguf`, blessed by `lirevo-eval`). The energy this would have spent on a backend swap went into the v0.6 resource-aware lifecycle and energy-profile work instead. **The v0.5 free dictation public release sits at the end of this dictation track.**
 - **M6 — Agent core.** Builds on the generic local SQLite layer + migration runner already shipped in v0.6 (`app/src-tauri/src/db/`): adds screen capture infrastructure (custom module on cidre, AGENTS.md-compliant cross-platform abstraction) + vision-based style learning + retrieval foundations (vector DB local choice TBD via M6 brainstorm) + hierarchical context (per-app + per-window-title + per-recipient where detectable). Capture cadence configurable, screenshots discarded after feature extraction (storage as structured data only).
@@ -128,7 +178,7 @@ The inference stack runs on Rust-native, multi-vendor foundations to support bot
 - **M9 — License & Payment infrastructure.** OAuth flow (Google/GitHub/Apple) via custom URL scheme callback + offline JWT 365-day opt-in. License backend Rust+axum on Hetzner Cloud (~€15/mo all-in). Lemonsqueezy as Merchant of Record. Paywall UX with three tiers (Free / Cloud Sync €4/mo / Agent €129 one-time). Privacy Inspector UI showing real-time network activity for auditability.
 - **M10 — Beta + v1.0 paid agent launch.** Code signing + notarization + auto-update endpoints live + minisign keys + docs (getting-started, troubleshooting, CONTRIBUTING, privacy commitment) + landing site + beta program (waitlist signups from v0.5 launch) + release notes automation + HN/Reddit/Product Hunt launch + v1.0.0 release.
 
-After the dictation track lands (and again after M7), the project rewrites `architecture-design.md` as a **v2** consolidated source of truth reflecting the current stack (Tauri + audiopipe + llama-cpp-2 + agent core). The original v1 doc becomes archeology.
+After the dictation track lands (and again after M7), the project rewrites `architecture-design.md` as a **v2** consolidated source of truth reflecting the current stack (Tauri + parakeet-cpp + llama-cpp-2 + agent core). The original v1 doc becomes archeology.
 
 **Pricing model** (for v1.0 launch):
 
@@ -143,7 +193,7 @@ One-time pricing (not subscription) for agent respects "the app is yours when yo
 
 **Privacy commitment** (verifiable via open source code): user content (audio, transcripts, screenshots, style profiles, indexed activity) NEVER leaves the device. Only license validation tokens and (opt-in) E2E encrypted cloud sync blobs transit the network. No telemetry. No analytics. No crash reports without explicit opt-in. AGPL-3.0-or-later license prevents commercial forks from closing this stance.
 
-**Cross-platform discipline** (AGENTS.md): v1 ships macOS-only (binary signed/notarized). Code stays portable. v2 adds Linux + Windows via existing abstraction layers (`os-integration` traits, audiopipe multi-vendor GPU support, future Win32/X11/Wayland screen capture implementations). Active upstream contribution work in `rust-ml-contrib/` targets Metal perf parity with llama.cpp, cross-vendor GPU expansion for LLMs (Vulkan/DirectML), MLX-style optimization, and future NPU support.
+**Cross-platform discipline** (AGENTS.md): v1 ships macOS-only (binary signed/notarized). Code stays portable — the workspace already compiles on Linux + Windows (`cross-platform-check` CI) with real `os-integration` backends, but those are compile-validated only, not runtime-tested. v2 makes Linux + Windows functional via the existing abstraction layers (`os-integration` traits, dynamic ggml GPU backends fetched at runtime, future Win32/X11/Wayland screen capture implementations). Active upstream contribution work in `rust-ml-contrib/` targets Metal perf parity with llama.cpp, cross-vendor GPU expansion (Vulkan/DirectML), and future NPU support.
 
 Detailed plans and specs are tracked in the local `docs/` working directory (gitignored, including a strategic decision memo). The CHANGELOG entry for each milestone will be added under [Unreleased] when work begins.
 
