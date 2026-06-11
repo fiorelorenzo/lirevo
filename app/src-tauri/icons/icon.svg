@@ -1,16 +1,17 @@
 <svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
-  <!-- Lirevo app icon: the SAME waveform mark as the menu-bar tray
-       (scripts/gen-icons.sh, the "ready / balanced" state) — five rounded pill
-       bars in a symmetric envelope — in the brand blue on a white squircle.
-       Geometry is the tray's 36-unit box (bars cx 4,11,18,25,32; half-heights
-       2.5,6,9,6,2.5; centerline y=18) scaled + centered. Keep in sync with the
-       tray `bars` in gen-icons.sh. Regenerate variants with scripts/gen-icons.sh. -->
+  <!-- Lirevo app icon: the SAME five-bar symmetric waveform mark as the menu-bar
+       tray (scripts/gen-icons.sh), but drawn BOLD for the app/Dock icon so the
+       bars stay crisp at large sizes (the tray geometry is thin — tuned for a
+       44px monochrome template — and goes soft when shown big). Brand blue on a
+       white squircle. Bars: width 110, pill ends, symmetric heights
+       150/360/540/360/150 centered on y=512 (ratio 2.5:6:9:6:2.5, same envelope
+       as the tray's "balanced ready" state). -->
   <rect width="1024" height="1024" rx="225" ry="225" fill="#ffffff"/>
-  <g transform="translate(116,116) scale(22)" fill="#1577F0">
-    <rect x="2"  y="15.5" width="4" height="5"  rx="2"/>
-    <rect x="9"  y="12"   width="4" height="12" rx="2"/>
-    <rect x="16" y="9"    width="4" height="18" rx="2"/>
-    <rect x="23" y="12"   width="4" height="12" rx="2"/>
-    <rect x="30" y="15.5" width="4" height="5"  rx="2"/>
+  <g fill="#1577F0">
+    <rect x="141" y="437" width="110" height="150" rx="55"/>
+    <rect x="299" y="332" width="110" height="360" rx="55"/>
+    <rect x="457" y="242" width="110" height="540" rx="55"/>
+    <rect x="615" y="332" width="110" height="360" rx="55"/>
+    <rect x="773" y="437" width="110" height="150" rx="55"/>
   </g>
 </svg>
