@@ -642,19 +642,12 @@
             isGpu ? 'border-primary/30' : isResolving ? 'border-border' : 'border-warning/40',
           ].join(' ')}
         >
-          {#if isGpu}
-            <!-- Soft accent glow bleeding from the icon tile; GPU only. -->
-            <div
-              class="backend-glow pointer-events-none absolute -left-6 -top-10 h-32 w-32 rounded-full bg-primary/20 blur-2xl"
-              aria-hidden="true"
-            ></div>
-          {/if}
           <div class="relative flex items-center gap-4">
             <div
               class={[
                 'flex h-11 w-11 shrink-0 items-center justify-center rounded-lg',
                 isGpu
-                  ? 'bg-gradient-to-br from-primary to-accent-violet text-primary-foreground shadow-sm'
+                  ? 'bg-primary/10 text-primary'
                   : isResolving
                     ? 'bg-muted text-muted-foreground'
                     : 'bg-warning/10 text-warning',
@@ -719,27 +712,18 @@
 </div>
 
 <style>
-  /* Backend card microinteractions. The accent glow breathes very subtly on
-     the GPU state and the resolving icon pulses; both are gated on
+  /* Backend card: only a subtle pulse on the transient resolving icon, gated on
      prefers-reduced-motion (see Logo.svelte / overlay for the same pattern). */
-  .backend-card .backend-glow {
-    animation: backend-breathe 4s var(--ease-in-out-soft) infinite;
-  }
   .backend-card .backend-pulse {
     animation: backend-fade 1.6s var(--ease-in-out-soft) infinite;
   }
 
-  @keyframes backend-breathe {
-    0%, 100% { opacity: 0.6; transform: scale(1); }
-    50%      { opacity: 1;   transform: scale(1.08); }
-  }
   @keyframes backend-fade {
     0%, 100% { opacity: 0.45; }
     50%      { opacity: 1; }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .backend-card .backend-glow,
     .backend-card .backend-pulse {
       animation: none;
     }
