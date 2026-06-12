@@ -2550,6 +2550,8 @@ dependencies = [
  "objc2-application-services",
  "objc2-av-foundation",
  "objc2-foundation",
+ "serde",
+ "serde_json",
  "thiserror 2.0.18",
  "tokio",
  "tracing",

@@ -18,6 +18,12 @@
 #![warn(clippy::pedantic)]
 #![allow(clippy::missing_errors_doc, clippy::missing_panics_doc)]
 
+pub mod hotkey_spec;
+pub use hotkey_spec::{
+    ActivationMode, CaptureEvent, EdgeDetector, HotkeySpec, LiveState, ModOnly, Modifier,
+    ModifierFlags, Side, Trigger,
+};
+
 #[cfg(target_os = "macos")]
 mod frontmost;
 #[cfg(target_os = "macos")]
