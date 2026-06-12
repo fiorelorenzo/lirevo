@@ -33,8 +33,9 @@ See `README.md` for end-user setup and `CHANGELOG.md` for milestone status.
   macOS + Linux; Windows is static-linked (DL deferred there).
 - **OS integration:** `cocoa` / `core-foundation` / `core-graphics` for
   CGEventTap (global hotkey) and AXUIElement (text injection).
-- **Build tooling:** `just`, `cargo`, `npm`, `cargo-nextest`. Node 22 (see
-  `.nvmrc`; CI pins the same), Rust 1.88 (see `rust-toolchain.toml`).
+- **Build tooling:** `just`, `cargo`, `pnpm`, `cargo-nextest`. Node 22 (see
+  `.nvmrc`; CI pins the same), pnpm 9.15.0 (pinned via `packageManager`; enable
+  with `corepack enable`), Rust 1.88 (see `rust-toolchain.toml`).
 
 ## Repository layout
 
@@ -148,7 +149,7 @@ Use `just` recipes — they are the contract that CI runs.
 
 | Goal                                    | Command                       |
 | --------------------------------------- | ----------------------------- |
-| First-time setup                        | `cd app && npm install`       |
+| First-time setup                        | `cd app && pnpm install`      |
 | Dev (HMR, no real TCC prompts)          | `just dev`                    |
 | Dev with mocked permissions             | `LIREVO_DEV_SKIP_PERMS=1 just dev` |
 | Dev with real TCC prompts (debug `.app`)| `just dev-bundle`             |

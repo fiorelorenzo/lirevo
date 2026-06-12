@@ -17,8 +17,8 @@ default:
 # Use LIREVO_DEV_SKIP_PERMS=1 to mock permission-granted state when iterating
 # UI, or `just dev-bundle` to test real TCC flows.
 dev:
-    cd app && npm install --no-audit --no-fund
-    cd app && npx tauri dev --config '{"identifier":"{{dev_identifier}}"}'
+    cd app && pnpm install --frozen-lockfile
+    cd app && pnpm exec tauri dev --config '{"identifier":"{{dev_identifier}}"}'
 
 # Debug .app bundle for testing macOS-permission flows (microphone,
 # accessibility). The bare `just dev` binary cannot trigger TCC prompts;
@@ -43,7 +43,7 @@ dev-bundle:
     #!/usr/bin/env bash
     set -euo pipefail
     app="app/src-tauri/target/aarch64-apple-darwin/debug/bundle/macos/Lirevo.app"
-    ( cd app && npm install --no-audit --no-fund && env -u APPLE_SIGNING_IDENTITY npx tauri build --debug --config '{"identifier":"{{dev_identifier}}"}' --target aarch64-apple-darwin --bundles app )
+    ( cd app && pnpm install --frozen-lockfile && env -u APPLE_SIGNING_IDENTITY pnpm exec tauri build --debug --config '{"identifier":"{{dev_identifier}}"}' --target aarch64-apple-darwin --bundles app )
     # Relocate the two inference engines' dylibs + ggml backend modules into the
     # .app (preserving the dual-ggml `lirevo_pk_` disambiguation), rewrite the
     # binary rpath to @loader_path/../Frameworks, and re-sign. Uses
@@ -89,10 +89,10 @@ dmg:
     # not auto-notarize the pre-bundling .app (APPLE_SIGNING_IDENTITY is kept).
     ( cd app && env -u APPLE_ID -u APPLE_PASSWORD -u APPLE_TEAM_ID \
         -u APPLE_API_KEY -u APPLE_API_KEY_ID -u APPLE_API_ISSUER -u APPLE_API_KEY_PATH \
-        npm install --no-audit --no-fund && \
+        pnpm install --frozen-lockfile && \
       env -u APPLE_ID -u APPLE_PASSWORD -u APPLE_TEAM_ID \
         -u APPLE_API_KEY -u APPLE_API_KEY_ID -u APPLE_API_ISSUER -u APPLE_API_KEY_PATH \
-        npx tauri build --target aarch64-apple-darwin --bundles app )
+        pnpm exec tauri build --target aarch64-apple-darwin --bundles app )
     scripts/bundle-macos-install.sh "$app" release aarch64-apple-darwin
     # Notarize + staple the bundled, re-signed .app BEFORE rolling the .dmg, so
     # the app inside the .dmg carries its stapled ticket. No-op (exit 0) without
@@ -114,24 +114,24 @@ dmg:
 # Run all tests (Rust nextest + frontend vitest).
 test:
     cargo nextest run --workspace
-    cd app && npm test -- --run
+    cd app && pnpm test -- --run
 
 # Type check across the workspace + frontend.
 check:
     cargo check --workspace --all-targets
-    cd app && npx svelte-kit sync
-    cd app && npx svelte-check --threshold error
+    cd app && pnpm exec svelte-kit sync
+    cd app && pnpm exec svelte-check --threshold error
     cd app/src-tauri && cargo check --all-targets
 
 # Format Rust + frontend (prettier).
 fmt:
     cargo fmt --all
-    cd app && npx prettier --write 'src/**/*.{ts,svelte,css,json}' 2>/dev/null || true
+    cd app && pnpm exec prettier --write 'src/**/*.{ts,svelte,css,json}' 2>/dev/null || true
 
 # Lint Rust + frontend (eslint if configured).
 lint:
     cargo clippy --workspace --all-targets -- -D warnings
-    cd app && npx eslint 'src/**/*.{ts,svelte}' 2>/dev/null || true
+    cd app && pnpm exec eslint 'src/**/*.{ts,svelte}' 2>/dev/null || true
 
 # Wipe caches.
 clean:

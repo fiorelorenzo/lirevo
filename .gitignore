@@ -60,3 +60,6 @@ crates/inference-core/tests/fixtures/*.wav
 
 # Local working notes (not source)
 notes.md
+
+# Local working notes with secrets — never commit (case-sensitive FS safety)
+NOTES.md

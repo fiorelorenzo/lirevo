@@ -26,7 +26,7 @@ Use the root `Justfile`; these recipes are the contract CI runs.
 - `just dev-bundle` — builds a proper debug `.app` so the real Microphone and
   Accessibility prompts work; use this when iterating on permission flows.
 
-First-time setup if you run the frontend on its own: `cd app && npm install`.
+First-time setup if you run the frontend on its own: `cd app && pnpm install`.
 
 ## More context
 

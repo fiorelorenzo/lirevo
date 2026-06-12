@@ -1,33 +1,43 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { listen } from '@tauri-apps/api/event';
+import { settings, startSettingsSync } from '../stores/settings.svelte';
 
-// Clear mock call history before each test. Module-level `syncStarted` is
-// tested via a fresh dynamic import within the test (see below).
+// `listen` is mocked once, globally, in vitest.setup.ts and is therefore a
+// single spy shared by every test (`vi.resetModules()` does NOT reset the mocks
+// registry). The store's `syncStarted` guard is module-level state that only
+// flips once per process, so the two behaviours under test — the first call
+// registering + wiring the store, and subsequent calls being no-ops — are two
+// facets of one lifecycle. We exercise them in a single test against one store
+// instance rather than re-importing the module per test: re-evaluating the
+// store's graph via `vi.resetModules()` + dynamic `import()` raced under
+// jsdom/vite-node (leaked mock impl, duplicate module instances), which made
+// this suite flaky once the run order was shuffled.
 beforeEach(() => {
-  vi.mocked(listen).mockClear();
+  settings.set(null);
+  vi.mocked(listen).mockReset();
 });
 
 describe('startSettingsSync', () => {
-  it('updates the settings store when a settings:updated event fires', async () => {
-    // Reset module registry so we get a fresh `syncStarted = false` and a
-    // fresh `settings` writable for this test.
-    vi.resetModules();
-
-    // Re-import the mocked event module AFTER resetModules so we hold the
-    // same instance that the freshly-imported settings store will use.
-    const { listen: freshListen } = await import('@tauri-apps/api/event');
-
+  it('registers the settings:updated listener once and pipes payloads into the store', async () => {
     let capturedCallback: ((event: { payload: unknown }) => void) | null = null;
-    vi.mocked(freshListen).mockImplementation((_event, cb) => {
+    vi.mocked(listen).mockImplementation((_event, cb) => {
       capturedCallback = cb as (event: { payload: unknown }) => void;
       return Promise.resolve(() => {});
     });
 
-    const { settings, startSettingsSync } = await import('../stores/settings.svelte');
-
     await startSettingsSync();
 
+    // Idempotent: extra calls must not register the listener again.
+    await startSettingsSync();
+    await startSettingsSync();
+
+    const settingsListenerCalls = vi
+      .mocked(listen)
+      .mock.calls.filter(([event]) => event === 'settings:updated');
+    expect(settingsListenerCalls).toHaveLength(1);
+
+    // The single registered callback drives the settings store.
     expect(capturedCallback).not.toBeNull();
 
     const updatedSettings = {
@@ -55,25 +65,5 @@ describe('startSettingsSync', () => {
 
     expect(get(settings)).toEqual(updatedSettings);
     expect(get(settings)!.onboardingComplete).toBe(true);
-  });
-
-  it('registers the listener only once even when called multiple times (idempotent)', async () => {
-    // Fresh module state for this test.
-    vi.resetModules();
-
-    const { listen: freshListen } = await import('@tauri-apps/api/event');
-    vi.mocked(freshListen).mockResolvedValue(() => {});
-
-    const { startSettingsSync } = await import('../stores/settings.svelte');
-
-    await startSettingsSync();
-    await startSettingsSync();
-    await startSettingsSync();
-
-    // Only the first call should have registered the settings:updated listener.
-    const settingsListenerCalls = vi
-      .mocked(freshListen)
-      .mock.calls.filter(([event]) => event === 'settings:updated');
-    expect(settingsListenerCalls).toHaveLength(1);
   });
 });

@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@9.15.0",
   "description": "Build/utility scripts for the Lirevo repo (icons, etc.)",
   "scripts": {
     "gen:icons": "bash scripts/gen-icons.sh"
