@@ -1,24 +1,14 @@
 use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use tauri_plugin_store::StoreExt;
+use os_integration::{ActivationMode, HotkeySpec, Modifier, ModifierFlags, Side, Trigger};
 
 use crate::error::AppError;
-
-#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-pub enum Hotkey {
-    #[default]
-    RightOption,
-    LeftOption,
-    RightCommand,
-    Fn,
-    F5,
-}
 
 /// Bump when introducing a new one-shot migration in [`Settings::migrate`].
 /// Existing `settings.json` files written before the bump carry a lower
 /// `schema_version` (or none at all → 0) and the migration runs once.
-const SCHEMA_VERSION: u32 = 3;
+const SCHEMA_VERSION: u32 = 4;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -37,7 +27,14 @@ pub struct Settings {
     pub llm_ctx_size: u32,
     pub whisper_coreml_disable: bool,
 
-    pub hotkey: Hotkey,
+    pub hotkey: HotkeySpec,
+    #[serde(default)]
+    pub activation_mode: ActivationMode,
+    /// Legacy pre-capture hotkey string (`"right-option"` … `"f5"`). Read once by
+    /// the migration, then left `None`. Retained so old settings.json files
+    /// deserialize cleanly into the new model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub legacy_hotkey: Option<String>,
     pub language: String,
     /// System input device to capture from. `None` = system default.
     pub input_device_name: Option<String>,
@@ -89,7 +86,12 @@ impl Default for Settings {
             llm_model_path: None,
             llm_ctx_size: 4096,
             whisper_coreml_disable: false,
-            hotkey: Hotkey::default(),
+            hotkey: HotkeySpec {
+                modifiers: ModifierFlags::default(),
+                trigger: Trigger::ModifierOnly { modifier: Modifier::Option, side: Side::Right },
+            },
+            activation_mode: ActivationMode::Hold,
+            legacy_hotkey: None,
             language: default_dictation_language(),
             input_device_name: None,
             smart_mic_routing: true,
@@ -148,7 +150,14 @@ impl Settings {
         let store = app.store(store_path(app)?)
             .map_err(|e| AppError::Settings(e.to_string()))?;
         let s = if let Some(value) = store.get(STORE_KEY) {
-            match serde_json::from_value::<Settings>(value.clone()) {
+            let mut raw = value.clone();
+            if let Some(obj) = raw.as_object_mut() {
+                if obj.get("hotkey").is_some_and(serde_json::Value::is_string) {
+                    let legacy = obj.remove("hotkey").unwrap();
+                    obj.insert("legacyHotkey".into(), legacy);
+                }
+            }
+            match serde_json::from_value::<Settings>(raw) {
                 Ok(s) => s,
                 Err(e) => {
                     tracing::warn!(?e, "settings.json corrupt, resetting to defaults");
@@ -224,6 +233,7 @@ impl Settings {
                 "pasteDelayMs {} out of range (0..2000)", self.paste_delay_ms
             )));
         }
+        validate_hotkey(&self.hotkey)?;
         Ok(())
     }
 
@@ -270,12 +280,44 @@ impl Settings {
                 );
             }
         }
+        if self.schema_version < 4 {
+            // Pre-capture builds stored `hotkey` as a kebab string; serde parks it
+            // under `legacy_hotkey` (see load()'s pre-pass). Map it once.
+            if let Some(legacy) = self.legacy_hotkey.take() {
+                let trigger = match legacy.as_str() {
+                    "left-option" => Trigger::ModifierOnly { modifier: Modifier::Option, side: Side::Left },
+                    "right-command" => Trigger::ModifierOnly { modifier: Modifier::Command, side: Side::Right },
+                    "fn" => Trigger::Fn,
+                    "f5" => Trigger::Key("F5".into()),
+                    _ => Trigger::ModifierOnly { modifier: Modifier::Option, side: Side::Right },
+                };
+                self.hotkey = HotkeySpec { modifiers: ModifierFlags::default(), trigger };
+                dirty = true;
+            }
+        }
         if self.schema_version != SCHEMA_VERSION {
             self.schema_version = SCHEMA_VERSION;
             dirty = true;
         }
         dirty
     }
+}
+
+fn validate_hotkey(spec: &HotkeySpec) -> Result<(), AppError> {
+    // trigger always contributes one "key"; plus held modifiers.
+    if spec.modifiers.count() + 1 > 3 {
+        return Err(AppError::Settings("hotkey uses more than 3 keys".into()));
+    }
+    if let Trigger::Key(name) = &spec.trigger {
+        let bare_alnum = name.len() == 1 && name.chars().all(|c| c.is_ascii_alphanumeric());
+        if bare_alnum && spec.modifiers.count() == 0 {
+            return Err(AppError::Settings("a plain letter/number needs a modifier".into()));
+        }
+        if os_integration::hotkey_spec::key_to_macos_keycode(name).is_none() {
+            return Err(AppError::Settings(format!("unknown key: {name}")));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -286,7 +328,11 @@ mod tests {
     #[test]
     fn defaults_match_spec() {
         let s = Settings::default();
-        assert_eq!(s.hotkey, Hotkey::RightOption);
+        assert_eq!(
+            s.hotkey.trigger,
+            Trigger::ModifierOnly { modifier: Modifier::Option, side: Side::Right }
+        );
+        assert_eq!(s.activation_mode, ActivationMode::Hold);
         // `language` is derived from the host OS locale at first run, so
         // its concrete value is environment-dependent. All we can pin is
         // that it lands in the catalog of supported codes.
@@ -309,7 +355,7 @@ mod tests {
             "llmModelPath": null,
             "llmCtxSize": 4096,
             "whisperCoreMLDisable": false,
-            "hotkey": "right-option",
+            "legacyHotkey": "right-option",
             "language": "en",
             "inputDeviceName": null,
             "forcePasteboard": false,
@@ -346,9 +392,13 @@ mod tests {
     #[test]
     fn merge_patch_applies_partial() {
         let mut s = Settings::default();
-        s.merge_patch(&json!({ "language": "it", "hotkey": "f5" })).unwrap();
+        s.merge_patch(&json!({
+            "language": "it",
+            "hotkey": { "modifiers": {}, "trigger": { "key": "F5" } }
+        }))
+        .unwrap();
         assert_eq!(s.language, "it");
-        assert_eq!(s.hotkey, Hotkey::F5);
+        assert_eq!(s.hotkey.trigger, Trigger::Key("F5".into()));
         assert_eq!(s.llm_ctx_size, 4096);
     }
 
@@ -404,10 +454,68 @@ mod tests {
     }
 
     #[test]
+    fn migrate_legacy_hotkey_strings_to_specs() {
+        let cases = [
+            (
+                "right-option",
+                Trigger::ModifierOnly { modifier: Modifier::Option, side: Side::Right },
+            ),
+            (
+                "left-option",
+                Trigger::ModifierOnly { modifier: Modifier::Option, side: Side::Left },
+            ),
+            (
+                "right-command",
+                Trigger::ModifierOnly { modifier: Modifier::Command, side: Side::Right },
+            ),
+            ("fn", Trigger::Fn),
+            ("f5", Trigger::Key("F5".into())),
+        ];
+        for (legacy, expected) in cases {
+            let mut s = Settings {
+                schema_version: 3,
+                legacy_hotkey: Some(legacy.into()),
+                ..Settings::default()
+            };
+            let dirty = s.migrate();
+            assert_eq!(s.hotkey.trigger, expected, "legacy {legacy} should map to its spec");
+            assert!(s.legacy_hotkey.is_none(), "legacy {legacy} should be consumed");
+            assert_eq!(s.schema_version, SCHEMA_VERSION);
+            assert!(dirty, "legacy {legacy} migration should flag dirty");
+        }
+    }
+
+    #[test]
+    fn load_pre_pass_maps_string_hotkey_then_migrates() {
+        // End-to-end: an old settings.json with a string `hotkey` field. The
+        // load() pre-pass parks it under `legacyHotkey`; migrate() then maps it.
+        let mut raw = json!({
+            "schemaVersion": 3,
+            "hotkey": "left-option",
+        });
+        if let Some(obj) = raw.as_object_mut() {
+            if obj.get("hotkey").is_some_and(serde_json::Value::is_string) {
+                let legacy = obj.remove("hotkey").unwrap();
+                obj.insert("legacyHotkey".into(), legacy);
+            }
+        }
+        let mut s: Settings = serde_json::from_value(raw).unwrap();
+        s.migrate();
+        assert_eq!(
+            s.hotkey.trigger,
+            Trigger::ModifierOnly { modifier: Modifier::Option, side: Side::Left }
+        );
+        assert!(s.legacy_hotkey.is_none());
+    }
+
+    #[test]
     fn env_affecting_diff_ignores_non_env() {
         let before = Settings::default();
         let mut after = before.clone();
-        after.hotkey = Hotkey::F5;
+        after.hotkey = HotkeySpec {
+            modifiers: ModifierFlags::default(),
+            trigger: Trigger::Key("F5".into()),
+        };
         after.language = "it".into();
         assert!(!Settings::env_affecting_diff(&before, &after));
     }

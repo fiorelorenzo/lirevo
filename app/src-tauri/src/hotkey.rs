@@ -15,11 +15,8 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use audio_capture::{Recorder, RecorderConfig};
 use os_integration::audio_cue::{self, CueKind};
-use os_integration::{
-    HotkeyEvent, HotkeyListener, HotkeySpec, Modifier, ModifierFlags, Side, Trigger,
-};
+use os_integration::{ActivationMode, HotkeyEvent, HotkeyListener, HotkeySpec};
 
-use crate::settings::Hotkey;
 use crate::state::ModelState;
 use crate::{AppError, AppState};
 

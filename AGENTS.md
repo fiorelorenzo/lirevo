@@ -34,7 +34,7 @@ See `README.md` for end-user setup and `CHANGELOG.md` for milestone status.
 - **OS integration:** `cocoa` / `core-foundation` / `core-graphics` for
   CGEventTap (global hotkey) and AXUIElement (text injection).
 - **Build tooling:** `just`, `cargo`, `pnpm`, `cargo-nextest`. Node 22 (see
-  `.nvmrc`; CI pins the same), pnpm 9.15.0 (pinned via `packageManager`; enable
+  `.nvmrc`; CI pins the same), pnpm 9.15.9 (pinned via `packageManager`; enable
   with `corepack enable`), Rust 1.88 (see `rust-toolchain.toml`).
 
 ## Repository layout

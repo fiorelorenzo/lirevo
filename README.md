@@ -268,7 +268,7 @@ HTTP/axum sidecar layer are **dev-only** — they are not bundled in the shipped
 - macOS 14 (Sonoma) or later, on Apple Silicon
 - Rust 1.88 (managed automatically via `rust-toolchain.toml`)
 - Node 22 (managed via `.nvmrc`; CI pins the same)
-- pnpm 9.15.0 (pinned via `packageManager`; enable with `corepack enable`)
+- pnpm 9.15.9 (pinned via `packageManager`; enable with `corepack enable`)
 - `just` (`brew install just`)
 - `cargo-nextest` (`brew install cargo-nextest`)
 - A C/C++ toolchain with `cmake` (for the vendored ggml builds), provided by the
