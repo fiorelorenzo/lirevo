@@ -26,9 +26,10 @@ use crate::{AppError, AppState};
 static COORDINATOR: Lazy<Mutex<Option<DictationCoordinator>>> = Lazy::new(|| Mutex::new(None));
 
 pub struct DictationCoordinator {
-    // Held purely for ownership: dropping the listener stops the CFRunLoop
-    // thread and uninstalls the EventTap.
-    _listener: HotkeyListener,
+    // Owns the listener: dropping it stops the CFRunLoop thread and uninstalls
+    // the EventTap. Also read by `start_capture`/`stop_capture` to toggle the
+    // tap's capture mode for live hotkey re-recording.
+    listener: HotkeyListener,
 }
 
 pub fn install(app: AppHandle, spec: HotkeySpec, mode: ActivationMode) -> Result<(), AppError> {
@@ -62,7 +63,26 @@ fn build_coordinator(
         dictation_loop(app2, rx, mode).await;
     });
 
-    Ok(DictationCoordinator { _listener: listener })
+    Ok(DictationCoordinator { listener })
+}
+
+/// Enter capture mode: stream live key snapshots from the installed listener to
+/// `tx`. The bound hotkey is suppressed while capturing. No-op (with a warn) if
+/// no coordinator is installed.
+pub fn start_capture(tx: tokio::sync::mpsc::Sender<os_integration::CaptureEvent>) {
+    if let Some(c) = COORDINATOR.lock().unwrap().as_ref() {
+        c.listener.start_capture(tx);
+    } else {
+        tracing::warn!("start_capture: no coordinator installed");
+    }
+}
+
+/// Leave capture mode and resume normal hotkey evaluation. Silent no-op if no
+/// coordinator is installed.
+pub fn stop_capture() {
+    if let Some(c) = COORDINATOR.lock().unwrap().as_ref() {
+        c.listener.stop_capture();
+    }
 }
 
 async fn dictation_loop(

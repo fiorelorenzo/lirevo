@@ -440,6 +440,8 @@ pub fn run() {
             commands::history::history_clear,
             commands::profile::profile_get,
             commands::profile::profile_set_mode,
+            commands::hotkey::start_hotkey_capture,
+            commands::hotkey::stop_hotkey_capture,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

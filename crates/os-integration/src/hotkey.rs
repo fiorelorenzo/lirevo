@@ -19,7 +19,8 @@ use tokio::sync::mpsc;
 use tracing::warn;
 
 use crate::hotkey_spec::{
-    EdgeDetector, HotkeyEvent, HotkeySpec, LiveState, Modifier, ModifierFlags, Side,
+    CaptureEvent, EdgeDetector, HotkeyEvent, HotkeySpec, LiveState, Modifier, ModifierFlags,
+    ModOnly, Side,
 };
 
 // Accessibility status is no longer checked here — see `install()`.
@@ -102,6 +103,17 @@ fn macos_keycode_to_name(keycode: i64) -> Option<String> {
     Some(name.to_string())
 }
 
+/// Project the tap's `LiveState` into the wire-facing `CaptureEvent` streamed
+/// to the webview during capture mode.
+fn snapshot_to_capture_event(st: &LiveState) -> CaptureEvent {
+    CaptureEvent {
+        modifiers: st.mods,
+        base_key: st.base_key.clone(),
+        mod_only: st.mod_only.map(|(modifier, side)| ModOnly { modifier, side }),
+        mouse: st.mouse,
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum HotkeyError {
     #[error(
@@ -118,6 +130,11 @@ pub struct HotkeyListener {
     shutdown_flag: Arc<AtomicBool>,
     worker: Option<thread::JoinHandle<()>>,
     runloop: Arc<Mutex<Option<CFRunLoop>>>,
+    // Capture mode: when `capturing` is set, the tap streams live `CaptureEvent`
+    // snapshots to `capture_tx` and skips edge evaluation (so the bound hotkey
+    // does not fire while the frontend is re-recording it).
+    capturing: Arc<AtomicBool>,
+    capture_tx: Arc<Mutex<Option<mpsc::Sender<CaptureEvent>>>>,
 }
 
 impl HotkeyListener {
@@ -134,15 +151,27 @@ impl HotkeyListener {
         let (tx, rx) = mpsc::channel::<HotkeyEvent>(64);
         let shutdown_flag = Arc::new(AtomicBool::new(false));
         let runloop_slot: Arc<Mutex<Option<CFRunLoop>>> = Arc::new(Mutex::new(None));
+        let capturing = Arc::new(AtomicBool::new(false));
+        let capture_tx: Arc<Mutex<Option<mpsc::Sender<CaptureEvent>>>> = Arc::new(Mutex::new(None));
 
         let (init_tx, init_rx) = std::sync::mpsc::sync_channel::<Result<(), HotkeyError>>(1);
         let shutdown_clone = shutdown_flag.clone();
         let runloop_slot_clone = runloop_slot.clone();
+        let capturing_clone = capturing.clone();
+        let capture_tx_clone = capture_tx.clone();
 
         let worker = thread::Builder::new()
             .name("hotkey-tap".into())
             .spawn(move || {
-                hotkey_worker(spec, &tx, &shutdown_clone, &runloop_slot_clone, init_tx);
+                hotkey_worker(
+                    spec,
+                    &tx,
+                    &shutdown_clone,
+                    &runloop_slot_clone,
+                    &capturing_clone,
+                    &capture_tx_clone,
+                    init_tx,
+                );
             })
             .map_err(|e| HotkeyError::Internal(format!("spawn hotkey thread: {e}")))?;
 
@@ -154,6 +183,8 @@ impl HotkeyListener {
                     shutdown_flag,
                     worker: Some(worker),
                     runloop: runloop_slot,
+                    capturing,
+                    capture_tx,
                 },
                 rx,
             )),
@@ -186,6 +217,27 @@ impl HotkeyListener {
             let _ = w.join();
         }
     }
+
+    /// Enter capture mode: the tap streams live `CaptureEvent` snapshots to
+    /// `tx` and stops evaluating the bound spec (so the current hotkey is
+    /// suppressed while it is being re-recorded). Call `stop_capture` to leave.
+    pub fn start_capture(&self, tx: mpsc::Sender<CaptureEvent>) {
+        *self
+            .capture_tx
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(tx);
+        self.capturing.store(true, Ordering::SeqCst);
+    }
+
+    /// Leave capture mode: resume normal edge evaluation and drop the capture
+    /// sender.
+    pub fn stop_capture(&self) {
+        self.capturing.store(false, Ordering::SeqCst);
+        *self
+            .capture_tx
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+    }
 }
 
 impl Drop for HotkeyListener {
@@ -206,6 +258,8 @@ fn hotkey_worker(
     tx: &mpsc::Sender<HotkeyEvent>,
     shutdown: &Arc<AtomicBool>,
     runloop_slot: &Arc<Mutex<Option<CFRunLoop>>>,
+    capturing: &Arc<AtomicBool>,
+    capture_tx: &Arc<Mutex<Option<mpsc::Sender<CaptureEvent>>>>,
     init_tx: std::sync::mpsc::SyncSender<Result<(), HotkeyError>>,
 ) {
     // Promote this thread to user-interactive QoS. Without this macOS App Nap
@@ -232,6 +286,8 @@ fn hotkey_worker(
     );
 
     let tx_cb = tx.clone();
+    let capturing_cb = capturing.clone();
+    let capture_tx_cb = capture_tx.clone();
     // Mutable live state + edge detector shared into the callback. The tap
     // maintains `LiveState` from raw `CGEvent`s and the detector turns
     // "spec satisfied?" transitions into Down/Up edges.
@@ -310,7 +366,21 @@ fn hotkey_worker(
             }
             let snapshot = st.clone();
             drop(st);
-            if let Some(evt) = detector_cb
+            if capturing_cb.load(Ordering::SeqCst) {
+                // Capture mode: stream the live snapshot; do NOT evaluate the
+                // bound spec (this is what suppresses the current hotkey while
+                // re-recording).
+                if let Some(tx) = capture_tx_cb
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .as_ref()
+                {
+                    // try_send (not blocking_send): a live preview may fire many
+                    // events; dropping one under backpressure is fine and must
+                    // never block the tap.
+                    let _ = tx.try_send(snapshot_to_capture_event(&snapshot));
+                }
+            } else if let Some(evt) = detector_cb
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .update(&snapshot)
@@ -463,5 +533,31 @@ mod tests {
             assert_eq!(macos_keycode_to_name(code).as_deref(), Some(name));
         }
         assert_eq!(macos_keycode_to_name(0xFF), None);
+    }
+
+    #[test]
+    fn snapshot_to_capture_event_projects_each_field() {
+        let st = LiveState {
+            mods: mod_flags_from_raw(MASK_CONTROL | MASK_SHIFT),
+            base_key: Some("K".into()),
+            mod_only: Some((Modifier::Option, Side::Right)),
+            mouse: Some(4),
+        };
+        let ev = snapshot_to_capture_event(&st);
+        assert!(ev.modifiers.control && ev.modifiers.shift);
+        assert_eq!(ev.base_key.as_deref(), Some("K"));
+        let mo = ev.mod_only.expect("mod_only should map through");
+        assert_eq!(mo.modifier, Modifier::Option);
+        assert_eq!(mo.side, Side::Right);
+        assert_eq!(ev.mouse, Some(4));
+    }
+
+    #[test]
+    fn snapshot_to_capture_event_empty_state_is_all_none() {
+        let ev = snapshot_to_capture_event(&LiveState::default());
+        assert_eq!(ev.modifiers, ModifierFlags::default());
+        assert!(ev.base_key.is_none());
+        assert!(ev.mod_only.is_none());
+        assert!(ev.mouse.is_none());
     }
 }

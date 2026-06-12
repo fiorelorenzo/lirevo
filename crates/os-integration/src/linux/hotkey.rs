@@ -210,6 +210,13 @@ impl HotkeyListener {
             let _ = handle.join();
         }
     }
+
+    /// Capture mode is macOS-only for now; no-op here so the coordinator
+    /// compiles cross-platform.
+    pub fn start_capture(&self, _tx: mpsc::Sender<crate::hotkey_spec::CaptureEvent>) {}
+
+    /// Capture mode is macOS-only for now; no-op here.
+    pub fn stop_capture(&self) {}
 }
 
 impl Drop for HotkeyListener {
