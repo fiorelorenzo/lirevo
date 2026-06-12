@@ -185,6 +185,32 @@ pub fn key_to_macos_keycode(name: &str) -> Option<i64> {
     Some(code)
 }
 
+/// Parse the `SIDECAR_HOTKEY` dev env var into a `HotkeySpec`. Mirrors the
+/// legacy preset names; unknown/unset → Right Option (the default).
+#[must_use]
+pub fn spec_from_env() -> HotkeySpec {
+    let trigger = match std::env::var("SIDECAR_HOTKEY").ok().as_deref() {
+        Some("left-option" | "LeftOption") => Trigger::ModifierOnly {
+            modifier: Modifier::Option,
+            side: Side::Left,
+        },
+        Some("right-command" | "RightCommand") => Trigger::ModifierOnly {
+            modifier: Modifier::Command,
+            side: Side::Right,
+        },
+        Some("fn" | "Fn") => Trigger::Fn,
+        Some("f5" | "F5") => Trigger::Key("F5".into()),
+        _ => Trigger::ModifierOnly {
+            modifier: Modifier::Option,
+            side: Side::Right,
+        },
+    };
+    HotkeySpec {
+        modifiers: ModifierFlags::default(),
+        trigger,
+    }
+}
+
 #[cfg(test)]
 // Tests mutate a `LiveState::default()` incrementally across assertions to model
 // hold/release transitions; a single struct initializer can't express that. The
@@ -285,5 +311,32 @@ mod tests {
         assert_eq!(key_to_macos_keycode("Space"), Some(0x31));
         assert_eq!(key_to_macos_keycode("K"), Some(0x28));
         assert_eq!(key_to_macos_keycode("does-not-exist"), None);
+    }
+
+    #[test]
+    fn spec_from_env_parses_known_values_and_defaults() {
+        // Env-var tests are inherently process-global; keep this self-contained
+        // and restore the prior value so we don't perturb sibling tests.
+        let prev = std::env::var("SIDECAR_HOTKEY").ok();
+
+        std::env::set_var("SIDECAR_HOTKEY", "f5");
+        assert_eq!(spec_from_env().trigger, Trigger::Key("F5".into()));
+
+        std::env::set_var("SIDECAR_HOTKEY", "fn");
+        assert_eq!(spec_from_env().trigger, Trigger::Fn);
+
+        std::env::remove_var("SIDECAR_HOTKEY");
+        assert_eq!(
+            spec_from_env().trigger,
+            Trigger::ModifierOnly {
+                modifier: Modifier::Option,
+                side: Side::Right
+            }
+        );
+
+        match prev {
+            Some(p) => std::env::set_var("SIDECAR_HOTKEY", p),
+            None => std::env::remove_var("SIDECAR_HOTKEY"),
+        }
     }
 }

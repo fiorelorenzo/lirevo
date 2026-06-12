@@ -35,7 +35,8 @@ use tracing::warn;
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    VK_F5, VK_LMENU, VK_RMENU, VK_RWIN, VIRTUAL_KEY,
+    VK_F1, VK_F10, VK_F11, VK_F12, VK_F2, VK_F3, VK_F4, VK_F5, VK_F6, VK_F7, VK_F8, VK_F9,
+    VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_RCONTROL, VK_RMENU, VK_RSHIFT, VK_RWIN, VIRTUAL_KEY,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetMessageW, PostThreadMessageW, SetWindowsHookExW,
@@ -43,53 +44,71 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
-use crate::hotkey_spec::HotkeyEvent;
+use crate::hotkey_spec::{HotkeyEvent, HotkeySpec, Modifier, Side, Trigger};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Hotkey {
-    RightOption,
-    LeftOption,
-    RightCommand,
-    Fn,
-    F5,
+/// Map a `HotkeySpec` to the single Windows virtual key whose low-level key
+/// transitions the hook watches for.
+///
+/// Windows keeps its single-key hook architecture for now, so only the subset
+/// the hook can source is supported; everything else is rejected. The names are
+/// macOS-flavoured (the neutral model was defined there); the nearest Windows
+/// equivalents are Alt for Option, the Win key for Command, plus Control /
+/// Shift:
+///   - `ModifierOnly { modifier, side }` → the side-specific virtual key.
+///   - `Key(name)` with no extra modifiers → its virtual key (F1–F12, A–Z).
+///   - `Key(_)` WITH modifiers (a real combo) → unsupported: the single-key
+///     hook can't source a chord. Combo sourcing is a deferred follow-up.
+///   - `Fn` → unsupported: the Fn key has no software-visible virtual key
+///     (handled in keyboard firmware, never reaches the OS input stack).
+///   - `Mouse(_)` → unsupported: the keyboard hook watches keys only.
+fn spec_to_vk(spec: &HotkeySpec) -> Result<VIRTUAL_KEY, HotkeyError> {
+    match &spec.trigger {
+        Trigger::ModifierOnly { modifier, side } => Ok(match (modifier, side) {
+            (Modifier::Option, Side::Right) => VK_RMENU,
+            (Modifier::Option, Side::Left) => VK_LMENU,
+            (Modifier::Command, Side::Right) => VK_RWIN,
+            (Modifier::Command, Side::Left) => VK_LWIN,
+            (Modifier::Control, Side::Right) => VK_RCONTROL,
+            (Modifier::Control, Side::Left) => VK_LCONTROL,
+            (Modifier::Shift, Side::Right) => VK_RSHIFT,
+            (Modifier::Shift, Side::Left) => VK_LSHIFT,
+        }),
+        Trigger::Key(name) if spec.modifiers.count() == 0 => {
+            key_name_to_vk(name).ok_or(HotkeyError::UnsupportedKey)
+        }
+        // A real combo (base key + modifiers), Fn, or Mouse: the single-key
+        // hook can't source any of these yet.
+        Trigger::Key(_) | Trigger::Fn | Trigger::Mouse(_) => Err(HotkeyError::UnsupportedKey),
+    }
 }
 
-impl Hotkey {
-    #[must_use]
-    pub fn from_env() -> Self {
-        match std::env::var("SIDECAR_HOTKEY").ok().as_deref() {
-            Some("right-option" | "RightOption") | None => Self::RightOption,
-            Some("left-option" | "LeftOption") => Self::LeftOption,
-            Some("right-command" | "RightCommand") => Self::RightCommand,
-            Some("fn" | "Fn") => Self::Fn,
-            Some("f5" | "F5") => Self::F5,
-            Some(other) => {
-                warn!(value = %other, "unknown SIDECAR_HOTKEY value, falling back to RightOption");
-                Self::RightOption
+/// Map a canonical base-key name to its Windows virtual key. Covers F1–F12 and
+/// the letters A–Z (the keys the single-key hook can bind). Unknown names →
+/// `None` (rejected by `spec_to_vk`). Letter VKs are the ASCII uppercase code
+/// points (`'A'..='Z'`), which is exactly how Win32 numbers `VK_A`..`VK_Z`.
+fn key_name_to_vk(name: &str) -> Option<VIRTUAL_KEY> {
+    let code = match name {
+        "F1" => VK_F1,
+        "F2" => VK_F2,
+        "F3" => VK_F3,
+        "F4" => VK_F4,
+        "F5" => VK_F5,
+        "F6" => VK_F6,
+        "F7" => VK_F7,
+        "F8" => VK_F8,
+        "F9" => VK_F9,
+        "F10" => VK_F10,
+        "F11" => VK_F11,
+        "F12" => VK_F12,
+        _ => {
+            let mut chars = name.chars();
+            match (chars.next(), chars.next()) {
+                (Some(c @ 'A'..='Z'), None) => VIRTUAL_KEY(c as u16),
+                _ => return None,
             }
         }
-    }
-
-    /// Map the cross-platform `Hotkey` to the Windows virtual key whose
-    /// low-level key transitions we watch for. The names are macOS-flavoured
-    /// (the shared enum was defined there); the nearest Windows equivalents are:
-    ///   - `RightOption`  → Right Alt   (`VK_RMENU`)
-    ///   - `LeftOption`   → Left Alt    (`VK_LMENU`)
-    ///   - `RightCommand` → Right Win   (`VK_RWIN`)
-    ///   - `F5`           → F5          (`VK_F5`)
-    ///
-    /// `Fn` has no software-visible virtual key on Windows (the Fn key is
-    /// handled in keyboard firmware and never reaches the OS input stack), so it
-    /// is unsupported here — see `install`.
-    fn vk(self) -> Option<VIRTUAL_KEY> {
-        match self {
-            Self::RightOption => Some(VK_RMENU),
-            Self::LeftOption => Some(VK_LMENU),
-            Self::RightCommand => Some(VK_RWIN),
-            Self::F5 => Some(VK_F5),
-            Self::Fn => None,
-        }
-    }
+    };
+    Some(code)
 }
 
 #[derive(Debug, Error)]
@@ -208,10 +227,12 @@ pub struct HotkeyListener {
 }
 
 impl HotkeyListener {
-    pub fn install(hotkey: Hotkey) -> Result<(Self, mpsc::Receiver<HotkeyEvent>), HotkeyError> {
-        let Some(vk) = hotkey.vk() else {
-            return Err(HotkeyError::UnsupportedKey);
-        };
+    // `spec` is taken by value to keep `install`'s signature uniform across
+    // platforms (macOS consumes it); the Windows hook only needs the resolved
+    // virtual key, so it borrows `spec` and drops the rest.
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn install(spec: HotkeySpec) -> Result<(Self, mpsc::Receiver<HotkeyEvent>), HotkeyError> {
+        let vk = spec_to_vk(&spec)?;
 
         // Enforce single-listener: the host's reinstall drops the previous
         // listener (joining its worker + clearing globals) before building a
@@ -360,57 +381,38 @@ fn hook_worker(init_tx: &std::sync::mpsc::SyncSender<Result<u32, HotkeyError>>) 
 mod tests {
     use super::*;
 
-    #[test]
-    fn from_env_defaults_to_right_option_when_unset() {
-        let prev = std::env::var("SIDECAR_HOTKEY").ok();
-        std::env::remove_var("SIDECAR_HOTKEY");
-        assert_eq!(Hotkey::from_env(), Hotkey::RightOption);
-        if let Some(p) = prev {
-            std::env::set_var("SIDECAR_HOTKEY", p);
+    use crate::hotkey_spec::ModifierFlags;
+
+    fn spec(trigger: Trigger) -> HotkeySpec {
+        HotkeySpec {
+            modifiers: ModifierFlags::default(),
+            trigger,
         }
     }
 
     #[test]
-    fn from_env_parses_known_values() {
-        for (input, expected) in [
-            ("right-option", Hotkey::RightOption),
-            ("left-option", Hotkey::LeftOption),
-            ("right-command", Hotkey::RightCommand),
-            ("fn", Hotkey::Fn),
-            ("f5", Hotkey::F5),
-        ] {
-            std::env::set_var("SIDECAR_HOTKEY", input);
-            assert_eq!(Hotkey::from_env(), expected, "input={input}");
-        }
-        std::env::remove_var("SIDECAR_HOTKEY");
-    }
+    fn spec_to_vk_maps_supported_and_rejects_rest() {
+        assert_eq!(
+            spec_to_vk(&spec(Trigger::ModifierOnly {
+                modifier: Modifier::Option,
+                side: Side::Right
+            }))
+            .unwrap(),
+            VK_RMENU
+        );
+        assert_eq!(spec_to_vk(&spec(Trigger::Key("F5".into()))).unwrap(), VK_F5);
+        assert!(spec_to_vk(&spec(Trigger::Fn)).is_err());
+        assert!(spec_to_vk(&spec(Trigger::Mouse(4))).is_err());
 
-    #[test]
-    fn from_env_falls_back_on_unknown() {
-        std::env::set_var("SIDECAR_HOTKEY", "garbage");
-        assert_eq!(Hotkey::from_env(), Hotkey::RightOption);
-        std::env::remove_var("SIDECAR_HOTKEY");
-    }
-
-    #[test]
-    fn supported_keys_map_to_distinct_vks() {
-        let vks: Vec<u16> = [
-            Hotkey::RightOption,
-            Hotkey::LeftOption,
-            Hotkey::RightCommand,
-            Hotkey::F5,
-        ]
-        .into_iter()
-        .map(|h| h.vk().expect("supported key").0)
-        .collect();
-        let mut sorted = vks.clone();
-        sorted.sort_unstable();
-        sorted.dedup();
-        assert_eq!(sorted.len(), vks.len(), "duplicate VKs: {vks:?}");
-    }
-
-    #[test]
-    fn fn_key_is_unsupported() {
-        assert!(Hotkey::Fn.vk().is_none());
+        // A real combo (base key + modifiers) is not sourceable by the
+        // single-key hook.
+        let combo = HotkeySpec {
+            modifiers: ModifierFlags {
+                control: true,
+                ..ModifierFlags::default()
+            },
+            trigger: Trigger::Key("F5".into()),
+        };
+        assert!(spec_to_vk(&combo).is_err());
     }
 }

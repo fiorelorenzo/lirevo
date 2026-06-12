@@ -15,8 +15,8 @@ use hyper_util::client::legacy::Client as HClient;
 use hyper_util::rt::TokioExecutor;
 use hyperlocal::{UnixConnector, Uri};
 use os_integration::{
-    check_accessibility, prompt_accessibility, Hotkey, HotkeyEvent, HotkeyListener,
-    InjectionMethod, Injector, PermissionStatus,
+    check_accessibility, prompt_accessibility, spec_from_env, HotkeyEvent, HotkeyListener,
+    HotkeySpec, InjectionMethod, Injector, Modifier, ModifierFlags, PermissionStatus, Side, Trigger,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -154,15 +154,28 @@ fn run_preflight(cli: &Cli) -> Result<PathBuf, ExitCode> {
     Ok(socket)
 }
 
-fn parse_hotkey_arg(s: &str) -> Option<Hotkey> {
-    match s {
-        "right-option" | "RightOption" => Some(Hotkey::RightOption),
-        "left-option" | "LeftOption" => Some(Hotkey::LeftOption),
-        "right-command" | "RightCommand" => Some(Hotkey::RightCommand),
-        "fn" | "Fn" => Some(Hotkey::Fn),
-        "f5" | "F5" => Some(Hotkey::F5),
-        _ => None,
-    }
+fn parse_hotkey_arg(s: &str) -> Option<HotkeySpec> {
+    let trigger = match s {
+        "right-option" | "RightOption" => Trigger::ModifierOnly {
+            modifier: Modifier::Option,
+            side: Side::Right,
+        },
+        "left-option" | "LeftOption" => Trigger::ModifierOnly {
+            modifier: Modifier::Option,
+            side: Side::Left,
+        },
+        "right-command" | "RightCommand" => Trigger::ModifierOnly {
+            modifier: Modifier::Command,
+            side: Side::Right,
+        },
+        "fn" | "Fn" => Trigger::Fn,
+        "f5" | "F5" => Trigger::Key("F5".into()),
+        _ => return None,
+    };
+    Some(HotkeySpec {
+        modifiers: ModifierFlags::default(),
+        trigger,
+    })
 }
 
 async fn http_post_json<T: for<'de> Deserialize<'de>>(
@@ -262,13 +275,13 @@ async fn post_and_inject(
 }
 
 async fn run_hotkey_loop(cli: Cli, socket: PathBuf) -> ExitCode {
-    let hotkey = Hotkey::from_env();
+    let hotkey = spec_from_env();
     let hotkey = match cli.hotkey.as_deref() {
         Some(s) => parse_hotkey_arg(s).unwrap_or(hotkey),
         None => hotkey,
     };
 
-    let (listener, mut rx) = match HotkeyListener::install(hotkey) {
+    let (listener, mut rx) = match HotkeyListener::install(hotkey.clone()) {
         Ok(t) => t,
         Err(e) => {
             eprintln!("failed to install hotkey: {e}");

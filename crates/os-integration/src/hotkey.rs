@@ -19,7 +19,7 @@ use tokio::sync::mpsc;
 use tracing::warn;
 
 use crate::hotkey_spec::{
-    EdgeDetector, HotkeyEvent, HotkeySpec, LiveState, Modifier, ModifierFlags, Side, Trigger,
+    EdgeDetector, HotkeyEvent, HotkeySpec, LiveState, Modifier, ModifierFlags, Side,
 };
 
 // Accessibility status is no longer checked here — see `install()`.
@@ -40,31 +40,6 @@ fn input_monitoring_label() -> &'static str {
         0 => "granted",
         1 => "denied",
         _ => "unknown",
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Hotkey {
-    RightOption,
-    LeftOption,
-    RightCommand,
-    Fn,
-    F5,
-}
-
-impl Hotkey {
-    pub fn from_env() -> Self {
-        match std::env::var("SIDECAR_HOTKEY").ok().as_deref() {
-            Some("right-option" | "RightOption") | None => Self::RightOption,
-            Some("left-option" | "LeftOption") => Self::LeftOption,
-            Some("right-command" | "RightCommand") => Self::RightCommand,
-            Some("fn" | "Fn") => Self::Fn,
-            Some("f5" | "F5") => Self::F5,
-            Some(other) => {
-                warn!(value = %other, "unknown SIDECAR_HOTKEY value, falling back to RightOption");
-                Self::RightOption
-            }
-        }
     }
 }
 
@@ -127,30 +102,6 @@ fn macos_keycode_to_name(keycode: i64) -> Option<String> {
     Some(name.to_string())
 }
 
-/// Convert a preset `Hotkey` into the equivalent `HotkeySpec`.
-fn preset_to_spec(h: Hotkey) -> HotkeySpec {
-    let trigger = match h {
-        Hotkey::RightOption => Trigger::ModifierOnly {
-            modifier: Modifier::Option,
-            side: Side::Right,
-        },
-        Hotkey::LeftOption => Trigger::ModifierOnly {
-            modifier: Modifier::Option,
-            side: Side::Left,
-        },
-        Hotkey::RightCommand => Trigger::ModifierOnly {
-            modifier: Modifier::Command,
-            side: Side::Right,
-        },
-        Hotkey::Fn => Trigger::Fn,
-        Hotkey::F5 => Trigger::Key("F5".into()),
-    };
-    HotkeySpec {
-        modifiers: ModifierFlags::default(),
-        trigger,
-    }
-}
-
 #[derive(Debug, Error)]
 pub enum HotkeyError {
     #[error(
@@ -170,7 +121,7 @@ pub struct HotkeyListener {
 }
 
 impl HotkeyListener {
-    pub fn install(hotkey: Hotkey) -> Result<(Self, mpsc::Receiver<HotkeyEvent>), HotkeyError> {
+    pub fn install(spec: HotkeySpec) -> Result<(Self, mpsc::Receiver<HotkeyEvent>), HotkeyError> {
         // Don't preflight with `check_accessibility()` — `AXIsProcessTrusted`
         // caches its answer for the lifetime of the process, so once the
         // user grants Accessibility in System Settings our check still
@@ -187,8 +138,6 @@ impl HotkeyListener {
         let (init_tx, init_rx) = std::sync::mpsc::sync_channel::<Result<(), HotkeyError>>(1);
         let shutdown_clone = shutdown_flag.clone();
         let runloop_slot_clone = runloop_slot.clone();
-
-        let spec = preset_to_spec(hotkey);
 
         let worker = thread::Builder::new()
             .name("hotkey-tap".into())
@@ -479,38 +428,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn from_env_defaults_to_right_option_when_unset() {
-        let prev = std::env::var("SIDECAR_HOTKEY").ok();
-        std::env::remove_var("SIDECAR_HOTKEY");
-        assert_eq!(Hotkey::from_env(), Hotkey::RightOption);
-        if let Some(p) = prev {
-            std::env::set_var("SIDECAR_HOTKEY", p);
-        }
-    }
-
-    #[test]
-    fn from_env_parses_known_values() {
-        for (input, expected) in [
-            ("right-option", Hotkey::RightOption),
-            ("left-option", Hotkey::LeftOption),
-            ("right-command", Hotkey::RightCommand),
-            ("fn", Hotkey::Fn),
-            ("f5", Hotkey::F5),
-        ] {
-            std::env::set_var("SIDECAR_HOTKEY", input);
-            assert_eq!(Hotkey::from_env(), expected, "input={input}");
-        }
-        std::env::remove_var("SIDECAR_HOTKEY");
-    }
-
-    #[test]
-    fn from_env_falls_back_on_unknown() {
-        std::env::set_var("SIDECAR_HOTKEY", "garbage");
-        assert_eq!(Hotkey::from_env(), Hotkey::RightOption);
-        std::env::remove_var("SIDECAR_HOTKEY");
-    }
-
-    #[test]
     fn flags_mask_from_cg_flags_reads_each_bit() {
         let m = mod_flags_from_raw(MASK_CONTROL | MASK_SHIFT);
         assert!(m.control && m.shift);
@@ -534,22 +451,6 @@ mod tests {
             Some((Modifier::Command, Side::Right))
         );
         assert_eq!(modifier_of_keycode(0x60), None);
-    }
-
-    #[test]
-    fn preset_round_trips_to_expected_spec() {
-        assert_eq!(preset_to_spec(Hotkey::Fn).trigger, Trigger::Fn);
-        assert_eq!(
-            preset_to_spec(Hotkey::F5).trigger,
-            Trigger::Key("F5".into())
-        );
-        assert_eq!(
-            preset_to_spec(Hotkey::RightOption).trigger,
-            Trigger::ModifierOnly {
-                modifier: Modifier::Option,
-                side: Side::Right
-            }
-        );
     }
 
     #[test]

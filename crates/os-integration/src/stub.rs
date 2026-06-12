@@ -18,29 +18,13 @@
 use thiserror::Error;
 use tokio::sync::mpsc;
 
-use crate::hotkey_spec::HotkeyEvent;
+use crate::hotkey_spec::{HotkeyEvent, HotkeySpec};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PermissionStatus {
     Granted,
     Denied,
     NotDetermined,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Hotkey {
-    RightOption,
-    LeftOption,
-    RightCommand,
-    Fn,
-    F5,
-}
-
-impl Hotkey {
-    #[must_use]
-    pub fn from_env() -> Self {
-        Self::RightOption
-    }
 }
 
 #[derive(Debug, Error)]
@@ -54,7 +38,7 @@ pub enum HotkeyError {
 pub struct HotkeyListener;
 
 impl HotkeyListener {
-    pub fn install(_hotkey: Hotkey) -> Result<(Self, mpsc::Receiver<HotkeyEvent>), HotkeyError> {
+    pub fn install(_spec: HotkeySpec) -> Result<(Self, mpsc::Receiver<HotkeyEvent>), HotkeyError> {
         Err(HotkeyError::NotSupported)
     }
 

@@ -43,58 +43,95 @@ use thiserror::Error;
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
-use crate::hotkey_spec::HotkeyEvent;
+use crate::hotkey_spec::{HotkeyEvent, HotkeySpec, Modifier, Side, Trigger};
 
 /// How long a reader sleeps between non-blocking polls when no events are
 /// pending. Small enough that push-to-talk latency stays imperceptible, large
 /// enough to keep the idle reader threads off the CPU.
 const POLL_INTERVAL: Duration = Duration::from_millis(8);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Hotkey {
-    RightOption,
-    LeftOption,
-    RightCommand,
-    Fn,
-    F5,
+/// Map a `HotkeySpec` to the single evdev `KeyCode` the reader loop watches for.
+///
+/// Linux keeps its single-key reader architecture for now, so only the subset
+/// the reader can source is supported; everything else is rejected:
+///   - `ModifierOnly { modifier, side }` → the side-specific modifier keycode.
+///     The names are macOS-flavoured (the neutral model was defined there); the
+///     nearest Linux equivalents are Alt for Option, Meta (Super/Win) for
+///     Command, plus Control / Shift.
+///   - `Key(name)` with no extra modifiers → the matching evdev keycode
+///     (F1–F12, letters A–Z) via `key_name_to_evdev`.
+///   - `Key(_)` WITH modifiers (a real combo) → unsupported: the single-key
+///     reader can't source a chord. Combo sourcing is a deferred follow-up.
+///   - `Fn` → unsupported: the Fn key has no evdev keycode on most keyboards
+///     (handled in firmware, never reaches the kernel input layer).
+///   - `Mouse(_)` → unsupported: the evdev reader watches keyboards only.
+fn spec_to_keycode(spec: &HotkeySpec) -> Result<KeyCode, HotkeyError> {
+    match &spec.trigger {
+        Trigger::ModifierOnly { modifier, side } => Ok(match (modifier, side) {
+            (Modifier::Option, Side::Right) => KeyCode::KEY_RIGHTALT,
+            (Modifier::Option, Side::Left) => KeyCode::KEY_LEFTALT,
+            (Modifier::Command, Side::Right) => KeyCode::KEY_RIGHTMETA,
+            (Modifier::Command, Side::Left) => KeyCode::KEY_LEFTMETA,
+            (Modifier::Control, Side::Right) => KeyCode::KEY_RIGHTCTRL,
+            (Modifier::Control, Side::Left) => KeyCode::KEY_LEFTCTRL,
+            (Modifier::Shift, Side::Right) => KeyCode::KEY_RIGHTSHIFT,
+            (Modifier::Shift, Side::Left) => KeyCode::KEY_LEFTSHIFT,
+        }),
+        Trigger::Key(name) if spec.modifiers.count() == 0 => {
+            key_name_to_evdev(name).ok_or(HotkeyError::UnsupportedKey)
+        }
+        // A real combo (base key + modifiers), Fn, or Mouse: the single-key
+        // reader can't source any of these yet.
+        Trigger::Key(_) | Trigger::Fn | Trigger::Mouse(_) => Err(HotkeyError::UnsupportedKey),
+    }
 }
 
-impl Hotkey {
-    #[must_use]
-    pub fn from_env() -> Self {
-        match std::env::var("SIDECAR_HOTKEY").ok().as_deref() {
-            Some("right-option" | "RightOption") | None => Self::RightOption,
-            Some("left-option" | "LeftOption") => Self::LeftOption,
-            Some("right-command" | "RightCommand") => Self::RightCommand,
-            Some("fn" | "Fn") => Self::Fn,
-            Some("f5" | "F5") => Self::F5,
-            Some(other) => {
-                warn!(value = %other, "unknown SIDECAR_HOTKEY value, falling back to RightOption");
-                Self::RightOption
-            }
-        }
-    }
-
-    /// Map the cross-platform `Hotkey` to the evdev `KeyCode` we watch for. The
-    /// names are macOS-flavoured (the shared enum was defined there); the
-    /// nearest Linux equivalents are:
-    ///   - `RightOption`  → Right Alt   (`KEY_RIGHTALT`)
-    ///   - `LeftOption`   → Left Alt    (`KEY_LEFTALT`)
-    ///   - `RightCommand` → Right Meta  (`KEY_RIGHTMETA`, the "Super"/Win key)
-    ///   - `F5`           → F5          (`KEY_F5`)
-    ///
-    /// `Fn` has no evdev keycode on the vast majority of keyboards (the Fn key
-    /// is handled in firmware and never reaches the kernel input layer), so it
-    /// is unsupported here — see `install`.
-    fn keycode(self) -> Option<KeyCode> {
-        match self {
-            Self::RightOption => Some(KeyCode::KEY_RIGHTALT),
-            Self::LeftOption => Some(KeyCode::KEY_LEFTALT),
-            Self::RightCommand => Some(KeyCode::KEY_RIGHTMETA),
-            Self::F5 => Some(KeyCode::KEY_F5),
-            Self::Fn => None,
-        }
-    }
+/// Map a canonical base-key name to its evdev `KeyCode`. Covers F1–F12 and the
+/// letters A–Z (the keys the single-key reader can bind). Unknown names → `None`
+/// (rejected by `spec_to_keycode`).
+fn key_name_to_evdev(name: &str) -> Option<KeyCode> {
+    let code = match name {
+        "F1" => KeyCode::KEY_F1,
+        "F2" => KeyCode::KEY_F2,
+        "F3" => KeyCode::KEY_F3,
+        "F4" => KeyCode::KEY_F4,
+        "F5" => KeyCode::KEY_F5,
+        "F6" => KeyCode::KEY_F6,
+        "F7" => KeyCode::KEY_F7,
+        "F8" => KeyCode::KEY_F8,
+        "F9" => KeyCode::KEY_F9,
+        "F10" => KeyCode::KEY_F10,
+        "F11" => KeyCode::KEY_F11,
+        "F12" => KeyCode::KEY_F12,
+        "A" => KeyCode::KEY_A,
+        "B" => KeyCode::KEY_B,
+        "C" => KeyCode::KEY_C,
+        "D" => KeyCode::KEY_D,
+        "E" => KeyCode::KEY_E,
+        "F" => KeyCode::KEY_F,
+        "G" => KeyCode::KEY_G,
+        "H" => KeyCode::KEY_H,
+        "I" => KeyCode::KEY_I,
+        "J" => KeyCode::KEY_J,
+        "K" => KeyCode::KEY_K,
+        "L" => KeyCode::KEY_L,
+        "M" => KeyCode::KEY_M,
+        "N" => KeyCode::KEY_N,
+        "O" => KeyCode::KEY_O,
+        "P" => KeyCode::KEY_P,
+        "Q" => KeyCode::KEY_Q,
+        "R" => KeyCode::KEY_R,
+        "S" => KeyCode::KEY_S,
+        "T" => KeyCode::KEY_T,
+        "U" => KeyCode::KEY_U,
+        "V" => KeyCode::KEY_V,
+        "W" => KeyCode::KEY_W,
+        "X" => KeyCode::KEY_X,
+        "Y" => KeyCode::KEY_Y,
+        "Z" => KeyCode::KEY_Z,
+        _ => return None,
+    };
+    Some(code)
 }
 
 #[derive(Debug, Error)]
@@ -120,10 +157,12 @@ pub struct HotkeyListener {
 }
 
 impl HotkeyListener {
-    pub fn install(hotkey: Hotkey) -> Result<(Self, mpsc::Receiver<HotkeyEvent>), HotkeyError> {
-        let Some(target) = hotkey.keycode() else {
-            return Err(HotkeyError::UnsupportedKey);
-        };
+    // `spec` is taken by value to keep `install`'s signature uniform across
+    // platforms (macOS/Windows consume it); the Linux reader only needs the
+    // resolved keycode, so it borrows `spec` and drops the rest.
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn install(spec: HotkeySpec) -> Result<(Self, mpsc::Receiver<HotkeyEvent>), HotkeyError> {
+        let target = spec_to_keycode(&spec)?;
 
         // Open every keyboard-like device that can emit the target key. We may
         // legitimately watch several at once (builtin + external + virtual).
@@ -343,58 +382,42 @@ fn send_event(tx: &mpsc::Sender<HotkeyEvent>, evt: HotkeyEvent) {
 mod tests {
     use super::*;
 
-    #[test]
-    fn from_env_defaults_to_right_option_when_unset() {
-        let prev = std::env::var("SIDECAR_HOTKEY").ok();
-        std::env::remove_var("SIDECAR_HOTKEY");
-        assert_eq!(Hotkey::from_env(), Hotkey::RightOption);
-        if let Some(p) = prev {
-            std::env::set_var("SIDECAR_HOTKEY", p);
+    use crate::hotkey_spec::ModifierFlags;
+
+    fn spec(trigger: Trigger) -> HotkeySpec {
+        HotkeySpec {
+            modifiers: ModifierFlags::default(),
+            trigger,
         }
     }
 
     #[test]
-    fn from_env_parses_known_values() {
-        for (input, expected) in [
-            ("right-option", Hotkey::RightOption),
-            ("left-option", Hotkey::LeftOption),
-            ("right-command", Hotkey::RightCommand),
-            ("fn", Hotkey::Fn),
-            ("f5", Hotkey::F5),
-        ] {
-            std::env::set_var("SIDECAR_HOTKEY", input);
-            assert_eq!(Hotkey::from_env(), expected, "input={input}");
-        }
-        std::env::remove_var("SIDECAR_HOTKEY");
-    }
+    fn spec_to_keycode_maps_supported_and_rejects_rest() {
+        assert_eq!(
+            spec_to_keycode(&spec(Trigger::ModifierOnly {
+                modifier: Modifier::Option,
+                side: Side::Right
+            }))
+            .unwrap(),
+            KeyCode::KEY_RIGHTALT
+        );
+        assert_eq!(
+            spec_to_keycode(&spec(Trigger::Key("F5".into()))).unwrap(),
+            KeyCode::KEY_F5
+        );
+        assert!(spec_to_keycode(&spec(Trigger::Fn)).is_err());
+        assert!(spec_to_keycode(&spec(Trigger::Mouse(4))).is_err());
 
-    #[test]
-    fn from_env_falls_back_on_unknown() {
-        std::env::set_var("SIDECAR_HOTKEY", "garbage");
-        assert_eq!(Hotkey::from_env(), Hotkey::RightOption);
-        std::env::remove_var("SIDECAR_HOTKEY");
-    }
-
-    #[test]
-    fn supported_keys_map_to_distinct_keycodes() {
-        let codes: Vec<u16> = [
-            Hotkey::RightOption,
-            Hotkey::LeftOption,
-            Hotkey::RightCommand,
-            Hotkey::F5,
-        ]
-        .into_iter()
-        .map(|h| h.keycode().expect("supported key").code())
-        .collect();
-        let mut sorted = codes.clone();
-        sorted.sort_unstable();
-        sorted.dedup();
-        assert_eq!(sorted.len(), codes.len(), "duplicate keycodes: {codes:?}");
-    }
-
-    #[test]
-    fn fn_key_is_unsupported() {
-        assert!(Hotkey::Fn.keycode().is_none());
+        // A real combo (base key + modifiers) is not sourceable by the
+        // single-key reader.
+        let combo = HotkeySpec {
+            modifiers: ModifierFlags {
+                control: true,
+                ..ModifierFlags::default()
+            },
+            trigger: Trigger::Key("F5".into()),
+        };
+        assert!(spec_to_keycode(&combo).is_err());
     }
 
     #[test]

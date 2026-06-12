@@ -15,7 +15,9 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use audio_capture::{Recorder, RecorderConfig};
 use os_integration::audio_cue::{self, CueKind};
-use os_integration::{Hotkey as OsHotkey, HotkeyEvent, HotkeyListener};
+use os_integration::{
+    HotkeyEvent, HotkeyListener, HotkeySpec, Modifier, ModifierFlags, Side, Trigger,
+};
 
 use crate::settings::Hotkey;
 use crate::state::ModelState;
@@ -51,9 +53,9 @@ pub fn reinstall(app: &AppHandle, hotkey: Hotkey) -> Result<(), AppError> {
 }
 
 fn build_coordinator(app: AppHandle, hotkey: Hotkey) -> Result<DictationCoordinator, AppError> {
-    let os_hotkey = map_hotkey(hotkey);
+    let spec = settings_hotkey_to_spec(hotkey);
     let (listener, rx) =
-        HotkeyListener::install(os_hotkey).map_err(|e| AppError::Hotkey(e.to_string()))?;
+        HotkeyListener::install(spec).map_err(|e| AppError::Hotkey(e.to_string()))?;
 
     let app2 = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -63,13 +65,29 @@ fn build_coordinator(app: AppHandle, hotkey: Hotkey) -> Result<DictationCoordina
     Ok(DictationCoordinator { _listener: listener })
 }
 
-fn map_hotkey(h: Hotkey) -> OsHotkey {
-    match h {
-        Hotkey::RightOption => OsHotkey::RightOption,
-        Hotkey::LeftOption => OsHotkey::LeftOption,
-        Hotkey::RightCommand => OsHotkey::RightCommand,
-        Hotkey::Fn => OsHotkey::Fn,
-        Hotkey::F5 => OsHotkey::F5,
+/// Bridge the current settings preset enum to the neutral `HotkeySpec`. A later
+/// task replaces the preset enum with a stored `HotkeySpec`; until then the five
+/// presets map onto their spec equivalents here.
+fn settings_hotkey_to_spec(h: Hotkey) -> HotkeySpec {
+    let trigger = match h {
+        Hotkey::RightOption => Trigger::ModifierOnly {
+            modifier: Modifier::Option,
+            side: Side::Right,
+        },
+        Hotkey::LeftOption => Trigger::ModifierOnly {
+            modifier: Modifier::Option,
+            side: Side::Left,
+        },
+        Hotkey::RightCommand => Trigger::ModifierOnly {
+            modifier: Modifier::Command,
+            side: Side::Right,
+        },
+        Hotkey::Fn => Trigger::Fn,
+        Hotkey::F5 => Trigger::Key("F5".into()),
+    };
+    HotkeySpec {
+        modifiers: ModifierFlags::default(),
+        trigger,
     }
 }
 

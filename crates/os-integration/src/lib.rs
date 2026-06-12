@@ -20,8 +20,8 @@
 
 pub mod hotkey_spec;
 pub use hotkey_spec::{
-    ActivationMode, CaptureEvent, EdgeDetector, HotkeyEvent, HotkeySpec, LiveState, ModOnly,
-    Modifier, ModifierFlags, Side, Trigger,
+    spec_from_env, ActivationMode, CaptureEvent, EdgeDetector, HotkeyEvent, HotkeySpec, LiveState,
+    ModOnly, Modifier, ModifierFlags, Side, Trigger,
 };
 
 #[cfg(target_os = "macos")]
@@ -36,7 +36,7 @@ mod pasteboard;
 mod permissions;
 
 #[cfg(target_os = "macos")]
-pub use hotkey::{Hotkey, HotkeyError, HotkeyListener};
+pub use hotkey::{HotkeyError, HotkeyListener};
 #[cfg(target_os = "macos")]
 pub use inject::{InjectError, InjectionMethod, Injector};
 #[cfg(target_os = "macos")]
@@ -57,7 +57,7 @@ mod windows;
 #[cfg(target_os = "windows")]
 pub use windows::{
     check_accessibility, check_microphone, clipboard, dev_skip_perms, prompt_accessibility,
-    prompt_microphone, Hotkey, HotkeyError, HotkeyListener, InjectError, InjectionMethod, Injector,
+    prompt_microphone, HotkeyError, HotkeyListener, InjectError, InjectionMethod, Injector,
     PermissionStatus,
 };
 
@@ -67,7 +67,7 @@ mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::{
     check_accessibility, check_microphone, clipboard, dev_skip_perms, prompt_accessibility,
-    prompt_microphone, Hotkey, HotkeyError, HotkeyListener, InjectError, InjectionMethod, Injector,
+    prompt_microphone, HotkeyError, HotkeyListener, InjectError, InjectionMethod, Injector,
     PermissionStatus,
 };
 
@@ -76,7 +76,7 @@ mod stub;
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 pub use stub::{
     check_accessibility, check_microphone, clipboard, dev_skip_perms, prompt_accessibility,
-    prompt_microphone, Hotkey, HotkeyError, HotkeyListener, InjectError, InjectionMethod, Injector,
+    prompt_microphone, HotkeyError, HotkeyListener, InjectError, InjectionMethod, Injector,
     PermissionStatus,
 };
 
