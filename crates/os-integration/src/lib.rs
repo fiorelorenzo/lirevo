@@ -20,8 +20,8 @@
 
 pub mod hotkey_spec;
 pub use hotkey_spec::{
-    ActivationMode, CaptureEvent, EdgeDetector, HotkeySpec, LiveState, ModOnly, Modifier,
-    ModifierFlags, Side, Trigger,
+    ActivationMode, CaptureEvent, EdgeDetector, HotkeyEvent, HotkeySpec, LiveState, ModOnly,
+    Modifier, ModifierFlags, Side, Trigger,
 };
 
 #[cfg(target_os = "macos")]
@@ -36,7 +36,7 @@ mod pasteboard;
 mod permissions;
 
 #[cfg(target_os = "macos")]
-pub use hotkey::{Hotkey, HotkeyError, HotkeyEvent, HotkeyListener};
+pub use hotkey::{Hotkey, HotkeyError, HotkeyListener};
 #[cfg(target_os = "macos")]
 pub use inject::{InjectError, InjectionMethod, Injector};
 #[cfg(target_os = "macos")]
@@ -57,8 +57,8 @@ mod windows;
 #[cfg(target_os = "windows")]
 pub use windows::{
     check_accessibility, check_microphone, clipboard, dev_skip_perms, prompt_accessibility,
-    prompt_microphone, Hotkey, HotkeyError, HotkeyEvent, HotkeyListener, InjectError,
-    InjectionMethod, Injector, PermissionStatus,
+    prompt_microphone, Hotkey, HotkeyError, HotkeyListener, InjectError, InjectionMethod, Injector,
+    PermissionStatus,
 };
 
 #[cfg(target_os = "linux")]
@@ -67,8 +67,8 @@ mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::{
     check_accessibility, check_microphone, clipboard, dev_skip_perms, prompt_accessibility,
-    prompt_microphone, Hotkey, HotkeyError, HotkeyEvent, HotkeyListener, InjectError,
-    InjectionMethod, Injector, PermissionStatus,
+    prompt_microphone, Hotkey, HotkeyError, HotkeyListener, InjectError, InjectionMethod, Injector,
+    PermissionStatus,
 };
 
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
@@ -76,8 +76,8 @@ mod stub;
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 pub use stub::{
     check_accessibility, check_microphone, clipboard, dev_skip_perms, prompt_accessibility,
-    prompt_microphone, Hotkey, HotkeyError, HotkeyEvent, HotkeyListener, InjectError,
-    InjectionMethod, Injector, PermissionStatus,
+    prompt_microphone, Hotkey, HotkeyError, HotkeyListener, InjectError, InjectionMethod, Injector,
+    PermissionStatus,
 };
 
 pub mod audio_cue;

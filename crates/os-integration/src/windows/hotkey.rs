@@ -43,6 +43,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
+use crate::hotkey_spec::HotkeyEvent;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Hotkey {
     RightOption,
@@ -88,12 +90,6 @@ impl Hotkey {
             Self::Fn => None,
         }
     }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum HotkeyEvent {
-    Down,
-    Up,
 }
 
 #[derive(Debug, Error)]

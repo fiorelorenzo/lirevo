@@ -43,6 +43,8 @@ use thiserror::Error;
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
+use crate::hotkey_spec::HotkeyEvent;
+
 /// How long a reader sleeps between non-blocking polls when no events are
 /// pending. Small enough that push-to-talk latency stays imperceptible, large
 /// enough to keep the idle reader threads off the CPU.
@@ -93,12 +95,6 @@ impl Hotkey {
             Self::Fn => None,
         }
     }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum HotkeyEvent {
-    Down,
-    Up,
 }
 
 #[derive(Debug, Error)]

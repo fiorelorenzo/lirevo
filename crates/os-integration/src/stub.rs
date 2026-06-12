@@ -18,6 +18,8 @@
 use thiserror::Error;
 use tokio::sync::mpsc;
 
+use crate::hotkey_spec::HotkeyEvent;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PermissionStatus {
     Granted,
@@ -39,12 +41,6 @@ impl Hotkey {
     pub fn from_env() -> Self {
         Self::RightOption
     }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum HotkeyEvent {
-    Down,
-    Up,
 }
 
 #[derive(Debug, Error)]
