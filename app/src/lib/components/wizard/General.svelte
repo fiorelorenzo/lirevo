@@ -25,6 +25,17 @@
   let hotkeySpec = $state($settings?.hotkey);
   let activationMode = $state<ActivationMode>($settings?.activationMode ?? 'hold');
 
+  // Seed local hotkey state once the store loads, in case $settings was still
+  // null at mount (otherwise the {#if hotkeySpec} guard hides the recorder
+  // forever). Local editing afterwards is preserved — this only fires while
+  // hotkeySpec is still unset.
+  $effect(() => {
+    if (hotkeySpec === undefined && $settings) {
+      hotkeySpec = $settings.hotkey;
+      activationMode = $settings.activationMode;
+    }
+  });
+
   // Local mirrors so toggles feel instant; updateSettings runs on change so
   // persisted state matches the UI even if the user bails via Skip.
   let launchAtLogin = $derived($settings?.launchAtLogin ?? false);

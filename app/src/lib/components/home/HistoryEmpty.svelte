@@ -1,14 +1,14 @@
 <script lang="ts">
   import { MessagesSquare } from '@lucide/svelte';
-  import KeyChip from '$lib/components/KeyChip.svelte';
+  import type { ActivationMode } from '$lib/hotkey';
 
   interface Props {
-    /** Glyph for the configured hotkey (e.g. "⌥"), or undefined when unknown. */
-    hotkeyGlyph?: string;
-    /** Human label under the glyph (e.g. "right", "Globe"). */
-    hotkeyLabel?: string;
+    /** Chip tokens for the configured hotkey (e.g. ["⌥ right"] or ["⌃","⇧","K"]). */
+    hotkeyChips?: string[];
+    /** Activation mode, so the prompt verb matches Tap/Hold. */
+    mode?: ActivationMode;
   }
-  let { hotkeyGlyph, hotkeyLabel = '' }: Props = $props();
+  let { hotkeyChips, mode = 'hold' }: Props = $props();
 </script>
 
 <div class="flex-1 flex flex-col items-center justify-center gap-5 px-8 text-center">
@@ -21,10 +21,16 @@
       Every transcription and cleanup you run is saved locally so you can review it later.
     </p>
   </div>
-  {#if hotkeyGlyph}
+  {#if hotkeyChips && hotkeyChips.length}
     <div class="flex flex-col items-center gap-2">
-      <KeyChip label={hotkeyLabel} glyph={hotkeyGlyph} size="sm" selected />
-      <p class="text-xs text-muted-foreground">Press and hold to start dictating</p>
+      <div class="flex flex-wrap items-center justify-center gap-1">
+        {#each hotkeyChips as c (c)}
+          <kbd class="rounded bg-accent px-1.5 py-0.5 font-mono text-xs">{c}</kbd>
+        {/each}
+      </div>
+      <p class="text-xs text-muted-foreground">
+        {mode === 'tap' ? 'Tap to start dictating' : 'Press and hold to start dictating'}
+      </p>
     </div>
   {/if}
 </div>

@@ -265,7 +265,10 @@
           <Spinner size="lg" label="Loading history" />
         </div>
       {:else}
-        <HistoryEmpty hotkeyGlyph={canDictate ? hotkeyGlyph : undefined} />
+        <HistoryEmpty
+          hotkeyChips={canDictate && $settings ? formatHotkey($settings.hotkey, 'macos') : undefined}
+          mode={$settings?.activationMode}
+        />
       {/if}
     {:else}
       <div class="flex flex-col gap-3 p-5">
