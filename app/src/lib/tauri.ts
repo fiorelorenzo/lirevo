@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import type { HotkeySpec, ActivationMode, CaptureEvent } from '$lib/hotkey';
 
-export type Hotkey = 'right-option' | 'left-option' | 'right-command' | 'fn' | 'f5';
 export type PermissionStatus = 'granted' | 'denied' | 'not_determined';
 export type Route = 'home' | 'settings' | 'wizard';
 
@@ -15,7 +15,8 @@ export interface Settings {
   llmModelPath: string | null;
   llmCtxSize: number;
   whisperCoreMLDisable: boolean;
-  hotkey: Hotkey;
+  hotkey: HotkeySpec;
+  activationMode: ActivationMode;
   language: string;
   inputDeviceName: string | null;
   smartMicRouting: boolean;
@@ -194,6 +195,10 @@ export const lda = {
   openSystemSettingsMicrophone: () => invoke<void>('open_system_settings_microphone'),
   openSystemSettingsAccessibility: () => invoke<void>('open_system_settings_accessibility'),
   retryHotkeyInstall: () => invoke<void>('retry_hotkey_install'),
+  startHotkeyCapture: () => invoke<void>('start_hotkey_capture'),
+  stopHotkeyCapture: () => invoke<void>('stop_hotkey_capture'),
+  onHotkeyCapture: (cb: (e: CaptureEvent) => void): Promise<UnlistenFn> =>
+    listen<CaptureEvent>('hotkey:capture', (e) => cb(e.payload)),
   testMic: (deviceName: string | null) =>
     invoke<TestMicResult>('test_mic', { deviceName }),
   cancelTestMic: () => invoke<void>('cancel_test_mic'),

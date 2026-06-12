@@ -4,12 +4,12 @@
   // completes the wizard. (Lirevo is a menu-bar app: it has no Dock icon,
   // starts silently in the tray when auto-launched at login, and stays in the
   // tray when its window is closed — so there's nothing else to configure.)
-  import KeyChip from '$lib/components/KeyChip.svelte';
+  import HotkeyRecorder from '$lib/components/HotkeyRecorder.svelte';
   import { Label } from '$lib/components/ui/label';
   import { Switch } from '$lib/components/ui/switch';
   import { Rocket, Bluetooth } from '@lucide/svelte';
   import { settings, updateSettings } from '$lib/stores/settings.svelte';
-  import type { Hotkey } from '$lib/tauri';
+  import type { ActivationMode } from '$lib/hotkey';
   import { t } from '$lib/i18n';
   import { defaultStepState, type WizardStepState } from './step-state';
 
@@ -22,16 +22,8 @@
     nextState = $bindable(defaultStepState()),
   }: Props = $props();
 
-  interface Option { value: Hotkey; glyph: string; label: string; }
-  const OPTIONS: Option[] = [
-    { value: 'right-option',  glyph: '⌥', label: 'right' },
-    { value: 'left-option',   glyph: '⌥', label: 'left' },
-    { value: 'right-command', glyph: '⌘', label: 'right' },
-    { value: 'fn',            glyph: 'fn', label: '' },
-    { value: 'f5',            glyph: 'F5', label: '' },
-  ];
-
-  let selected = $state<Hotkey>($settings?.hotkey ?? 'right-option');
+  let hotkeySpec = $state($settings?.hotkey);
+  let activationMode = $state<ActivationMode>($settings?.activationMode ?? 'hold');
 
   // Local mirrors so toggles feel instant; updateSettings runs on change so
   // persisted state matches the UI even if the user bails via Skip.
@@ -39,7 +31,7 @@
   let smartMicRouting = $derived($settings?.smartMicRouting ?? true);
 
   async function finish() {
-    await updateSettings({ hotkey: selected });
+    if (hotkeySpec) await updateSettings({ hotkey: hotkeySpec, activationMode });
     onfinish();
   }
 
@@ -62,21 +54,16 @@
     <div class="text-xs uppercase tracking-wide text-muted-foreground">
       {t('wizard.general.hotkey_label')}
     </div>
-    <div
-      class="flex flex-wrap items-center gap-3"
-      role="radiogroup"
-      aria-label={t('wizard.hotkey.aria_group')}
-    >
-      {#each OPTIONS as opt (opt.value)}
-        <KeyChip
-          glyph={opt.glyph}
-          label={opt.label}
-          size="md"
-          selected={selected === opt.value}
-          onclick={() => (selected = opt.value)}
-        />
-      {/each}
-    </div>
+    {#if hotkeySpec}
+      <HotkeyRecorder
+        spec={hotkeySpec}
+        mode={activationMode}
+        onchange={(n) => {
+          hotkeySpec = n.hotkey;
+          activationMode = n.activationMode;
+        }}
+      />
+    {/if}
   </div>
 
   <div class="w-full rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden text-left animate-in fade-in duration-500 delay-200">

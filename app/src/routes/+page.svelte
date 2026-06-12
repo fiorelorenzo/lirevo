@@ -13,22 +13,8 @@
   import { Button } from '$lib/components/ui/button';
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import { lda } from '$lib/tauri';
+  import { formatHotkey } from '$lib/hotkey';
   import { withErrorToast } from '$lib/stores/toasts';
-
-  const HOTKEY_GLYPH: Record<string, string> = {
-    'right-option': '⌥',
-    'left-option': '⌥',
-    'right-command': '⌘',
-    'fn': 'fn',
-    'f5': 'F5',
-  };
-  const HOTKEY_LABEL: Record<string, string> = {
-    'right-option': 'right',
-    'left-option': 'left',
-    'right-command': 'right',
-    'fn': 'Globe',
-    'f5': '',
-  };
 
   let canDictate = $derived(
     $modelState.kind === 'ready' && ($modelState as any).stt === true
@@ -76,8 +62,9 @@
     $modelState.kind === 'idle' || ($modelState.kind === 'ready' && !canDictate),
   );
 
-  let hotkeyGlyph = $derived($settings ? HOTKEY_GLYPH[$settings.hotkey] : undefined);
-  let hotkeyLabel = $derived($settings ? (HOTKEY_LABEL[$settings.hotkey] ?? '') : '');
+  // Render the configured hotkey as a single joined chip string (e.g. "⌥ right"
+  // or "⌃ ⇧ K"). macOS is the only shipped platform today.
+  let hotkeyGlyph = $derived($settings ? formatHotkey($settings.hotkey, 'macos').join(' ') : undefined);
 
   async function grantMicrophone() {
     await withErrorToast(t('home.error.grant_microphone'), () => lda.promptMicrophone());
@@ -194,7 +181,7 @@
         <p class="truncate text-sm font-medium">{t('home.title')}</p>
         {#if hotkeyGlyph}
           <span class="rounded-md border border-border bg-surface px-1.5 py-0.5 font-mono text-xs">
-            {hotkeyGlyph}{hotkeyLabel ? ` ${hotkeyLabel}` : ''}
+            {hotkeyGlyph}
           </span>
         {/if}
       {/if}
@@ -278,7 +265,7 @@
           <Spinner size="lg" label="Loading history" />
         </div>
       {:else}
-        <HistoryEmpty hotkeyGlyph={canDictate ? hotkeyGlyph : undefined} {hotkeyLabel} />
+        <HistoryEmpty hotkeyGlyph={canDictate ? hotkeyGlyph : undefined} />
       {/if}
     {:else}
       <div class="flex flex-col gap-3 p-5">

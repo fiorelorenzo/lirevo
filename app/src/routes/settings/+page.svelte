@@ -4,10 +4,10 @@
   import { Label } from '$lib/components/ui/label';
   import { Separator } from '$lib/components/ui/separator';
   import * as Select from '$lib/components/ui/select';
-  import * as RadioGroup from '$lib/components/ui/radio-group';
   import { Switch } from '$lib/components/ui/switch';
   import { Slider } from '$lib/components/ui/slider';
   import FilePicker from '$lib/components/FilePicker.svelte';
+  import HotkeyRecorder from '$lib/components/HotkeyRecorder.svelte';
   import MicTest from '$lib/components/MicTest.svelte';
   import ModelCard from '$lib/components/ModelCard.svelte';
   import SkeletonRow from '$lib/components/SkeletonRow.svelte';
@@ -20,7 +20,6 @@
   import {
     lda,
     type CatalogEntry,
-    type Hotkey,
     type InputDeviceEntry,
     type LocalModel,
   } from '$lib/tauri';
@@ -45,14 +44,6 @@
   const initialTab = page.url.searchParams.get('tab');
   let activeTab: Tab = $state(isTab(initialTab) ? initialTab : 'general');
   let checkingUpdates = $state(false);
-
-  const HOTKEY_OPTIONS: { value: Hotkey; label: string }[] = [
-    { value: 'right-option', label: 'Right Option ⌥' },
-    { value: 'left-option', label: 'Left Option ⌥' },
-    { value: 'right-command', label: 'Right Command ⌘' },
-    { value: 'fn', label: 'Fn / Globe' },
-    { value: 'f5', label: 'F5' },
-  ];
 
   const LANGUAGE_OPTIONS = [
     { value: 'auto', label: t('settings.general.language_auto') },
@@ -609,18 +600,14 @@
         <h2 class="text-xs font-semibold tracking-wide uppercase text-muted-foreground mb-3">
           {t('settings.hotkey.label')}
         </h2>
-        <div class="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden">
-          <RadioGroup.Root
-            value={$settings.hotkey}
-            onValueChange={(v) => v && updateSettings({ hotkey: v as Hotkey })}
-          >
-            {#each HOTKEY_OPTIONS as opt (opt.value)}
-              <label class="flex items-center gap-3 p-4 cursor-pointer hover:bg-accent/40 transition-colors border-b border-border last:border-b-0">
-                <RadioGroup.Item value={opt.value} />
-                <span class="text-sm">{opt.label}</span>
-              </label>
-            {/each}
-          </RadioGroup.Root>
+        <div class="rounded-xl border border-border bg-surface overflow-hidden">
+          <div class="p-4">
+            <HotkeyRecorder
+              spec={$settings.hotkey}
+              mode={$settings.activationMode}
+              onchange={(n) => updateSettings({ hotkey: n.hotkey, activationMode: n.activationMode })}
+            />
+          </div>
         </div>
       </div>
 
