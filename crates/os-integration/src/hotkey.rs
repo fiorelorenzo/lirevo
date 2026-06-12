@@ -106,6 +106,7 @@ fn modifier_of_keycode(keycode: i64) -> Option<(Modifier, Side)> {
 /// Mirrors that table so a `KeyDown` keycode resolves to the same canonical
 /// name the matcher expects in `Trigger::Key`.
 fn macos_keycode_to_name(keycode: i64) -> Option<String> {
+    #[rustfmt::skip]
     let name = match keycode {
         0x00 => "A", 0x01 => "S", 0x02 => "D", 0x03 => "F", 0x04 => "H", 0x05 => "G",
         0x06 => "Z", 0x07 => "X", 0x08 => "C", 0x09 => "V", 0x0B => "B", 0x0C => "Q",
@@ -316,7 +317,7 @@ fn hotkey_worker(
             }
             let keycode = event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE);
             let mods = mod_flags_from_raw(event.get_flags().bits());
-            let mut st = state_cb.lock().unwrap();
+            let mut st = state_cb.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             match event_type {
                 CGEventType::FlagsChanged => {
                     st.mods = mods;
@@ -328,9 +329,6 @@ fn hotkey_worker(
                             Modifier::Shift => mods.shift,
                         };
                         st.mod_only = if held { Some((m, s)) } else { None };
-                    } else if keycode == 0x3F {
-                        // Fn / Globe has no L/R distinction; only the flag matters.
-                        st.mods.fnkey = mods.fnkey;
                     }
                 }
                 CGEventType::KeyDown => {
@@ -341,6 +339,8 @@ fn hotkey_worker(
                 }
                 CGEventType::KeyUp => {
                     st.mods = mods;
+                    // Any KeyUp clears base_key (last KeyDown wins). Multi-key rollover may
+                    // momentarily under-report, which is irrelevant for single-base-key PTT.
                     st.base_key = None;
                 }
                 CGEventType::OtherMouseDown => {
@@ -361,7 +361,11 @@ fn hotkey_worker(
             }
             let snapshot = st.clone();
             drop(st);
-            if let Some(evt) = detector_cb.lock().unwrap().update(&snapshot) {
+            if let Some(evt) = detector_cb
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .update(&snapshot)
+            {
                 if let Err(e) = tx_cb.blocking_send(evt) {
                     warn!(error = %e, "hotkey channel closed; tap will exit");
                 }

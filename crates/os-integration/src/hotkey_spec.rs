@@ -164,6 +164,7 @@ pub struct ModOnly {
 /// needed; unknown names map to `None` (rejected by validation).
 #[must_use]
 pub fn key_to_macos_keycode(name: &str) -> Option<i64> {
+    #[rustfmt::skip]
     let code = match name {
         "A" => 0x00, "S" => 0x01, "D" => 0x02, "F" => 0x03, "H" => 0x04, "G" => 0x05,
         "Z" => 0x06, "X" => 0x07, "C" => 0x08, "V" => 0x09, "B" => 0x0B, "Q" => 0x0C,
