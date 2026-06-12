@@ -40,8 +40,20 @@ pub async fn update_settings(
             crate::commands::inference::load_models(&app2, state).await;
         });
     }
-    if before.hotkey != after.hotkey {
-        crate::hotkey::reinstall(&app, after.hotkey)?;
+    if before.hotkey != after.hotkey || before.activation_mode != after.activation_mode {
+        if let Err(e) = crate::hotkey::reinstall(&app, after.hotkey.clone(), after.activation_mode) {
+            tracing::warn!(%e, "hotkey reinstall failed; restoring previous spec");
+            let restored = {
+                let mut inner = state.inner.lock().unwrap();
+                inner.settings.hotkey = before.hotkey.clone();
+                inner.settings.activation_mode = before.activation_mode;
+                let _ = inner.settings.persist(&app);
+                inner.settings.clone()
+            };
+            let _ = crate::hotkey::reinstall(&app, before.hotkey.clone(), before.activation_mode);
+            let _ = app.emit("toast", toast("error", "Couldn't set that hotkey — reverted"));
+            return Ok(restored);
+        }
     }
     if before.paste_delay_ms != after.paste_delay_ms {
         apply_paste_delay(after.paste_delay_ms);

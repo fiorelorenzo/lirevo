@@ -247,8 +247,13 @@ fn build_menu(app: &AppHandle, recording: bool, status_label: &str) -> Result<Me
         "Recording...".to_string()
     } else {
         let state = app.state::<AppState>();
-        let h = state.inner.lock().unwrap().settings.hotkey;
-        format!("Hold {} to dictate", hotkey_display(h))
+        let mode = state.inner.lock().unwrap().settings.activation_mode;
+        // The frontend owns the rich hotkey glyph formatter; the tray only needs
+        // a generic verb that matches the activation mode.
+        match mode {
+            os_integration::ActivationMode::Hold => "Hold your hotkey to dictate".to_string(),
+            os_integration::ActivationMode::Tap => "Tap your hotkey to dictate".to_string(),
+        }
     };
     let hotkey_item = MenuItem::with_id(app, "hotkey", &hotkey_label, false, None::<&str>).map_err(menu_err)?;
     let energy_item = build_energy_submenu(app)?;
@@ -351,16 +356,6 @@ fn check_item(
 }
 
 fn menu_err(e: tauri::Error) -> AppError { AppError::Internal(format!("menu: {e}")) }
-
-fn hotkey_display(h: crate::settings::Hotkey) -> &'static str {
-    match h {
-        crate::settings::Hotkey::RightOption => "Right ⌥",
-        crate::settings::Hotkey::LeftOption  => "Left ⌥",
-        crate::settings::Hotkey::RightCommand => "Right ⌘",
-        crate::settings::Hotkey::Fn => "Fn",
-        crate::settings::Hotkey::F5 => "F5",
-    }
-}
 
 fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
     match event.id().as_ref() {

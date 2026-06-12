@@ -31,17 +31,17 @@ pub struct DictationCoordinator {
     _listener: HotkeyListener,
 }
 
-pub fn install(app: AppHandle, hotkey: Hotkey) -> Result<(), AppError> {
-    tracing::info!(?hotkey, "hotkey::install");
-    let coord = build_coordinator(app, hotkey)?;
+pub fn install(app: AppHandle, spec: HotkeySpec, mode: ActivationMode) -> Result<(), AppError> {
+    tracing::info!(?spec, ?mode, "hotkey::install");
+    let coord = build_coordinator(app, spec, mode)?;
     *COORDINATOR.lock().unwrap() = Some(coord);
     tracing::info!("hotkey::install: coordinator installed");
     Ok(())
 }
 
-pub fn reinstall(app: &AppHandle, hotkey: Hotkey) -> Result<(), AppError> {
-    tracing::info!(?hotkey, "hotkey::reinstall");
-    let coord = build_coordinator(app.clone(), hotkey)?;
+pub fn reinstall(app: &AppHandle, spec: HotkeySpec, mode: ActivationMode) -> Result<(), AppError> {
+    tracing::info!(?spec, ?mode, "hotkey::reinstall");
+    let coord = build_coordinator(app.clone(), spec, mode)?;
     // Replace (and thereby drop) the previous coordinator. Drop on the old
     // HotkeyListener stops its run loop + tears down the EventTap.
     *COORDINATOR.lock().unwrap() = Some(coord);
@@ -49,53 +49,47 @@ pub fn reinstall(app: &AppHandle, hotkey: Hotkey) -> Result<(), AppError> {
     Ok(())
 }
 
-fn build_coordinator(app: AppHandle, hotkey: Hotkey) -> Result<DictationCoordinator, AppError> {
-    let spec = settings_hotkey_to_spec(hotkey);
+fn build_coordinator(
+    app: AppHandle,
+    spec: HotkeySpec,
+    mode: ActivationMode,
+) -> Result<DictationCoordinator, AppError> {
     let (listener, rx) =
         HotkeyListener::install(spec).map_err(|e| AppError::Hotkey(e.to_string()))?;
 
     let app2 = app.clone();
     tauri::async_runtime::spawn(async move {
-        dictation_loop(app2, rx).await;
+        dictation_loop(app2, rx, mode).await;
     });
 
     Ok(DictationCoordinator { _listener: listener })
 }
 
-/// Bridge the current settings preset enum to the neutral `HotkeySpec`. A later
-/// task replaces the preset enum with a stored `HotkeySpec`; until then the five
-/// presets map onto their spec equivalents here.
-fn settings_hotkey_to_spec(h: Hotkey) -> HotkeySpec {
-    let trigger = match h {
-        Hotkey::RightOption => Trigger::ModifierOnly {
-            modifier: Modifier::Option,
-            side: Side::Right,
-        },
-        Hotkey::LeftOption => Trigger::ModifierOnly {
-            modifier: Modifier::Option,
-            side: Side::Left,
-        },
-        Hotkey::RightCommand => Trigger::ModifierOnly {
-            modifier: Modifier::Command,
-            side: Side::Right,
-        },
-        Hotkey::Fn => Trigger::Fn,
-        Hotkey::F5 => Trigger::Key("F5".into()),
-    };
-    HotkeySpec {
-        modifiers: ModifierFlags::default(),
-        trigger,
-    }
-}
-
-async fn dictation_loop(app: AppHandle, mut rx: tokio::sync::mpsc::Receiver<HotkeyEvent>) {
-    tracing::info!("dictation_loop: started");
+async fn dictation_loop(
+    app: AppHandle,
+    mut rx: tokio::sync::mpsc::Receiver<HotkeyEvent>,
+    mode: ActivationMode,
+) {
+    use std::time::{Duration, Instant};
+    let mut last_toggle = Instant::now() - Duration::from_secs(1);
     while let Some(event) = rx.recv().await {
-        tracing::info!(?event, "dictation_loop: received hotkey event");
         let state = app.state::<AppState>();
-        match event {
-            HotkeyEvent::Down => handle_down(&app, &state),
-            HotkeyEvent::Up => handle_up(&app, &state),
+        match (mode, event) {
+            (ActivationMode::Hold, HotkeyEvent::Down) => handle_down(&app, &state),
+            (ActivationMode::Hold, HotkeyEvent::Up) => handle_up(&app, &state),
+            (ActivationMode::Tap, HotkeyEvent::Down) => {
+                if last_toggle.elapsed() < Duration::from_millis(300) {
+                    continue;
+                }
+                last_toggle = Instant::now();
+                let recording = { state.inner.lock().unwrap().recorder.is_some() };
+                if recording {
+                    handle_up(&app, &state);
+                } else {
+                    handle_down(&app, &state);
+                }
+            }
+            (ActivationMode::Tap, HotkeyEvent::Up) => {}
         }
     }
     tracing::warn!("hotkey event channel closed; dictation loop exiting");

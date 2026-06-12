@@ -150,15 +150,15 @@ pub fn run() {
             // `permissionsState` store polls AX status and calls
             // `retry_hotkey_install` from its `$effect`, which performs
             // the deferred install transparently.
-            let hotkey = {
+            let (hotkey, activation_mode) = {
                 let state = app.state::<AppState>();
                 let inner = state.inner.lock().unwrap();
-                inner.settings.hotkey
+                (inner.settings.hotkey.clone(), inner.settings.activation_mode)
             };
             if os_integration::check_accessibility()
                 == os_integration::PermissionStatus::Granted
             {
-                if let Err(e) = hotkey::install(app.handle().clone(), hotkey) {
+                if let Err(e) = hotkey::install(app.handle().clone(), hotkey, activation_mode) {
                     tracing::warn!(?e, "hotkey install failed");
                 }
             } else {
