@@ -1,6 +1,6 @@
 name: release
 
-# Signed + notarized release on a version tag. The base CI (build-mac.yml) is
+# Signed + notarized release on a version tag. The base CI (ci.yml) is
 # checks-only and produces no artifacts; the distributable .dmg is built here.
 on:
   push:

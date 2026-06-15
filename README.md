@@ -1,7 +1,6 @@
 # Lirevo
 
-[![build-mac](https://github.com/fiorelorenzo/lirevo/actions/workflows/build-mac.yml/badge.svg)](https://github.com/fiorelorenzo/lirevo/actions/workflows/build-mac.yml)
-[![cross-platform-check](https://github.com/fiorelorenzo/lirevo/actions/workflows/cross-platform-check.yml/badge.svg)](https://github.com/fiorelorenzo/lirevo/actions/workflows/cross-platform-check.yml)
+[![ci](https://github.com/fiorelorenzo/lirevo/actions/workflows/ci.yml/badge.svg)](https://github.com/fiorelorenzo/lirevo/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/fiorelorenzo/lirevo?sort=semver)](https://github.com/fiorelorenzo/lirevo/releases/latest)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%20(Apple%20Silicon)-black)](#platform-support)
@@ -87,10 +86,10 @@ are a matter of adding sibling backends, not rewriting consumers.
 | Linux | In progress (compile-only) | The workspace compiles and `os-integration` has real backends (evdev hotkey, enigo paste, arboard clipboard), but they are **compile-validated only, not runtime-tested**. Not usable yet. |
 | Windows | In progress (compile-only) | The workspace compiles and `os-integration` has a Win32 backend (hotkey, inject, overlay), but it is **compile-validated only, not runtime-tested**. STT is static-linked there (dynamic backends deferred). Not usable yet. |
 
-A dedicated `cross-platform-check` CI job builds the shipped app on Ubuntu and
-Windows on every push, which catches portability regressions early. A passing
-check means the code **compiles** on those targets — it does **not** mean Lirevo
-runs there.
+The `ci` workflow's `check-linux` / `check-windows` jobs build the shipped app on
+Ubuntu and Windows on every push, which catches portability regressions early. A
+passing check means the code **compiles** on those targets — it does **not** mean
+Lirevo runs there.
 
 ## Using the app
 

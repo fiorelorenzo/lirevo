@@ -208,14 +208,16 @@ notarization happens in the explicit post-bundle step.
 
 ### CI and the release pipeline
 
-Base CI is **checks-only**:
+Base CI is **checks-only** — one workflow, `ci.yml`, on push/PR:
 
-- **`build-mac.yml`** (`macos-15`, on push/PR) runs `just check` + `just test`.
-  No artifacts. A change that breaks either breaks CI.
-- **`cross-platform-check.yml`** (Ubuntu + Windows, on push/PR) `cargo check`s
-  the shipped app (`app/src-tauri`) to guard cross-platform compilation. It
-  proves the workspace **compiles** on those targets — it does **not** mean
-  Lirevo runs there (see "Platform support status" below).
+- **`check-macos`** (`macos-15`) runs `just check` + `just test`. No artifacts.
+  A change that breaks either breaks CI.
+- **`check-linux` / `check-windows`** (Ubuntu + Windows) `cargo check` the
+  shipped app (`app/src-tauri`) to guard cross-platform compilation. They prove
+  the workspace **compiles** on those targets — they do **not** mean Lirevo runs
+  there (see "Platform support status" below).
+
+All three jobs are required status checks on `main`.
 
 The distributable, signed + notarized `.dmg` is built by a separate workflow:
 
@@ -234,8 +236,9 @@ The distributable, signed + notarized `.dmg` is built by a separate workflow:
 macOS (Apple Silicon) is the only platform Lirevo is functional on end-to-end
 today. `os-integration` has real Linux (evdev hotkey, enigo paste, arboard
 clipboard) and Windows (Win32 hotkey, inject, overlay) backends behind the
-platform-neutral abstractions, plus a stub fallback, and `cross-platform-check`
-keeps them compiling — but they are **compile-validated only, not runtime-tested**.
+platform-neutral abstractions, plus a stub fallback, and the `ci` workflow's
+`check-linux` / `check-windows` jobs keep them compiling — but they are
+**compile-validated only, not runtime-tested**.
 Do not describe Linux/Windows as usable; they are in progress / planned for v2.
 
 ## Code conventions
