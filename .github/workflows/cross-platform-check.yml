@@ -26,7 +26,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # Tauri 2 Linux system deps + a C/C++ toolchain (cmake/clang) for the
       # vendored ggml CPU build and bindgen.

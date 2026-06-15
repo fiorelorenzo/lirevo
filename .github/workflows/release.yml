@@ -14,7 +14,7 @@ jobs:
   release:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -26,11 +26,11 @@ jobs:
             .
             app/src-tauri
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9.15.9
+      # No `version:` input — pnpm/action-setup reads pnpm@<ver> from the
+      # `packageManager` field in package.json (single source of truth).
+      - uses: pnpm/action-setup@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '22'
           cache: 'pnpm'
