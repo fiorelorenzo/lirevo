@@ -1,4 +1,12 @@
-name: cross-platform-check
+name: ci
+
+# Base CI: checks only, no artifacts. Runs on every push to main + PRs.
+#   - check-macos:               full type-check + tests on the primary platform.
+#   - check-linux / check-windows: compile-only guard that the shipped app still
+#     builds cross-platform (per AGENTS.md). These prove it COMPILES — not that
+#     Lirevo is functional there (os-integration is macOS-only with stubs
+#     elsewhere; GPU backends ship separately — both are v2 milestones).
+# The signed + notarized .dmg is produced by release.yml on a version tag.
 
 on:
   push:
@@ -6,25 +14,56 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Compile-only guard that the app builds on Linux + Windows (CPU backends).
-# This catches cross-platform breakage early (per AGENTS.md). It does NOT mean
-# Lirevo is functional there — global hotkey / text injection / overlay
-# (os-integration) are macOS-only with stubs elsewhere, and GPU support ships
-# via the dynamic-backend distribution. Both are separate v2 milestones.
-# macOS is fully covered by build-mac.yml (check + test + dmg).
-#
-# `cargo check` runs build scripts (so the parakeet.cpp / llama.cpp native libs
-# are compiled via cmake) and type-checks the Rust, but does not link final
-# binaries — enough to prove the workspace compiles cross-platform.
-
 jobs:
-  check:
-    name: check-${{ matrix.os }}
+  check-macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            app/src-tauri
+
+      # No `version:` input — pnpm/action-setup reads pnpm@<ver> from the
+      # `packageManager` field in package.json (single source of truth).
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: app/pnpm-lock.yaml
+
+      - uses: taiki-e/install-action@just
+      - uses: taiki-e/install-action@nextest
+
+      - name: Install deps
+        working-directory: app
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: just check
+
+      - name: Tests
+        run: just test
+
+  check-cross-platform:
+    name: check-${{ matrix.label }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            label: linux
+          - os: windows-latest
+            label: windows
     steps:
       - uses: actions/checkout@v6
 
