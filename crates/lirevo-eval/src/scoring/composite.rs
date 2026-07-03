@@ -102,8 +102,14 @@ pub fn score_run(outcomes: &[CellOutcome]) -> Vec<ModelScore> {
     // Min-max bounds across backends. If a metric is missing for a backend,
     // it's excluded from the min/max but the backend gets a `None` score for
     // that axis (rendered as 0 here so the composite stays defined).
-    let chrf_lo = raws.values().map(|r| r.chrf_mean).fold(f64::INFINITY, f64::min);
-    let chrf_hi = raws.values().map(|r| r.chrf_mean).fold(f64::NEG_INFINITY, f64::max);
+    let chrf_lo = raws
+        .values()
+        .map(|r| r.chrf_mean)
+        .fold(f64::INFINITY, f64::min);
+    let chrf_hi = raws
+        .values()
+        .map(|r| r.chrf_mean)
+        .fold(f64::NEG_INFINITY, f64::max);
     let lat_lo = raws.values().filter_map(|r| r.warm_p50_ms).min();
     let lat_hi = raws.values().filter_map(|r| r.warm_p50_ms).max();
     let rss_lo = raws.values().filter_map(|r| r.peak_rss_kb).min();
@@ -299,9 +305,9 @@ mod tests {
     #[test]
     fn three_backends_rank_correctly() {
         let outs = vec![
-            outcome("fast", 0.50, 100, Some(1024)),  // best latency + ram, worst quality
+            outcome("fast", 0.50, 100, Some(1024)), // best latency + ram, worst quality
             outcome("good", 0.90, 1000, Some(4096)), // best quality, worst latency + ram
-            outcome("mid", 0.70, 500, Some(2048)),   // middle on all
+            outcome("mid", 0.70, 500, Some(2048)),  // middle on all
         ];
         let scores = score_run(&outs);
         // first-seen order preserved
@@ -363,7 +369,9 @@ mod tests {
         let outs_at = vec![outcome("at", 0.40, 100, Some(1024))];
         let outs_below = vec![outcome("below", 0.399, 100, Some(1024))];
         assert!(super::eligible_for_recommendation(&score_run(&outs_at)[0]));
-        assert!(!super::eligible_for_recommendation(&score_run(&outs_below)[0]));
+        assert!(!super::eligible_for_recommendation(
+            &score_run(&outs_below)[0]
+        ));
     }
 
     #[test]

@@ -1,78 +1,69 @@
 <script lang="ts">
-  import { Button } from '$lib/components/ui/button';
-  import { Input } from '$lib/components/ui/input';
-  import { Label } from '$lib/components/ui/label';
-  import { Separator } from '$lib/components/ui/separator';
-  import * as Select from '$lib/components/ui/select';
-  import { Switch } from '$lib/components/ui/switch';
-  import { Slider } from '$lib/components/ui/slider';
-  import FilePicker from '$lib/components/FilePicker.svelte';
-  import HotkeyRecorder from '$lib/components/HotkeyRecorder.svelte';
-  import MicTest from '$lib/components/MicTest.svelte';
-  import ModelCard from '$lib/components/ModelCard.svelte';
-  import SkeletonRow from '$lib/components/SkeletonRow.svelte';
-  import { settings, updateSettings } from '$lib/stores/settings.svelte';
-  import { profile, setProfileMode } from '$lib/stores/profile';
-  import { backend, type BackendState } from '$lib/stores/backend.svelte';
-  import type { ProfileName } from '$lib/tauri';
-  import { t } from '$lib/i18n';
-  import { navigate } from '$lib/router';
-  import {
-    lda,
-    type CatalogEntry,
-    type InputDeviceEntry,
-    type LocalModel,
-  } from '$lib/tauri';
-  import {
-    STT_MODELS,
-    defaultModelId,
-    formatSize as fmtSttSize,
-  } from '$lib/models/catalog';
-  import { Check, Sparkles, Zap, Cpu } from '@lucide/svelte';
-  import { toastInfo, toastError, withErrorToast } from '$lib/stores/toasts';
-  import type { UnlistenFn } from '@tauri-apps/api/event';
-  import { page } from '$app/state';
-  import { onDestroy, onMount } from 'svelte';
+  import { Button } from "$lib/components/ui/button";
+  import { Input } from "$lib/components/ui/input";
+  import { Label } from "$lib/components/ui/label";
+  import { Separator } from "$lib/components/ui/separator";
+  import * as Select from "$lib/components/ui/select";
+  import { Switch } from "$lib/components/ui/switch";
+  import { Slider } from "$lib/components/ui/slider";
+  import FilePicker from "$lib/components/FilePicker.svelte";
+  import HotkeyRecorder from "$lib/components/HotkeyRecorder.svelte";
+  import MicTest from "$lib/components/MicTest.svelte";
+  import ModelCard from "$lib/components/ModelCard.svelte";
+  import SkeletonRow from "$lib/components/SkeletonRow.svelte";
+  import { settings, updateSettings } from "$lib/stores/settings.svelte";
+  import { profile, setProfileMode } from "$lib/stores/profile";
+  import { backend, type BackendState } from "$lib/stores/backend.svelte";
+  import type { ProfileName } from "$lib/tauri";
+  import { t } from "$lib/i18n";
+  import { navigate } from "$lib/router";
+  import { lda, type CatalogEntry, type InputDeviceEntry, type LocalModel } from "$lib/tauri";
+  import { STT_MODELS, defaultModelId, formatSize as fmtSttSize } from "$lib/models/catalog";
+  import { Check, Sparkles, Zap, Cpu } from "@lucide/svelte";
+  import { toastInfo, toastError, withErrorToast } from "$lib/stores/toasts";
+  import type { UnlistenFn } from "@tauri-apps/api/event";
+  import { page } from "$app/state";
+  import { onDestroy, onMount } from "svelte";
 
-  type Tab = 'general' | 'models' | 'hotkey' | 'about';
-  const TABS: Tab[] = ['general', 'models', 'hotkey', 'about'];
+  type Tab = "general" | "models" | "hotkey" | "about";
+  const TABS: Tab[] = ["general", "models", "hotkey", "about"];
 
   function isTab(v: string | null): v is Tab {
-    return v === 'general' || v === 'models' || v === 'hotkey' || v === 'about';
+    return v === "general" || v === "models" || v === "hotkey" || v === "about";
   }
 
-  const initialTab = page.url.searchParams.get('tab');
-  let activeTab: Tab = $state(isTab(initialTab) ? initialTab : 'general');
+  const initialTab = page.url.searchParams.get("tab");
+  let activeTab: Tab = $state(isTab(initialTab) ? initialTab : "general");
   let checkingUpdates = $state(false);
 
   const LANGUAGE_OPTIONS = [
-    { value: 'auto', label: t('settings.general.language_auto') },
-    { value: 'en', label: 'English' },
-    { value: 'it', label: 'Italiano' },
-    { value: 'fr', label: 'Français' },
-    { value: 'de', label: 'Deutsch' },
-    { value: 'es', label: 'Español' },
+    { value: "auto", label: t("settings.general.language_auto") },
+    { value: "en", label: "English" },
+    { value: "it", label: "Italiano" },
+    { value: "fr", label: "Français" },
+    { value: "de", label: "Deutsch" },
+    { value: "es", label: "Español" },
   ];
 
   const ENERGY_OPTIONS = [
-    { value: 'auto', label: t('settings.general.energy_auto') },
-    { value: 'power_saver', label: t('settings.general.energy_power_saver') },
-    { value: 'balanced', label: t('settings.general.energy_balanced') },
-    { value: 'performance', label: t('settings.general.energy_performance') },
+    { value: "auto", label: t("settings.general.energy_auto") },
+    { value: "power_saver", label: t("settings.general.energy_power_saver") },
+    { value: "balanced", label: t("settings.general.energy_balanced") },
+    { value: "performance", label: t("settings.general.energy_performance") },
   ];
 
   // The live store's `mode` wins once it resolves; before that fall back to
   // the persisted choice so the control shows the right value on first paint.
-  let energyMode = $derived($profile?.mode ?? $settings?.profileMode ?? 'auto');
+  let energyMode = $derived($profile?.mode ?? $settings?.profileMode ?? "auto");
   const PROFILE_LABELS: Record<ProfileName, string> = {
-    powerSaver: 'Power Saver',
-    balanced: 'Balanced',
-    performance: 'Performance',
+    powerSaver: "Power Saver",
+    balanced: "Balanced",
+    performance: "Performance",
   };
   // When pinned to Auto, surface which concrete profile is currently active.
   let resolvedActive = $derived(
-    energyMode === 'auto' && $profile?.active
-      ? t('settings.general.energy_auto_active', { profile: PROFILE_LABELS[$profile.active] })
+    energyMode === "auto" && $profile?.active
+      ? t("settings.general.energy_auto_active", { profile: PROFILE_LABELS[$profile.active] })
       : null,
   );
 
@@ -82,9 +73,9 @@
   // the hint copy stays honest. Order of precedence: resolving < cpu < gpu.
   let backendOverall = $derived.by<BackendState>(() => {
     const states = [backend.stt.state, backend.llm.state];
-    if (states.includes('resolving')) return 'resolving';
-    if (states.includes('cpu')) return 'cpu';
-    return 'gpu';
+    if (states.includes("resolving")) return "resolving";
+    if (states.includes("cpu")) return "cpu";
+    return "gpu";
   });
 
   let devices = $state<InputDeviceEntry[]>([]);
@@ -96,7 +87,7 @@
   let unlistenDownload: UnlistenFn | null = null;
 
   async function refreshModels() {
-    const result = await withErrorToast(t('settings.models.error.refresh'), () =>
+    const result = await withErrorToast(t("settings.models.error.refresh"), () =>
       Promise.all([lda.modelsCatalog(), lda.modelsListLocal()]),
     );
     if (result !== null) {
@@ -110,8 +101,8 @@
     // On macOS 14+ Core Audio HAL surfaces the TCC prompt the moment we
     // open the device list, even read-only — we don't want to flash that
     // dialog every time the user opens Settings.
-    const mic = await lda.checkMicrophone().catch(() => 'denied' as const);
-    if (mic === 'granted') {
+    const mic = await lda.checkMicrophone().catch(() => "denied" as const);
+    if (mic === "granted") {
       try {
         devices = await lda.listInputDevices();
       } catch {
@@ -121,14 +112,15 @@
 
     await refreshModels();
     unlistenDownload = await lda.onDownloadProgress(async (p) => {
-      if (p.state === 'complete') {
+      if (p.state === "complete") {
         await refreshModels();
         const entry = catalog.find((c) => c.id === p.id);
         const localMatch = local.find((l) => l.id === p.id);
         if (entry && localMatch) {
-          const patch = entry.kind === 'stt'
-            ? { whisperModelPath: localMatch.path }
-            : { llmModelPath: localMatch.path };
+          const patch =
+            entry.kind === "stt"
+              ? { whisperModelPath: localMatch.path }
+              : { llmModelPath: localMatch.path };
           await updateSettings(patch);
         }
       }
@@ -143,17 +135,16 @@
     return local.some((l) => l.id === id);
   }
 
-  function selectedFor(kind: 'stt' | 'llm'): string | null {
+  function selectedFor(kind: "stt" | "llm"): string | null {
     if (!$settings) return null;
-    return kind === 'stt' ? $settings.whisperModelPath : $settings.llmModelPath;
+    return kind === "stt" ? $settings.whisperModelPath : $settings.llmModelPath;
   }
 
   function selectModel(entry: CatalogEntry) {
     const match = local.find((l) => l.id === entry.id);
     if (!match) return;
-    const patch = entry.kind === 'stt'
-      ? { whisperModelPath: match.path }
-      : { llmModelPath: match.path };
+    const patch =
+      entry.kind === "stt" ? { whisperModelPath: match.path } : { llmModelPath: match.path };
     void updateSettings(patch);
   }
 
@@ -166,7 +157,7 @@
   // M4: STT moved to the audiopipe-backed catalog (see $lib/models/catalog).
   // The legacy `KINDS` loop now only renders the LLM half; STT has its own
   // dedicated section above it.
-  const KINDS: ('stt' | 'llm')[] = ['llm'];
+  const KINDS: ("stt" | "llm")[] = ["llm"];
 
   // M4 STT section state.
   // Active = whatever `sttModelId` currently resolves to. When the field
@@ -181,7 +172,7 @@
   async function useSttModel(id: string) {
     if (id === activeSttId || switchingTo === id) return;
     switchingTo = id;
-    toastInfo(t('settings.models.switch_toast'));
+    toastInfo(t("settings.models.switch_toast"));
     const result = await updateSettings({ sttModelId: id });
     if (result === null) {
       // updateSettings already toasted the error; clear the spinner.
@@ -200,7 +191,9 @@
     checkingUpdates = true;
     try {
       const info = await lda.checkForUpdates();
-      toastInfo(info.available ? `Update available: ${info.version}` : 'You are on the latest version.');
+      toastInfo(
+        info.available ? `Update available: ${info.version}` : "You are on the latest version.",
+      );
     } catch (e) {
       toastError(`Update check failed: ${e}`);
     } finally {
@@ -217,16 +210,16 @@
     <div data-tauri-drag-region class="h-6 -mx-3 -mt-3 mb-1 pointer-events-none"></div>
     <button
       class="text-left px-3 py-2 rounded-md text-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors mb-2"
-      onclick={() => navigate('home')}
+      onclick={() => navigate("home")}
     >
-      ← {t('settings.back_to_home')}
+      ← {t("settings.back_to_home")}
     </button>
     {#each TABS as tab (tab)}
       <button
         class={[
-          'text-left px-3 py-2 rounded-md text-sm transition-colors',
-          activeTab === tab ? 'bg-primary text-primary-foreground' : 'hover:bg-accent',
-        ].join(' ')}
+          "text-left px-3 py-2 rounded-md text-sm transition-colors",
+          activeTab === tab ? "bg-primary text-primary-foreground" : "hover:bg-accent",
+        ].join(" ")}
         onclick={() => (activeTab = tab)}
       >
         {t(`settings.tabs.${tab}`)}
@@ -236,15 +229,17 @@
 
   <!-- Content -->
   <section class="flex-1 p-8 overflow-y-auto">
-    {#if $settings && activeTab === 'general'}
+    {#if $settings && activeTab === "general"}
       <div class="space-y-8 max-w-lg">
         <section>
           <h2 class="text-xs font-semibold tracking-wide uppercase text-muted-foreground mb-3">
-            {t('settings.general.section')}
+            {t("settings.general.section")}
           </h2>
-          <div class="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden">
+          <div
+            class="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden"
+          >
             <div class="p-4 flex items-center justify-between gap-4">
-              <Label class="shrink-0">{t('settings.general.language')}</Label>
+              <Label class="shrink-0">{t("settings.general.language")}</Label>
               <Select.Root
                 type="single"
                 value={$settings.language}
@@ -252,7 +247,8 @@
               >
                 <Select.Trigger class="w-56">
                   <span class="flex-1 min-w-0 truncate text-left">
-                    {LANGUAGE_OPTIONS.find((o) => o.value === $settings.language)?.label ?? $settings.language}
+                    {LANGUAGE_OPTIONS.find((o) => o.value === $settings.language)?.label ??
+                      $settings.language}
                   </span>
                 </Select.Trigger>
                 <Select.Content>
@@ -264,31 +260,33 @@
             </div>
 
             <div class="p-4 flex items-center justify-between gap-4">
-              <Label class="shrink-0">{t('settings.general.input_device')}</Label>
+              <Label class="shrink-0">{t("settings.general.input_device")}</Label>
               <Select.Root
                 type="single"
-                value={$settings.inputDeviceName ?? '__default__'}
+                value={$settings.inputDeviceName ?? "__default__"}
                 onValueChange={(v) =>
-                  updateSettings({ inputDeviceName: v === '__default__' ? null : (v ?? null) })}
+                  updateSettings({ inputDeviceName: v === "__default__" ? null : (v ?? null) })}
                 disabled={devices.length === 0}
               >
                 <Select.Trigger class="w-56">
                   <span class="flex-1 min-w-0 truncate text-left">
-                    {$settings.inputDeviceName
-                      ?? (devices.find((d) => d.isDefault)?.name
-                          ? `${devices.find((d) => d.isDefault)?.name} (${t('settings.general.input_device_default')})`
-                          : t('settings.general.input_device_default'))}
+                    {$settings.inputDeviceName ??
+                      (devices.find((d) => d.isDefault)?.name
+                        ? `${devices.find((d) => d.isDefault)?.name} (${t("settings.general.input_device_default")})`
+                        : t("settings.general.input_device_default"))}
                   </span>
                 </Select.Trigger>
                 <Select.Content>
                   <Select.Item value="__default__">
                     {devices.find((d) => d.isDefault)?.name
-                      ? `${devices.find((d) => d.isDefault)?.name} (${t('settings.general.input_device_default')})`
-                      : t('settings.general.input_device_default')}
+                      ? `${devices.find((d) => d.isDefault)?.name} (${t("settings.general.input_device_default")})`
+                      : t("settings.general.input_device_default")}
                   </Select.Item>
                   {#each devices as d (d.name)}
                     <Select.Item value={d.name}>
-                      {d.name}{d.isDefault ? ` (${t('settings.general.input_device_default')})` : ''}
+                      {d.name}{d.isDefault
+                        ? ` (${t("settings.general.input_device_default")})`
+                        : ""}
                     </Select.Item>
                   {/each}
                 </Select.Content>
@@ -296,9 +294,9 @@
             </div>
             <div class="p-4 flex items-start justify-between gap-4">
               <div class="min-w-0">
-                <Label>{t('settings.general.smart_mic_routing')}</Label>
+                <Label>{t("settings.general.smart_mic_routing")}</Label>
                 <p class="text-xs text-muted-foreground mt-1">
-                  {t('settings.general.smart_mic_routing_helper')}
+                  {t("settings.general.smart_mic_routing_helper")}
                 </p>
               </div>
               <Switch
@@ -309,26 +307,26 @@
             {#if $settings.smartMicRouting}
               <div class="p-4 flex items-start justify-between gap-4">
                 <div class="min-w-0">
-                  <Label>{t('settings.general.backup_mic')}</Label>
+                  <Label>{t("settings.general.backup_mic")}</Label>
                   <p class="text-xs text-muted-foreground mt-1">
-                    {t('settings.general.backup_mic_helper')}
+                    {t("settings.general.backup_mic_helper")}
                   </p>
                 </div>
                 <Select.Root
                   type="single"
-                  value={$settings.backupInputDevice ?? '__builtin__'}
+                  value={$settings.backupInputDevice ?? "__builtin__"}
                   onValueChange={(v) =>
-                    updateSettings({ backupInputDevice: v === '__builtin__' ? null : (v ?? null) })}
+                    updateSettings({ backupInputDevice: v === "__builtin__" ? null : (v ?? null) })}
                   disabled={devices.length === 0}
                 >
                   <Select.Trigger class="w-56 shrink-0">
                     <span class="flex-1 min-w-0 truncate text-left">
-                      {$settings.backupInputDevice ?? t('settings.general.backup_mic_auto')}
+                      {$settings.backupInputDevice ?? t("settings.general.backup_mic_auto")}
                     </span>
                   </Select.Trigger>
                   <Select.Content>
                     <Select.Item value="__builtin__">
-                      {t('settings.general.backup_mic_auto')}
+                      {t("settings.general.backup_mic_auto")}
                     </Select.Item>
                     {#each devices as d (d.name)}
                       <Select.Item value={d.name}>{d.name}</Select.Item>
@@ -342,23 +340,27 @@
 
         <section>
           <h2 class="text-xs font-semibold tracking-wide uppercase text-muted-foreground mb-1">
-            {t('settings.general.microphone.section')}
+            {t("settings.general.microphone.section")}
           </h2>
           <p class="text-xs text-muted-foreground mb-3">
-            {t('settings.general.microphone.section_helper')}
+            {t("settings.general.microphone.section_helper")}
           </p>
           <MicTest />
         </section>
 
         <section>
           <h2 class="text-xs font-semibold tracking-wide uppercase text-muted-foreground mb-3">
-            {t('settings.general.injection_section')}
+            {t("settings.general.injection_section")}
           </h2>
-          <div class="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden">
+          <div
+            class="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden"
+          >
             <div class="p-4 space-y-3">
               <div class="flex items-center justify-between gap-4">
-                <Label>{t('settings.general.paste_delay_ms')}</Label>
-                <span class="text-xs text-muted-foreground tabular-nums">{$settings.pasteDelayMs} ms</span>
+                <Label>{t("settings.general.paste_delay_ms")}</Label>
+                <span class="text-xs text-muted-foreground tabular-nums"
+                  >{$settings.pasteDelayMs} ms</span
+                >
               </div>
               <Slider
                 type="single"
@@ -366,7 +368,8 @@
                 max={2000}
                 step={10}
                 value={$settings.pasteDelayMs}
-                onValueChange={(v) => updateSettings({ pasteDelayMs: typeof v === 'number' ? v : v[0] })}
+                onValueChange={(v) =>
+                  updateSettings({ pasteDelayMs: typeof v === "number" ? v : v[0] })}
               />
             </div>
           </div>
@@ -374,12 +377,14 @@
 
         <section>
           <h2 class="text-xs font-semibold tracking-wide uppercase text-muted-foreground mb-3">
-            {t('settings.general.app_section')}
+            {t("settings.general.app_section")}
           </h2>
-          <div class="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden">
+          <div
+            class="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden"
+          >
             <div class="p-4 flex items-center justify-between gap-4">
               <div class="min-w-0">
-                <Label>{t('settings.general.launch_at_login')}</Label>
+                <Label>{t("settings.general.launch_at_login")}</Label>
               </div>
               <Switch
                 checked={$settings.launchAtLogin}
@@ -388,9 +393,9 @@
             </div>
             <div class="p-4 flex items-center justify-between gap-4">
               <div class="min-w-0">
-                <Label>{t('settings.general.start_minimized')}</Label>
+                <Label>{t("settings.general.start_minimized")}</Label>
                 <p class="text-xs text-muted-foreground mt-1">
-                  {t('settings.general.start_minimized_helper')}
+                  {t("settings.general.start_minimized_helper")}
                 </p>
               </div>
               <Switch
@@ -400,9 +405,9 @@
             </div>
             <div class="p-4 flex items-center justify-between gap-4">
               <div class="min-w-0">
-                <Label>{t('settings.general.record_history')}</Label>
+                <Label>{t("settings.general.record_history")}</Label>
                 <p class="text-xs text-muted-foreground mt-1">
-                  {t('settings.general.record_history_helper')}
+                  {t("settings.general.record_history_helper")}
                 </p>
               </div>
               <Switch
@@ -412,9 +417,9 @@
             </div>
             <div class="p-4 flex items-start justify-between gap-4">
               <div class="min-w-0">
-                <Label>{t('settings.general.energy')}</Label>
+                <Label>{t("settings.general.energy")}</Label>
                 <p class="text-xs text-muted-foreground mt-1">
-                  {t('settings.general.energy_helper')}
+                  {t("settings.general.energy_helper")}
                 </p>
               </div>
               <div class="shrink-0 flex flex-col items-end gap-1.5">
@@ -442,12 +447,17 @@
           </div>
         </section>
       </div>
-
-    {:else if $settings && activeTab === 'models'}
+    {:else if $settings && activeTab === "models"}
       <div class="space-y-8 max-w-2xl">
         {#if modelsLoaded}
-          <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-muted/50 text-xs text-muted-foreground">
-            {t('settings.models.stats', { used: fmtSize(usedBytes), installed: installedCount, total: catalog.length })}
+          <div
+            class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-muted/50 text-xs text-muted-foreground"
+          >
+            {t("settings.models.stats", {
+              used: fmtSize(usedBytes),
+              installed: installedCount,
+              total: catalog.length,
+            })}
           </div>
 
           <!-- M4 STT section: hot-swappable audiopipe models. Source of truth
@@ -455,10 +465,10 @@
                `installed`) only governs LLM rows now. -->
           <section>
             <h2 class="text-xs font-semibold tracking-wide uppercase text-muted-foreground mb-1">
-              {t('settings.models.stt_section')}
+              {t("settings.models.stt_section")}
             </h2>
             <p class="text-xs text-muted-foreground mb-3">
-              {t('settings.models.stt_section_helper')}
+              {t("settings.models.stt_section_helper")}
             </p>
             <div class="space-y-2">
               {#each STT_MODELS as entry (entry.id)}
@@ -466,9 +476,9 @@
                 {@const isSwitching = switchingTo === entry.id}
                 <div
                   class={[
-                    'w-full p-4 bg-surface border-2 rounded-lg transition-colors duration-150',
-                    isActive ? 'border-primary ring-2 ring-primary/30' : 'border-border',
-                  ].join(' ')}
+                    "w-full p-4 bg-surface border-2 rounded-lg transition-colors duration-150",
+                    isActive ? "border-primary ring-2 ring-primary/30" : "border-border",
+                  ].join(" ")}
                 >
                   <div class="flex items-start gap-4">
                     <div class="flex-1 min-w-0">
@@ -478,32 +488,42 @@
                           {fmtSttSize(entry.sizeBytes)}
                         </span>
                         {#if entry.default}
-                          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[11px] font-medium leading-none">
+                          <span
+                            class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[11px] font-medium leading-none"
+                          >
                             <Sparkles class="h-3 w-3" />
-                            {t('wizard.models.recommended_pill')}
+                            {t("wizard.models.recommended_pill")}
                           </span>
                         {/if}
                       </div>
                       <p class="text-sm text-muted-foreground mt-1">{entry.summary}</p>
-                      <div class="mt-2 inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                        <span class="px-1.5 py-0.5 rounded border border-border/60 font-mono leading-none">
+                      <div
+                        class="mt-2 inline-flex items-center gap-1.5 text-[11px] text-muted-foreground"
+                      >
+                        <span
+                          class="px-1.5 py-0.5 rounded border border-border/60 font-mono leading-none"
+                        >
                           {entry.license}
                         </span>
                       </div>
                     </div>
                     <div class="shrink-0 flex items-center gap-2">
                       {#if isActive}
-                        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
+                        <span
+                          class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium"
+                        >
                           <Check class="h-3 w-3" />
-                          {t('settings.models.in_use_badge')}
+                          {t("settings.models.in_use_badge")}
                         </span>
                       {:else if isSwitching}
-                        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-muted text-muted-foreground text-xs font-medium">
-                          {t('settings.models.switching_badge')}
+                        <span
+                          class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-muted text-muted-foreground text-xs font-medium"
+                        >
+                          {t("settings.models.switching_badge")}
                         </span>
                       {:else}
                         <Button variant="outline" size="sm" onclick={() => useSttModel(entry.id)}>
-                          {t('settings.models.use_button')}
+                          {t("settings.models.use_button")}
                         </Button>
                       {/if}
                     </div>
@@ -517,7 +537,7 @@
           {#each KINDS as kind, i (kind)}
             <section>
               <h2 class="text-xs font-semibold tracking-wide uppercase text-muted-foreground mb-3">
-                {kind === 'stt' ? t('wizard.models.stt_section') : t('wizard.models.llm_section')}
+                {kind === "stt" ? t("wizard.models.stt_section") : t("wizard.models.llm_section")}
               </h2>
 
               <div class="space-y-2">
@@ -541,14 +561,15 @@
               </div>
 
               <div class="text-xs uppercase tracking-wide text-muted-foreground mt-4 mb-2">
-                {t('wizard.models.use_existing')}
+                {t("wizard.models.use_existing")}
               </div>
               <FilePicker
                 value={selectedFor(kind)}
-                filters={kind === 'stt'
-                  ? [{ name: 'Whisper ggml', extensions: ['bin'] }]
-                  : [{ name: 'GGUF', extensions: ['gguf'] }]}
-                onpick={(p) => updateSettings(kind === 'stt' ? { whisperModelPath: p } : { llmModelPath: p })}
+                filters={kind === "stt"
+                  ? [{ name: "Whisper ggml", extensions: ["bin"] }]
+                  : [{ name: "GGUF", extensions: ["gguf"] }]}
+                onpick={(p) =>
+                  updateSettings(kind === "stt" ? { whisperModelPath: p } : { llmModelPath: p })}
               />
 
               {#if i < KINDS.length - 1}
@@ -559,18 +580,20 @@
 
           <section>
             <h2 class="text-xs font-semibold tracking-wide uppercase text-muted-foreground mb-3">
-              {t('settings.models.advanced_section')}
+              {t("settings.models.advanced_section")}
             </h2>
-            <div class="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden">
+            <div
+              class="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden"
+            >
               <div class="p-4 flex items-center justify-between gap-4">
-                <Label>{t('settings.models.whisper_coreml_disable')}</Label>
+                <Label>{t("settings.models.whisper_coreml_disable")}</Label>
                 <Switch
                   checked={$settings.whisperCoreMLDisable}
                   onCheckedChange={(v) => updateSettings({ whisperCoreMLDisable: v })}
                 />
               </div>
               <div class="p-4 flex items-center justify-between gap-4">
-                <Label>{t('settings.models.llm_ctx_size')}</Label>
+                <Label>{t("settings.models.llm_ctx_size")}</Label>
                 <Input
                   type="number"
                   class="w-32"
@@ -594,87 +617,100 @@
           </div>
         {/if}
       </div>
-
-    {:else if $settings && activeTab === 'hotkey'}
+    {:else if $settings && activeTab === "hotkey"}
       <div class="space-y-3 max-w-lg">
         <h2 class="text-xs font-semibold tracking-wide uppercase text-muted-foreground mb-3">
-          {t('settings.hotkey.label')}
+          {t("settings.hotkey.label")}
         </h2>
         <div class="rounded-xl border border-border bg-surface overflow-hidden">
           <div class="p-4">
             <HotkeyRecorder
               spec={$settings.hotkey}
               mode={$settings.activationMode}
-              onchange={(n) => updateSettings({ hotkey: n.hotkey, activationMode: n.activationMode })}
+              onchange={(n) =>
+                updateSettings({ hotkey: n.hotkey, activationMode: n.activationMode })}
             />
           </div>
         </div>
       </div>
-
-    {:else if $settings && activeTab === 'about'}
-      {@const isGpu = backendOverall === 'gpu'}
-      {@const isResolving = backendOverall === 'resolving'}
+    {:else if $settings && activeTab === "about"}
+      {@const isGpu = backendOverall === "gpu"}
+      {@const isResolving = backendOverall === "resolving"}
       <div class="space-y-6 max-w-lg">
         <div class="rounded-xl border border-border bg-surface p-5 space-y-1">
           <div class="font-semibold text-lg">Lirevo</div>
           <div class="text-sm text-muted-foreground tabular-nums">
-            {t('settings.about.version')}: {$settings.appVersion}
+            {t("settings.about.version")}: {$settings.appVersion}
           </div>
           <div class="text-sm text-muted-foreground">macOS · arm64</div>
         </div>
 
         <div
           class={[
-            'backend-card relative overflow-hidden rounded-xl border bg-surface p-4 shadow-sm transition-colors',
-            isGpu ? 'border-primary/30' : isResolving ? 'border-border' : 'border-warning/40',
-          ].join(' ')}
+            "backend-card relative overflow-hidden rounded-xl border bg-surface p-4 shadow-sm transition-colors",
+            isGpu ? "border-primary/30" : isResolving ? "border-border" : "border-warning/40",
+          ].join(" ")}
         >
           <div class="relative flex items-center gap-4">
             <div
               class={[
-                'flex h-11 w-11 shrink-0 items-center justify-center rounded-lg',
+                "flex h-11 w-11 shrink-0 items-center justify-center rounded-lg",
                 isGpu
-                  ? 'bg-primary/10 text-primary'
+                  ? "bg-primary/10 text-primary"
                   : isResolving
-                    ? 'bg-muted text-muted-foreground'
-                    : 'bg-warning/10 text-warning',
-              ].join(' ')}
+                    ? "bg-muted text-muted-foreground"
+                    : "bg-warning/10 text-warning",
+              ].join(" ")}
             >
               {#if isGpu}
                 <Zap class="h-5 w-5" />
               {:else}
-                <Cpu class={['h-5 w-5', isResolving ? 'backend-pulse' : ''].join(' ')} />
+                <Cpu class={["h-5 w-5", isResolving ? "backend-pulse" : ""].join(" ")} />
               {/if}
             </div>
 
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2">
-                <span class="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  {t('settings.about.backend')}
+                <span
+                  class="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+                >
+                  {t("settings.about.backend")}
                 </span>
                 {#if isGpu}
-                  <span class="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium leading-none text-primary">
-                    {t('settings.about.backend_gpu_hint')}
+                  <span
+                    class="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium leading-none text-primary"
+                  >
+                    {t("settings.about.backend_gpu_hint")}
                   </span>
                 {/if}
               </div>
               <div class="mt-0.5 truncate text-base font-semibold tabular-nums">
-                {isResolving ? t('settings.about.backend_resolving') : backend.stt.label}
+                {isResolving ? t("settings.about.backend_resolving") : backend.stt.label}
               </div>
               {#if !backend.unified && !isResolving}
                 <!-- Engines disagree (rare): show both so the label isn't a lie. -->
-                <div class="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground tabular-nums">
-                  <span><span class="text-muted-foreground/70">{t('settings.about.backend_stt')}:</span> {backend.stt.label}</span>
-                  <span><span class="text-muted-foreground/70">{t('settings.about.backend_llm')}:</span> {backend.llm.label}</span>
+                <div
+                  class="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground tabular-nums"
+                >
+                  <span
+                    ><span class="text-muted-foreground/70">{t("settings.about.backend_stt")}:</span
+                    >
+                    {backend.stt.label}</span
+                  >
+                  <span
+                    ><span class="text-muted-foreground/70">{t("settings.about.backend_llm")}:</span
+                    >
+                    {backend.llm.label}</span
+                  >
                 </div>
               {/if}
               <p class="mt-1 text-xs text-muted-foreground">
                 {#if isResolving}
-                  {t('settings.about.backend_resolving_hint')}
+                  {t("settings.about.backend_resolving_hint")}
                 {:else if isGpu}
-                  {t('settings.about.backend_helper')}
+                  {t("settings.about.backend_helper")}
                 {:else}
-                  <span class="text-warning">{t('settings.about.backend_cpu_hint')}</span>
+                  <span class="text-warning">{t("settings.about.backend_cpu_hint")}</span>
                 {/if}
               </p>
             </div>
@@ -683,15 +719,15 @@
 
         <div class="flex flex-wrap gap-3">
           <Button variant="outline" onclick={checkUpdates} disabled={checkingUpdates}>
-            {checkingUpdates ? t('settings.about.checking') : t('settings.about.check_updates')}
+            {checkingUpdates ? t("settings.about.checking") : t("settings.about.check_updates")}
           </Button>
-          <Button variant="outline" onclick={() => navigate('wizard')}>
-            {t('settings.about.rerun_wizard')}
+          <Button variant="outline" onclick={() => navigate("wizard")}>
+            {t("settings.about.rerun_wizard")}
           </Button>
         </div>
 
         <p class="text-xs text-muted-foreground">
-          {t('settings.about.license')}
+          {t("settings.about.license")}
         </p>
       </div>
     {/if}
@@ -706,8 +742,13 @@
   }
 
   @keyframes backend-fade {
-    0%, 100% { opacity: 0.45; }
-    50%      { opacity: 1; }
+    0%,
+    100% {
+      opacity: 0.45;
+    }
+    50% {
+      opacity: 1;
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {

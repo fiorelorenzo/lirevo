@@ -11,7 +11,9 @@ pub struct MockModel {
 impl MockModel {
     #[must_use]
     pub fn new(text: impl Into<String>) -> Self {
-        Self { canned_text: text.into() }
+        Self {
+            canned_text: text.into(),
+        }
     }
 
     /// Ignores audio content; returns the canned transcript.
@@ -21,6 +23,8 @@ impl MockModel {
         _sample_rate: u32,
         _opts: &SttOptions,
     ) -> Result<Transcript, SttError> {
-        Ok(Transcript { text: self.canned_text.clone() })
+        Ok(Transcript {
+            text: self.canned_text.clone(),
+        })
     }
 }

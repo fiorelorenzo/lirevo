@@ -119,8 +119,8 @@ fn render_scores_section(s: &mut String, data: &ReportData) {
     // Winner shares the helper with `lirevo-eval bless` — same tiebreaker,
     // same quality floor — so the ⭐ and the catalog's `recommended`
     // flag never disagree.
-    let winner_id = crate::scoring::composite::pick_winner(&data.model_scores)
-        .map(|m| m.backend_id.as_str());
+    let winner_id =
+        crate::scoring::composite::pick_winner(&data.model_scores).map(|m| m.backend_id.as_str());
     for desc in &data.backends {
         let Some(ms) = by_id.get(desc.id.as_str()) else {
             continue;

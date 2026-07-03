@@ -1,21 +1,18 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
-  import { getCurrentWindow } from '@tauri-apps/api/window';
-  import { Button } from '$lib/components/ui/button';
-  import { Mic, Keyboard, Check, Loader2 } from '@lucide/svelte';
-  import { lda, type PermissionStatus as Status } from '$lib/tauri';
-  import { toastError, withErrorToast } from '$lib/stores/toasts';
-  import { t } from '$lib/i18n';
-  import { defaultStepState, type WizardStepState } from './step-state';
+  import { onMount, onDestroy } from "svelte";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { Button } from "$lib/components/ui/button";
+  import { Mic, Keyboard, Check, Loader2 } from "@lucide/svelte";
+  import { lda, type PermissionStatus as Status } from "$lib/tauri";
+  import { toastError, withErrorToast } from "$lib/stores/toasts";
+  import { t } from "$lib/i18n";
+  import { defaultStepState, type WizardStepState } from "./step-state";
 
   interface Props {
     onnext: () => void;
     nextState?: WizardStepState;
   }
-  let {
-    onnext,
-    nextState = $bindable(defaultStepState()),
-  }: Props = $props();
+  let { onnext, nextState = $bindable(defaultStepState()) }: Props = $props();
 
   let micStatus = $state<Status | null>(null);
   let axStatus = $state<Status | null>(null);
@@ -23,10 +20,7 @@
   let pollTimer: ReturnType<typeof setInterval> | null = null;
 
   async function refresh() {
-    [micStatus, axStatus] = await Promise.all([
-      lda.checkMicrophone(),
-      lda.checkAccessibility(),
-    ]);
+    [micStatus, axStatus] = await Promise.all([lda.checkMicrophone(), lda.checkAccessibility()]);
   }
 
   async function grantMic() {
@@ -36,30 +30,30 @@
       micStatus = await lda.promptMicrophone();
     } catch (e) {
       const reason = e instanceof Error ? e.message : String(e);
-      toastError(`${t('wizard.microphone.error.prompt')}: ${reason}`);
+      toastError(`${t("wizard.microphone.error.prompt")}: ${reason}`);
     } finally {
       micPrompting = false;
       // macOS leaves an accessory app (no Dock icon) backgrounded after the
       // system mic dialog dismisses, so the wizard appears to vanish. Pull our
       // window back to the front. Best-effort.
-      void getCurrentWindow().setFocus().catch(() => {});
+      void getCurrentWindow()
+        .setFocus()
+        .catch(() => {});
     }
   }
 
   async function openMicSettings() {
-    await withErrorToast(t('wizard.microphone.error.open_settings'), () =>
+    await withErrorToast(t("wizard.microphone.error.open_settings"), () =>
       lda.openSystemSettingsMicrophone(),
     );
   }
 
   async function grantAccessibility() {
-    await withErrorToast(t('wizard.accessibility.error.prompt'), () =>
-      lda.promptAccessibility(),
-    );
+    await withErrorToast(t("wizard.accessibility.error.prompt"), () => lda.promptAccessibility());
   }
 
   async function openAxSettings() {
-    await withErrorToast(t('wizard.accessibility.error.prompt'), () =>
+    await withErrorToast(t("wizard.accessibility.error.prompt"), () =>
       lda.openSystemSettingsAccessibility(),
     );
   }
@@ -76,7 +70,7 @@
 
   $effect(() => {
     nextState = {
-      canNext: micStatus === 'granted' && axStatus === 'granted',
+      canNext: micStatus === "granted" && axStatus === "granted",
       onNextClick: onnext,
     };
   });
@@ -108,20 +102,20 @@
     <div class="shrink-0">
       {#if status === null}
         <Loader2 class="h-4 w-4 animate-spin text-muted-foreground" />
-      {:else if status === 'granted'}
+      {:else if status === "granted"}
         <span
           class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-success/10 text-success text-xs font-medium whitespace-nowrap"
         >
           <Check class="h-3.5 w-3.5" />
-          {t('wizard.permissions.granted')}
+          {t("wizard.permissions.granted")}
         </span>
-      {:else if status === 'denied'}
+      {:else if status === "denied"}
         <Button variant="outline" size="sm" onclick={openSettings}>
-          {t('wizard.permissions.open_settings')}
+          {t("wizard.permissions.open_settings")}
         </Button>
       {:else}
         <Button size="sm" onclick={grant} disabled={pending}>
-          {t('wizard.permissions.grant')}
+          {t("wizard.permissions.grant")}
         </Button>
       {/if}
     </div>
@@ -130,8 +124,8 @@
 
 <div class="max-w-md mx-auto flex flex-col gap-6">
   <div class="text-center space-y-2 animate-in fade-in slide-in-from-bottom-2 duration-500">
-    <h1 class="text-2xl font-semibold tracking-tight">{t('wizard.permissions.title')}</h1>
-    <p class="text-sm text-muted-foreground">{t('wizard.permissions.body')}</p>
+    <h1 class="text-2xl font-semibold tracking-tight">{t("wizard.permissions.title")}</h1>
+    <p class="text-sm text-muted-foreground">{t("wizard.permissions.body")}</p>
   </div>
 
   <div
@@ -139,8 +133,8 @@
   >
     {@render row(
       Mic,
-      t('wizard.permissions.microphone_label'),
-      t('wizard.permissions.microphone_helper'),
+      t("wizard.permissions.microphone_label"),
+      t("wizard.permissions.microphone_helper"),
       micStatus,
       grantMic,
       openMicSettings,
@@ -148,8 +142,8 @@
     )}
     {@render row(
       Keyboard,
-      t('wizard.permissions.accessibility_label'),
-      t('wizard.permissions.accessibility_helper'),
+      t("wizard.permissions.accessibility_label"),
+      t("wizard.permissions.accessibility_helper"),
       axStatus,
       grantAccessibility,
       openAxSettings,

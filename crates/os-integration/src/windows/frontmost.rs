@@ -6,12 +6,12 @@
 //! `FrontmostApp::name` is the executable's file name (e.g. "notepad.exe") and
 //! `bundle_id` carries the full image path. `None` if the chain fails.
 
+use windows::core::PWSTR;
 use windows::Win32::Foundation::{CloseHandle, HWND, MAX_PATH};
 use windows::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
-use windows::core::PWSTR;
 
 use crate::FrontmostApp;
 
@@ -40,8 +40,7 @@ pub fn frontmost_app() -> Option<FrontmostApp> {
         // `len` is in/out: the buffer capacity going in, the written length out.
         let mut len: u32 = MAX_PATH;
         let path = PWSTR(buf.as_mut_ptr());
-        let query =
-            QueryFullProcessImageNameW(handle, PROCESS_NAME_FORMAT(0), path, &raw mut len);
+        let query = QueryFullProcessImageNameW(handle, PROCESS_NAME_FORMAT(0), path, &raw mut len);
         let _ = CloseHandle(handle);
         query.ok()?;
 

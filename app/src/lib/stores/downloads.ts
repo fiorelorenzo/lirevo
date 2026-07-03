@@ -1,5 +1,5 @@
-import { writable, derived, type Readable } from 'svelte/store';
-import { lda, type DownloadProgress } from '../tauri';
+import { writable, derived, type Readable } from "svelte/store";
+import { lda, type DownloadProgress } from "../tauri";
 
 const _downloads = writable<Record<string, DownloadProgress>>({});
 export const downloads = { subscribe: _downloads.subscribe };

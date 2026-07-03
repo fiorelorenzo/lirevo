@@ -31,6 +31,7 @@
     "tailwindcss-animate": "^1"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@internationalized/date": "^3.12.1",
     "@lucide/svelte": "^1.16.0",
     "@sveltejs/adapter-static": "^3.0.10",
@@ -41,14 +42,22 @@
     "@testing-library/jest-dom": "^6",
     "@testing-library/svelte": "^5",
     "bits-ui": "^2.18.1",
+    "eslint": "^10.6.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-svelte": "^3.20.0",
+    "globals": "^17.7.0",
     "jsdom": "^29",
     "mode-watcher": "^1.1.0",
+    "prettier": "^3.9.4",
+    "prettier-plugin-svelte": "^4.1.1",
     "svelte": "^5.55.7",
     "svelte-check": "^4.4.8",
+    "svelte-eslint-parser": "^1.8.0",
     "svelte-sonner": "^1.1.1",
     "tailwind-variants": "^3.2.2",
     "tailwindcss": "^4",
     "typescript": "~6.0.3",
+    "typescript-eslint": "^8.62.1",
     "vite": "^8.0.13",
     "vitest": "^4"
   }

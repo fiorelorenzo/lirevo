@@ -35,8 +35,8 @@ use tracing::warn;
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    VK_F1, VK_F10, VK_F11, VK_F12, VK_F2, VK_F3, VK_F4, VK_F5, VK_F6, VK_F7, VK_F8, VK_F9,
-    VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_RCONTROL, VK_RMENU, VK_RSHIFT, VK_RWIN, VIRTUAL_KEY,
+    VIRTUAL_KEY, VK_F1, VK_F10, VK_F11, VK_F12, VK_F2, VK_F3, VK_F4, VK_F5, VK_F6, VK_F7, VK_F8,
+    VK_F9, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_RCONTROL, VK_RMENU, VK_RSHIFT, VK_RWIN,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetMessageW, PostThreadMessageW, SetWindowsHookExW,
@@ -156,11 +156,7 @@ static HOOK_HANDLE: std::sync::atomic::AtomicPtr<core::ffi::c_void> =
 /// Windows silently removes an LL hook that takes longer than
 /// `LowLevelHooksTimeout`, so we use `try_send` (never block) and never panic
 /// across this FFI boundary.
-unsafe extern "system" fn keyboard_hook_proc(
-    code: i32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-) -> LRESULT {
+unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     // HC_ACTION is 0; any negative code means "don't process, just chain".
     if code >= 0 {
         let result = std::panic::catch_unwind(|| {
@@ -251,8 +247,7 @@ impl HotkeyListener {
 
         // Hand back the worker's thread id (for PostThreadMessage on shutdown)
         // and the install success/failure over a bounded handshake channel.
-        let (init_tx, init_rx) =
-            std::sync::mpsc::sync_channel::<Result<u32, HotkeyError>>(1);
+        let (init_tx, init_rx) = std::sync::mpsc::sync_channel::<Result<u32, HotkeyError>>(1);
 
         let worker = thread::Builder::new()
             .name("hotkey-hook".into())
@@ -297,9 +292,8 @@ impl HotkeyListener {
             // SAFETY: posting WM_QUIT to the worker's message loop is always
             // valid; if the thread already exited it simply fails, which we
             // ignore.
-            let _ = unsafe {
-                PostThreadMessageW(self.worker_thread_id, WM_QUIT, WPARAM(0), LPARAM(0))
-            };
+            let _ =
+                unsafe { PostThreadMessageW(self.worker_thread_id, WM_QUIT, WPARAM(0), LPARAM(0)) };
             self.worker_thread_id = 0;
         }
         if let Some(w) = self.worker.take() {
@@ -338,9 +332,7 @@ fn hook_worker(init_tx: &std::sync::mpsc::SyncSender<Result<u32, HotkeyError>>) 
     // SAFETY: SetWindowsHookExW with a static, non-null proc and hmod=None
     // (process-local hook) / dwThreadId=0 (system-wide) is the documented way
     // to install a global LL keyboard hook.
-    let hook = unsafe {
-        SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_hook_proc), None, 0)
-    };
+    let hook = unsafe { SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_hook_proc), None, 0) };
 
     let hook = match hook {
         Ok(h) => h,

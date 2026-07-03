@@ -28,7 +28,9 @@ pub struct InputDeviceInfo {
 /// matching the current system default (or none, if no default).
 pub fn list_inputs() -> Result<Vec<InputDeviceInfo>, AudioError> {
     let host = cpal::default_host();
-    let default_name = host.default_input_device().and_then(|d| device_name(&d).ok());
+    let default_name = host
+        .default_input_device()
+        .and_then(|d| device_name(&d).ok());
     let devices = host
         .input_devices()
         .map_err(|e| AudioError::Cpal(format!("enumerate devices: {e}")))?;
@@ -62,5 +64,9 @@ pub(crate) fn resolve(name: Option<&str>) -> Result<InputDevice, AudioError> {
         .default_input_config()
         .map_err(|e| AudioError::UnsupportedConfig(e.to_string()))?;
 
-    Ok(InputDevice { device, label, config })
+    Ok(InputDevice {
+        device,
+        label,
+        config,
+    })
 }

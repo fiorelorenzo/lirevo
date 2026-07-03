@@ -88,9 +88,9 @@ pub fn load(catalog_id: &str, models_dir: &Path) -> Result<LoadOutcome, AppError
         #[cfg(any(test, feature = "test-stt"))]
         {
             tracing::warn!("{ENV_USE_MOCK_STT}=1 — routing STT to MockModel");
-            return Ok(LoadOutcome::Ready(SttModelHandle::Mock(mock::MockModel::new(
-                "hello world from mock",
-            ))));
+            return Ok(LoadOutcome::Ready(SttModelHandle::Mock(
+                mock::MockModel::new("hello world from mock"),
+            )));
         }
     }
 

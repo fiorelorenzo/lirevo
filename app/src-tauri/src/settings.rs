@@ -1,7 +1,7 @@
-use std::path::PathBuf;
-use serde::{Deserialize, Serialize};
-use tauri_plugin_store::StoreExt;
 use os_integration::{ActivationMode, HotkeySpec, Modifier, ModifierFlags, Side, Trigger};
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+use tauri_plugin_store::StoreExt;
 
 use crate::error::AppError;
 
@@ -88,7 +88,10 @@ impl Default for Settings {
             whisper_coreml_disable: false,
             hotkey: HotkeySpec {
                 modifiers: ModifierFlags::default(),
-                trigger: Trigger::ModifierOnly { modifier: Modifier::Option, side: Side::Right },
+                trigger: Trigger::ModifierOnly {
+                    modifier: Modifier::Option,
+                    side: Side::Right,
+                },
             },
             activation_mode: ActivationMode::Hold,
             legacy_hotkey: None,
@@ -109,9 +112,13 @@ impl Default for Settings {
     }
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
-fn default_profile_mode() -> String { "auto".into() }
+fn default_profile_mode() -> String {
+    "auto".into()
+}
 
 /// Default dictation language derived from the OS locale (e.g. `it-IT` →
 /// `it`). Whisper auto-detect on very short utterances often hallucinates
@@ -147,7 +154,8 @@ fn store_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, AppError> {
 
 impl Settings {
     pub fn load(app: &tauri::AppHandle) -> Result<Self, AppError> {
-        let store = app.store(store_path(app)?)
+        let store = app
+            .store(store_path(app)?)
             .map_err(|e| AppError::Settings(e.to_string()))?;
         let s = if let Some(value) = store.get(STORE_KEY) {
             let mut raw = value.clone();
@@ -199,18 +207,23 @@ impl Settings {
     }
 
     pub fn persist(&self, app: &tauri::AppHandle) -> Result<(), AppError> {
-        let store = app.store(store_path(app)?)
+        let store = app
+            .store(store_path(app)?)
             .map_err(|e| AppError::Settings(e.to_string()))?;
         store.set(STORE_KEY, serde_json::to_value(self)?);
-        store.save().map_err(|e| AppError::Settings(e.to_string()))?;
+        store
+            .save()
+            .map_err(|e| AppError::Settings(e.to_string()))?;
         Ok(())
     }
 
     pub fn merge_patch(&mut self, patch: &serde_json::Value) -> Result<(), AppError> {
         let mut current = serde_json::to_value(&*self)?;
-        let obj = current.as_object_mut()
+        let obj = current
+            .as_object_mut()
             .ok_or_else(|| AppError::Settings("internal: settings not an object".into()))?;
-        let patch_obj = patch.as_object()
+        let patch_obj = patch
+            .as_object()
             .ok_or_else(|| AppError::Settings("patch must be a JSON object".into()))?;
         for (k, v) in patch_obj {
             obj.insert(k.clone(), v.clone());
@@ -225,12 +238,14 @@ impl Settings {
     pub fn validate(&self) -> Result<(), AppError> {
         if !(512..=32768).contains(&self.llm_ctx_size) {
             return Err(AppError::Settings(format!(
-                "llmCtxSize {} out of range (512..32768)", self.llm_ctx_size
+                "llmCtxSize {} out of range (512..32768)",
+                self.llm_ctx_size
             )));
         }
         if self.paste_delay_ms > 2000 {
             return Err(AppError::Settings(format!(
-                "pasteDelayMs {} out of range (0..2000)", self.paste_delay_ms
+                "pasteDelayMs {} out of range (0..2000)",
+                self.paste_delay_ms
             )));
         }
         validate_hotkey(&self.hotkey)?;
@@ -285,13 +300,25 @@ impl Settings {
             // under `legacy_hotkey` (see load()'s pre-pass). Map it once.
             if let Some(legacy) = self.legacy_hotkey.take() {
                 let trigger = match legacy.as_str() {
-                    "left-option" => Trigger::ModifierOnly { modifier: Modifier::Option, side: Side::Left },
-                    "right-command" => Trigger::ModifierOnly { modifier: Modifier::Command, side: Side::Right },
+                    "left-option" => Trigger::ModifierOnly {
+                        modifier: Modifier::Option,
+                        side: Side::Left,
+                    },
+                    "right-command" => Trigger::ModifierOnly {
+                        modifier: Modifier::Command,
+                        side: Side::Right,
+                    },
                     "fn" => Trigger::Fn,
                     "f5" => Trigger::Key("F5".into()),
-                    _ => Trigger::ModifierOnly { modifier: Modifier::Option, side: Side::Right },
+                    _ => Trigger::ModifierOnly {
+                        modifier: Modifier::Option,
+                        side: Side::Right,
+                    },
                 };
-                self.hotkey = HotkeySpec { modifiers: ModifierFlags::default(), trigger };
+                self.hotkey = HotkeySpec {
+                    modifiers: ModifierFlags::default(),
+                    trigger,
+                };
                 dirty = true;
             }
         }
@@ -311,7 +338,9 @@ fn validate_hotkey(spec: &HotkeySpec) -> Result<(), AppError> {
     if let Trigger::Key(name) = &spec.trigger {
         let bare_alnum = name.len() == 1 && name.chars().all(|c| c.is_ascii_alphanumeric());
         if bare_alnum && spec.modifiers.count() == 0 {
-            return Err(AppError::Settings("a plain letter/number needs a modifier".into()));
+            return Err(AppError::Settings(
+                "a plain letter/number needs a modifier".into(),
+            ));
         }
         if os_integration::hotkey_spec::key_to_macos_keycode(name).is_none() {
             return Err(AppError::Settings(format!("unknown key: {name}")));
@@ -330,7 +359,10 @@ mod tests {
         let s = Settings::default();
         assert_eq!(
             s.hotkey.trigger,
-            Trigger::ModifierOnly { modifier: Modifier::Option, side: Side::Right }
+            Trigger::ModifierOnly {
+                modifier: Modifier::Option,
+                side: Side::Right
+            }
         );
         assert_eq!(s.activation_mode, ActivationMode::Hold);
         // `language` is derived from the host OS locale at first run, so
@@ -436,7 +468,10 @@ mod tests {
         } else {
             assert_eq!(s.language, derived);
         }
-        assert!(dirty, "version bump alone should flag the settings as dirty");
+        assert!(
+            dirty,
+            "version bump alone should flag the settings as dirty"
+        );
     }
 
     #[test]
@@ -458,15 +493,24 @@ mod tests {
         let cases = [
             (
                 "right-option",
-                Trigger::ModifierOnly { modifier: Modifier::Option, side: Side::Right },
+                Trigger::ModifierOnly {
+                    modifier: Modifier::Option,
+                    side: Side::Right,
+                },
             ),
             (
                 "left-option",
-                Trigger::ModifierOnly { modifier: Modifier::Option, side: Side::Left },
+                Trigger::ModifierOnly {
+                    modifier: Modifier::Option,
+                    side: Side::Left,
+                },
             ),
             (
                 "right-command",
-                Trigger::ModifierOnly { modifier: Modifier::Command, side: Side::Right },
+                Trigger::ModifierOnly {
+                    modifier: Modifier::Command,
+                    side: Side::Right,
+                },
             ),
             ("fn", Trigger::Fn),
             ("f5", Trigger::Key("F5".into())),
@@ -478,8 +522,14 @@ mod tests {
                 ..Settings::default()
             };
             let dirty = s.migrate();
-            assert_eq!(s.hotkey.trigger, expected, "legacy {legacy} should map to its spec");
-            assert!(s.legacy_hotkey.is_none(), "legacy {legacy} should be consumed");
+            assert_eq!(
+                s.hotkey.trigger, expected,
+                "legacy {legacy} should map to its spec"
+            );
+            assert!(
+                s.legacy_hotkey.is_none(),
+                "legacy {legacy} should be consumed"
+            );
             assert_eq!(s.schema_version, SCHEMA_VERSION);
             assert!(dirty, "legacy {legacy} migration should flag dirty");
         }
@@ -503,7 +553,10 @@ mod tests {
         s.migrate();
         assert_eq!(
             s.hotkey.trigger,
-            Trigger::ModifierOnly { modifier: Modifier::Option, side: Side::Left }
+            Trigger::ModifierOnly {
+                modifier: Modifier::Option,
+                side: Side::Left
+            }
         );
         assert!(s.legacy_hotkey.is_none());
     }

@@ -55,7 +55,10 @@ struct VersionResponse {
     backend: &'static str,
 }
 
-async fn healthz(headers: HeaderMap, State(state): State<AppState>) -> WireResponse<HealthResponse> {
+async fn healthz(
+    headers: HeaderMap,
+    State(state): State<AppState>,
+) -> WireResponse<HealthResponse> {
     WireResponse::ok(
         Wire::from_accept(&headers),
         HealthResponse {
@@ -210,11 +213,7 @@ struct ChatRequestBody {
     stop: Vec<String>,
 }
 
-async fn chat(
-    headers: HeaderMap,
-    State(state): State<AppState>,
-    body: Bytes,
-) -> Response {
+async fn chat(headers: HeaderMap, State(state): State<AppState>, body: Bytes) -> Response {
     let wire = Wire::from_accept(&headers);
 
     if body.len() > CHAT_BODY_LIMIT_BYTES {
@@ -240,16 +239,14 @@ async fn chat(
     let req_body = match parsed {
         Ok(b) => b,
         Err(e) => {
-            return error_response(wire, StatusCode::BAD_REQUEST, "bad_request", e)
-                .into_response()
+            return error_response(wire, StatusCode::BAD_REQUEST, "bad_request", e).into_response()
         }
     };
 
     let req = match build_chat_request(req_body) {
         Ok(r) => r,
         Err(e) => {
-            return error_response(wire, StatusCode::BAD_REQUEST, "bad_request", e)
-                .into_response()
+            return error_response(wire, StatusCode::BAD_REQUEST, "bad_request", e).into_response()
         }
     };
 
@@ -304,10 +301,9 @@ fn llm_error_to_response(wire: Wire, err: &LlmError) -> WireResponse<ErrorBody> 
         LlmError::ContextOverflow(_) => (StatusCode::PAYLOAD_TOO_LARGE, "context_overflow"),
         LlmError::ModelNotLoaded => (StatusCode::SERVICE_UNAVAILABLE, "llm_unavailable"),
         LlmError::Busy => (StatusCode::SERVICE_UNAVAILABLE, "busy"),
-        LlmError::Llama(_) | LlmError::Internal(_) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "internal",
-        ),
+        LlmError::Llama(_) | LlmError::Internal(_) => {
+            (StatusCode::INTERNAL_SERVER_ERROR, "internal")
+        }
     };
     error_response(wire, status, code, err.to_string())
 }
@@ -332,7 +328,11 @@ pub async fn shutdown_signal(socket_path: PathBuf) {
     }
     if socket_path.exists() {
         if let Err(e) = std::fs::remove_file(&socket_path) {
-            warn!(?socket_path, ?e, "failed to remove socket file during shutdown");
+            warn!(
+                ?socket_path,
+                ?e,
+                "failed to remove socket file during shutdown"
+            );
         } else {
             info!(?socket_path, "removed socket file");
         }
@@ -352,7 +352,11 @@ pub async fn run(
     let listener = UnixListener::bind(&socket_path).context("bind unix listener")?;
     info!(?socket_path, "listening on unix socket");
 
-    let state = AppState { started_at: Instant::now(), stt, llm };
+    let state = AppState {
+        started_at: Instant::now(),
+        stt,
+        llm,
+    };
     let app = build_router(state);
 
     let shutdown = shutdown_signal(socket_path.clone());

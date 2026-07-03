@@ -1,9 +1,9 @@
-import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import type { HotkeySpec, ActivationMode, CaptureEvent } from '$lib/hotkey';
+import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { HotkeySpec, ActivationMode, CaptureEvent } from "$lib/hotkey";
 
-export type PermissionStatus = 'granted' | 'denied' | 'not_determined';
-export type Route = 'home' | 'settings' | 'wizard';
+export type PermissionStatus = "granted" | "denied" | "not_determined";
+export type Route = "home" | "settings" | "wizard";
 
 export interface Settings {
   /** M4: catalog id of the STT model to load. `null` falls back to the
@@ -31,20 +31,20 @@ export interface Settings {
   appVersion: string;
 }
 
-export type ProfileName = 'powerSaver' | 'balanced' | 'performance';
+export type ProfileName = "powerSaver" | "balanced" | "performance";
 
 export interface ProfileStatus {
   active: ProfileName;
-  mode: 'auto' | 'power_saver' | 'balanced' | 'performance';
+  mode: "auto" | "power_saver" | "balanced" | "performance";
   emergency: string | null;
 }
 
 export type ModelState =
-  | { kind: 'idle' }
-  | { kind: 'loading'; stt: boolean; llama: boolean }
-  | { kind: 'ready'; stt: boolean; llama: boolean }
-  | { kind: 'reloading'; reason: string }
-  | { kind: 'error'; reason: string };
+  | { kind: "idle" }
+  | { kind: "loading"; stt: boolean; llama: boolean }
+  | { kind: "ready"; stt: boolean; llama: boolean }
+  | { kind: "reloading"; reason: string }
+  | { kind: "error"; reason: string };
 
 export interface ModelScores {
   /** 0-100, higher is better. */
@@ -63,7 +63,7 @@ export interface ModelScores {
 
 export interface CatalogEntry {
   id: string;
-  kind: 'stt' | 'llm';
+  kind: "stt" | "llm";
   displayName: string;
   description: string;
   sizeBytes: number;
@@ -76,7 +76,7 @@ export interface CatalogEntry {
 
 export interface LocalModel {
   id: string;
-  kind: 'stt' | 'llm';
+  kind: "stt" | "llm";
   path: string;
   sizeBytes: number;
   inCatalog: boolean;
@@ -84,14 +84,14 @@ export interface LocalModel {
 
 export interface DownloadProgress {
   id: string;
-  state: 'queued' | 'downloading' | 'verifying' | 'complete' | 'error' | 'cancelled';
+  state: "queued" | "downloading" | "verifying" | "complete" | "error" | "cancelled";
   bytesReceived: number;
   bytesTotal: number;
   errorMessage?: string;
 }
 
 export interface Toast {
-  kind: 'info' | 'warn' | 'error' | 'success';
+  kind: "info" | "warn" | "error" | "success";
   message: string;
 }
 
@@ -178,60 +178,59 @@ export interface Dictation {
 }
 
 export const lda = {
-  getSettings: () => invoke<Settings>('get_settings'),
-  updateSettings: (patch: Partial<Settings>) => invoke<Settings>('update_settings', { patch }),
-  modelsCatalog: () => invoke<CatalogEntry[]>('models_catalog'),
-  modelsListLocal: () => invoke<LocalModel[]>('models_list_local'),
-  modelsDownload: (id: string) => invoke<void>('models_download', { id }),
-  sttDownload: (id: string) => invoke<void>('stt_download', { id }),
-  modelsCancelDownload: (id: string) => invoke<void>('models_cancel_download', { id }),
-  modelsDelete: (id: string) => invoke<void>('models_delete', { id }),
-  getModelState: () => invoke<ModelState>('get_model_state'),
-  getActiveBackend: () => invoke<ActiveBackendInfo>('get_active_backend'),
-  checkAccessibility: () => invoke<PermissionStatus>('check_accessibility'),
-  promptAccessibility: () => invoke<PermissionStatus>('prompt_accessibility'),
-  checkMicrophone: () => invoke<PermissionStatus>('check_microphone'),
-  promptMicrophone: () => invoke<PermissionStatus>('prompt_microphone'),
-  openSystemSettingsMicrophone: () => invoke<void>('open_system_settings_microphone'),
-  openSystemSettingsAccessibility: () => invoke<void>('open_system_settings_accessibility'),
-  retryHotkeyInstall: () => invoke<void>('retry_hotkey_install'),
-  startHotkeyCapture: () => invoke<void>('start_hotkey_capture'),
-  stopHotkeyCapture: () => invoke<void>('stop_hotkey_capture'),
+  getSettings: () => invoke<Settings>("get_settings"),
+  updateSettings: (patch: Partial<Settings>) => invoke<Settings>("update_settings", { patch }),
+  modelsCatalog: () => invoke<CatalogEntry[]>("models_catalog"),
+  modelsListLocal: () => invoke<LocalModel[]>("models_list_local"),
+  modelsDownload: (id: string) => invoke<void>("models_download", { id }),
+  sttDownload: (id: string) => invoke<void>("stt_download", { id }),
+  modelsCancelDownload: (id: string) => invoke<void>("models_cancel_download", { id }),
+  modelsDelete: (id: string) => invoke<void>("models_delete", { id }),
+  getModelState: () => invoke<ModelState>("get_model_state"),
+  getActiveBackend: () => invoke<ActiveBackendInfo>("get_active_backend"),
+  checkAccessibility: () => invoke<PermissionStatus>("check_accessibility"),
+  promptAccessibility: () => invoke<PermissionStatus>("prompt_accessibility"),
+  checkMicrophone: () => invoke<PermissionStatus>("check_microphone"),
+  promptMicrophone: () => invoke<PermissionStatus>("prompt_microphone"),
+  openSystemSettingsMicrophone: () => invoke<void>("open_system_settings_microphone"),
+  openSystemSettingsAccessibility: () => invoke<void>("open_system_settings_accessibility"),
+  retryHotkeyInstall: () => invoke<void>("retry_hotkey_install"),
+  startHotkeyCapture: () => invoke<void>("start_hotkey_capture"),
+  stopHotkeyCapture: () => invoke<void>("stop_hotkey_capture"),
   onHotkeyCapture: (cb: (e: CaptureEvent) => void): Promise<UnlistenFn> =>
-    listen<CaptureEvent>('hotkey:capture', (e) => cb(e.payload)),
-  testMic: (deviceName: string | null) =>
-    invoke<TestMicResult>('test_mic', { deviceName }),
-  cancelTestMic: () => invoke<void>('cancel_test_mic'),
-  listInputDevices: () => invoke<InputDeviceEntry[]>('list_input_devices'),
-  openWindow: (route: Route) => invoke<void>('open_window', { route }),
-  closeWindow: () => invoke<void>('close_window'),
-  completeWizard: () => invoke<void>('complete_wizard'),
-  pickFile: (filters: FileFilter[]) => invoke<string | null>('pick_file', { filters }),
-  checkForUpdates: () => invoke<UpdateInfo>('check_for_updates'),
+    listen<CaptureEvent>("hotkey:capture", (e) => cb(e.payload)),
+  testMic: (deviceName: string | null) => invoke<TestMicResult>("test_mic", { deviceName }),
+  cancelTestMic: () => invoke<void>("cancel_test_mic"),
+  listInputDevices: () => invoke<InputDeviceEntry[]>("list_input_devices"),
+  openWindow: (route: Route) => invoke<void>("open_window", { route }),
+  closeWindow: () => invoke<void>("close_window"),
+  completeWizard: () => invoke<void>("complete_wizard"),
+  pickFile: (filters: FileFilter[]) => invoke<string | null>("pick_file", { filters }),
+  checkForUpdates: () => invoke<UpdateInfo>("check_for_updates"),
 
   historyList: (limit?: number, offset?: number) =>
-    invoke<DictationSummary[]>('history_list', { limit, offset }),
-  historyGet: (id: number) => invoke<Dictation | null>('history_get', { id }),
-  historyDelete: (id: number) => invoke<void>('history_delete', { id }),
-  historyClear: () => invoke<void>('history_clear'),
+    invoke<DictationSummary[]>("history_list", { limit, offset }),
+  historyGet: (id: number) => invoke<Dictation | null>("history_get", { id }),
+  historyDelete: (id: number) => invoke<void>("history_delete", { id }),
+  historyClear: () => invoke<void>("history_clear"),
 
-  profileGet: () => invoke<ProfileStatus>('profile_get'),
-  profileSetMode: (mode: string) => invoke<void>('profile_set_mode', { mode }),
+  profileGet: () => invoke<ProfileStatus>("profile_get"),
+  profileSetMode: (mode: string) => invoke<void>("profile_set_mode", { mode }),
 
   onModelState: (cb: (s: ModelState) => void): Promise<UnlistenFn> =>
-    listen<ModelState>('model:state', (e) => cb(e.payload)),
+    listen<ModelState>("model:state", (e) => cb(e.payload)),
   onRecordingState: (cb: (rec: boolean) => void): Promise<UnlistenFn> =>
-    listen<boolean>('recording:state', (e) => cb(e.payload)),
+    listen<boolean>("recording:state", (e) => cb(e.payload)),
   onAudioLevel: (cb: (level: number) => void): Promise<UnlistenFn> =>
-    listen<number>('recording:level', (e) => cb(e.payload)),
+    listen<number>("recording:level", (e) => cb(e.payload)),
   onPartialTranscript: (cb: (p: PartialTranscript) => void): Promise<UnlistenFn> =>
-    listen<PartialTranscript>('recording:partial_transcript', (e) => cb(e.payload)),
+    listen<PartialTranscript>("recording:partial_transcript", (e) => cb(e.payload)),
   onDownloadProgress: (cb: (p: DownloadProgress) => void): Promise<UnlistenFn> =>
-    listen<DownloadProgress>('download:progress', (e) => cb(e.payload)),
+    listen<DownloadProgress>("download:progress", (e) => cb(e.payload)),
   onToast: (cb: (t: Toast) => void): Promise<UnlistenFn> =>
-    listen<Toast>('toast', (e) => cb(e.payload)),
+    listen<Toast>("toast", (e) => cb(e.payload)),
   onDictationSaved: (cb: (s: DictationSummary) => void): Promise<UnlistenFn> =>
-    listen<DictationSummary>('dictation:saved', (e) => cb(e.payload)),
+    listen<DictationSummary>("dictation:saved", (e) => cb(e.payload)),
   onProfileChanged: (cb: (s: ProfileStatus) => void): Promise<UnlistenFn> =>
-    listen<ProfileStatus>('profile:changed', (e) => cb(e.payload)),
+    listen<ProfileStatus>("profile:changed", (e) => cb(e.payload)),
 };

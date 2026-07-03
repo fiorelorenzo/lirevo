@@ -44,7 +44,9 @@ pub enum Action {
     UnloadLlm(UnloadReason),
     UnloadStt(UnloadReason),
     /// Reload the LLM with a new context thread count (profile changed).
-    ReloadLlmForThreads { n_threads: i32 },
+    ReloadLlmForThreads {
+        n_threads: i32,
+    },
     /// Proactively load the LLM (startup pre-load heuristic).
     PreloadLlm,
 }
@@ -54,7 +56,9 @@ pub enum Action {
 #[must_use]
 pub fn resolve_n_threads(n: NThreads) -> i32 {
     let total = i32::try_from(num_cpus::get()).unwrap_or(1).max(1);
-    let physical = i32::try_from(num_cpus::get_physical()).unwrap_or(total).max(1);
+    let physical = i32::try_from(num_cpus::get_physical())
+        .unwrap_or(total)
+        .max(1);
     match n {
         // Efficiency-only: a small slice. Heuristic: half the physical
         // cores, min 2, on Apple Silicon this lands near the E-core count.
@@ -133,7 +137,11 @@ pub fn lifecycle_decision(
     // 6. Reload the LLM if the profile's thread count changed (only when
     // loaded, idle, and not already being unloaded above).
     if actions.is_empty() {
-        if let SlotSnapshot::Loaded { loaded_n_threads: Some(loaded), .. } = llm {
+        if let SlotSnapshot::Loaded {
+            loaded_n_threads: Some(loaded),
+            ..
+        } = llm
+        {
             let desired = resolve_n_threads(policy.n_threads);
             if desired != loaded {
                 actions.push(Action::ReloadLlmForThreads { n_threads: desired });
@@ -236,8 +244,14 @@ mod tests {
         let t0 = Instant::now();
         let mut sig = signals_ok();
         sig.mem_pressure = MemoryPressure::Critical;
-        let llm = SlotSnapshot::Loaded { last_use: t0, loaded_n_threads: Some(8) };
-        let stt = SlotSnapshot::Loaded { last_use: t0, loaded_n_threads: None };
+        let llm = SlotSnapshot::Loaded {
+            last_use: t0,
+            loaded_n_threads: Some(8),
+        };
+        let stt = SlotSnapshot::Loaded {
+            last_use: t0,
+            loaded_n_threads: None,
+        };
         let actions = lifecycle_decision(llm, stt, &sig, &BALANCED, t0, t0, Duration::ZERO);
         assert!(actions.contains(&Action::UnloadLlm(UnloadReason::MemPressureCritical)));
         assert!(actions.contains(&Action::UnloadStt(UnloadReason::MemPressureCritical)));
@@ -248,8 +262,19 @@ mod tests {
         let t0 = Instant::now();
         let mut sig = signals_ok();
         sig.mem_free_mb = 1500; // < 2048
-        let llm = SlotSnapshot::Loaded { last_use: t0, loaded_n_threads: Some(8) };
-        let actions = lifecycle_decision(llm, SlotSnapshot::Unloaded, &sig, &BALANCED, t0, t0, Duration::ZERO);
+        let llm = SlotSnapshot::Loaded {
+            last_use: t0,
+            loaded_n_threads: Some(8),
+        };
+        let actions = lifecycle_decision(
+            llm,
+            SlotSnapshot::Unloaded,
+            &sig,
+            &BALANCED,
+            t0,
+            t0,
+            Duration::ZERO,
+        );
         assert!(actions.contains(&Action::UnloadLlm(UnloadReason::LowFreeRam)));
     }
 
@@ -257,7 +282,10 @@ mod tests {
     fn foreground_heavy_unloads_idle_llm() {
         let t0 = Instant::now();
         // Heavy streak > 30s, llm idle > 5s grace.
-        let llm = SlotSnapshot::Loaded { last_use: t0, loaded_n_threads: Some(8) };
+        let llm = SlotSnapshot::Loaded {
+            last_use: t0,
+            loaded_n_threads: Some(8),
+        };
         let actions = lifecycle_decision(
             llm,
             SlotSnapshot::Unloaded,
@@ -287,7 +315,9 @@ mod tests {
             t0,
             Duration::from_secs(35),
         );
-        assert!(!actions.iter().any(|a| matches!(a, Action::UnloadLlm(UnloadReason::ForegroundHeavy))));
+        assert!(!actions
+            .iter()
+            .any(|a| matches!(a, Action::UnloadLlm(UnloadReason::ForegroundHeavy))));
     }
 
     #[test]
@@ -296,8 +326,19 @@ mod tests {
         let mut sig = signals_ok();
         sig.on_ac = false;
         sig.battery_pct = Some(15); // BALANCED unload_below_battery_pct = 20
-        let llm = SlotSnapshot::Loaded { last_use: t0, loaded_n_threads: Some(8) };
-        let actions = lifecycle_decision(llm, SlotSnapshot::Unloaded, &sig, &BALANCED, t0, t0, Duration::ZERO);
+        let llm = SlotSnapshot::Loaded {
+            last_use: t0,
+            loaded_n_threads: Some(8),
+        };
+        let actions = lifecycle_decision(
+            llm,
+            SlotSnapshot::Unloaded,
+            &sig,
+            &BALANCED,
+            t0,
+            t0,
+            Duration::ZERO,
+        );
         assert!(actions.contains(&Action::UnloadLlm(UnloadReason::BatteryBelowThreshold)));
     }
 
@@ -307,8 +348,19 @@ mod tests {
         let mut sig = signals_ok();
         sig.on_ac = true;
         sig.battery_pct = Some(5);
-        let llm = SlotSnapshot::Loaded { last_use: t0, loaded_n_threads: Some(8) };
-        let actions = lifecycle_decision(llm, SlotSnapshot::Unloaded, &sig, &BALANCED, t0, t0, Duration::ZERO);
+        let llm = SlotSnapshot::Loaded {
+            last_use: t0,
+            loaded_n_threads: Some(8),
+        };
+        let actions = lifecycle_decision(
+            llm,
+            SlotSnapshot::Unloaded,
+            &sig,
+            &BALANCED,
+            t0,
+            t0,
+            Duration::ZERO,
+        );
         assert!(!actions.contains(&Action::UnloadLlm(UnloadReason::BatteryBelowThreshold)));
     }
 

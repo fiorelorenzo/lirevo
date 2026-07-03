@@ -1,5 +1,5 @@
-import { writable } from 'svelte/store';
-import { lda, type DictationSummary } from '../tauri';
+import { writable } from "svelte/store";
+import { lda, type DictationSummary } from "../tauri";
 
 const PAGE = 50;
 

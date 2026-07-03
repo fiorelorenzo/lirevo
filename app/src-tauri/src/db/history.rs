@@ -97,10 +97,25 @@ pub fn insert(db: &Db, e: &NewDictation) -> rusqlite::Result<i64> {
                 input_device, smart_routing_enabled, smart_routing_applied)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)",
             params![
-                e.created_at, e.language, e.stt_model, e.audio_ms, e.raw_text, e.stt_ms,
-                e.llm_model, e.cleaned_text, e.clean_ms, e.cleanup_status, e.cleanup_error,
-                e.inject_method, e.inject_ms, e.total_ms, e.target_app, e.target_bundle,
-                e.input_device, i64::from(e.smart_routing_enabled), i64::from(e.smart_routing_applied),
+                e.created_at,
+                e.language,
+                e.stt_model,
+                e.audio_ms,
+                e.raw_text,
+                e.stt_ms,
+                e.llm_model,
+                e.cleaned_text,
+                e.clean_ms,
+                e.cleanup_status,
+                e.cleanup_error,
+                e.inject_method,
+                e.inject_ms,
+                e.total_ms,
+                e.target_app,
+                e.target_bundle,
+                e.input_device,
+                i64::from(e.smart_routing_enabled),
+                i64::from(e.smart_routing_applied),
             ],
         )?;
         Ok(c.last_insert_rowid())
@@ -142,11 +157,23 @@ pub fn get(db: &Db, id: i64) -> rusqlite::Result<Option<Dictation>> {
             params![id],
             |r| {
                 Ok(Dictation {
-                    id: r.get(0)?, created_at: r.get(1)?, language: r.get(2)?, stt_model: r.get(3)?,
-                    audio_ms: r.get(4)?, raw_text: r.get(5)?, stt_ms: r.get(6)?, llm_model: r.get(7)?,
-                    cleaned_text: r.get(8)?, clean_ms: r.get(9)?, cleanup_status: r.get(10)?,
-                    cleanup_error: r.get(11)?, inject_method: r.get(12)?, inject_ms: r.get(13)?,
-                    total_ms: r.get(14)?, target_app: r.get(15)?, target_bundle: r.get(16)?,
+                    id: r.get(0)?,
+                    created_at: r.get(1)?,
+                    language: r.get(2)?,
+                    stt_model: r.get(3)?,
+                    audio_ms: r.get(4)?,
+                    raw_text: r.get(5)?,
+                    stt_ms: r.get(6)?,
+                    llm_model: r.get(7)?,
+                    cleaned_text: r.get(8)?,
+                    clean_ms: r.get(9)?,
+                    cleanup_status: r.get(10)?,
+                    cleanup_error: r.get(11)?,
+                    inject_method: r.get(12)?,
+                    inject_ms: r.get(13)?,
+                    total_ms: r.get(14)?,
+                    target_app: r.get(15)?,
+                    target_bundle: r.get(16)?,
                     input_device: r.get(17)?,
                     smart_routing_enabled: r.get::<_, Option<i64>>(18)?.map(|v| v != 0),
                     smart_routing_applied: r.get::<_, Option<i64>>(19)?.map(|v| v != 0),
@@ -158,7 +185,10 @@ pub fn get(db: &Db, id: i64) -> rusqlite::Result<Option<Dictation>> {
 }
 
 pub fn delete(db: &Db, id: i64) -> rusqlite::Result<()> {
-    db.with_conn(|c| c.execute("DELETE FROM dictations WHERE id = ?1", params![id]).map(|_| ()))
+    db.with_conn(|c| {
+        c.execute("DELETE FROM dictations WHERE id = ?1", params![id])
+            .map(|_| ())
+    })
 }
 
 pub fn clear(db: &Db) -> rusqlite::Result<()> {
@@ -171,15 +201,33 @@ mod tests {
 
     fn sample(created_at: i64, cleaned: &str, stt_only: bool) -> NewDictation {
         NewDictation {
-            created_at, language: Some("it".into()), stt_model: "parakeet-tdt-0.6b-v3".into(),
-            audio_ms: Some(3000), raw_text: "raw".into(), stt_ms: 171,
-            llm_model: if stt_only { None } else { Some("gemma-3-1b".into()) },
-            cleaned_text: cleaned.into(), clean_ms: if stt_only { None } else { Some(652) },
-            cleanup_status: if stt_only { CLEANUP_SKIPPED.into() } else { CLEANUP_APPLIED.into() },
-            cleanup_error: None, inject_method: "pasteboard".into(), inject_ms: Some(163),
-            total_ms: 986, target_app: Some("Mail".into()), target_bundle: Some("com.apple.mail".into()),
+            created_at,
+            language: Some("it".into()),
+            stt_model: "parakeet-tdt-0.6b-v3".into(),
+            audio_ms: Some(3000),
+            raw_text: "raw".into(),
+            stt_ms: 171,
+            llm_model: if stt_only {
+                None
+            } else {
+                Some("gemma-3-1b".into())
+            },
+            cleaned_text: cleaned.into(),
+            clean_ms: if stt_only { None } else { Some(652) },
+            cleanup_status: if stt_only {
+                CLEANUP_SKIPPED.into()
+            } else {
+                CLEANUP_APPLIED.into()
+            },
+            cleanup_error: None,
+            inject_method: "pasteboard".into(),
+            inject_ms: Some(163),
+            total_ms: 986,
+            target_app: Some("Mail".into()),
+            target_bundle: Some("com.apple.mail".into()),
             input_device: Some("MacBook Pro Microphone".into()),
-            smart_routing_enabled: true, smart_routing_applied: stt_only,
+            smart_routing_enabled: true,
+            smart_routing_applied: stt_only,
         }
     }
 
@@ -224,7 +272,9 @@ mod tests {
     #[test]
     fn list_paginates() {
         let db = Db::memory().unwrap();
-        for i in 0..5 { insert(&db, &sample(i, "x", false)).unwrap(); }
+        for i in 0..5 {
+            insert(&db, &sample(i, "x", false)).unwrap();
+        }
         let page = list(&db, 2, 2).unwrap();
         assert_eq!(page.len(), 2);
     }

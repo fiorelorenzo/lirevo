@@ -16,8 +16,7 @@ const MAX_CHANNELS: u16 = 2;
 /// Decode a WAV byte slice into `(mono_f32_samples, sample_rate_hz)`.
 pub fn decode_wav(bytes: &[u8]) -> Result<(Vec<f32>, u32), SttError> {
     let cursor = Cursor::new(bytes);
-    let reader = hound::WavReader::new(cursor)
-        .map_err(|e| SttError::AudioDecode(e.to_string()))?;
+    let reader = hound::WavReader::new(cursor).map_err(|e| SttError::AudioDecode(e.to_string()))?;
     let spec = reader.spec();
 
     if spec.sample_rate < MIN_RATE || spec.sample_rate > MAX_RATE {
@@ -137,7 +136,9 @@ mod tests {
     #[test]
     fn decodes_stereo_44100_and_mixes_to_mono_preserving_rate() {
         // 100 stereo frames = 200 interleaved samples at 44.1 kHz.
-        let s: Vec<i16> = (0..200).map(|i| if i % 2 == 0 { 32767 } else { -32768 }).collect();
+        let s: Vec<i16> = (0..200)
+            .map(|i| if i % 2 == 0 { 32767 } else { -32768 })
+            .collect();
         let wav = synth_wav_i16(&s, 2, 44_100);
         let (out, rate) = decode_wav(&wav).unwrap();
         assert_eq!(out.len(), 100);

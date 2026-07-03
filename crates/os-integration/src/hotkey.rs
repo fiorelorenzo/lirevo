@@ -19,8 +19,8 @@ use tokio::sync::mpsc;
 use tracing::warn;
 
 use crate::hotkey_spec::{
-    CaptureEvent, EdgeDetector, HotkeyEvent, HotkeySpec, LiveState, Modifier, ModifierFlags,
-    ModOnly, Side,
+    CaptureEvent, EdgeDetector, HotkeyEvent, HotkeySpec, LiveState, ModOnly, Modifier,
+    ModifierFlags, Side,
 };
 
 // Accessibility status is no longer checked here — see `install()`.
@@ -109,7 +109,9 @@ fn snapshot_to_capture_event(st: &LiveState) -> CaptureEvent {
     CaptureEvent {
         modifiers: st.mods,
         base_key: st.base_key.clone(),
-        mod_only: st.mod_only.map(|(modifier, side)| ModOnly { modifier, side }),
+        mod_only: st
+            .mod_only
+            .map(|(modifier, side)| ModOnly { modifier, side }),
         mouse: st.mouse,
     }
 }
@@ -276,7 +278,10 @@ fn hotkey_worker(
     const QOS_CLASS_USER_INTERACTIVE: u32 = 0x21;
     let rc = unsafe { pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0) };
     if rc != 0 {
-        tracing::warn!(rc, "pthread_set_qos_class_self_np failed; tap may be throttled when app unfocused");
+        tracing::warn!(
+            rc,
+            "pthread_set_qos_class_self_np failed; tap may be throttled when app unfocused"
+        );
     }
 
     tracing::info!(
@@ -295,19 +300,21 @@ fn hotkey_worker(
     let detector_cb = Arc::new(Mutex::new(EdgeDetector::new(spec.clone())));
     let callback_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let callback_count_cb = callback_count.clone();
-    let tap_callback =
-        move |_proxy: CGEventTapProxy, event_type: CGEventType, event: &CGEvent| -> CallbackResult {
-            // The closure is invoked from a Core Foundation C trampoline.
-            // Unwinding a Rust panic across that FFI boundary is undefined
-            // behavior — catch any panic and convert it into "let the event
-            // pass through". Any captured state is logically Send + UnwindSafe
-            // (atomic flags + a tokio mpsc sender); assert it so the borrow
-            // checker stays happy.
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let n = callback_count_cb.fetch_add(1, Ordering::SeqCst);
-                if n == 0 {
-                    tracing::info!(?event_type, "tap_callback: first event received");
-                }
+    let tap_callback = move |_proxy: CGEventTapProxy,
+                             event_type: CGEventType,
+                             event: &CGEvent|
+          -> CallbackResult {
+        // The closure is invoked from a Core Foundation C trampoline.
+        // Unwinding a Rust panic across that FFI boundary is undefined
+        // behavior — catch any panic and convert it into "let the event
+        // pass through". Any captured state is logically Send + UnwindSafe
+        // (atomic flags + a tokio mpsc sender); assert it so the borrow
+        // checker stays happy.
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let n = callback_count_cb.fetch_add(1, Ordering::SeqCst);
+            if n == 0 {
+                tracing::info!(?event_type, "tap_callback: first event received");
+            }
             // Re-enable immediately on disable events. macOS sends these for
             // "secondary mouse button" presses or any callback that exceeded
             // its CPU budget; the tap stops dispatching until re-enabled.
@@ -316,13 +323,18 @@ fn hotkey_worker(
                 event_type,
                 CGEventType::TapDisabledByTimeout | CGEventType::TapDisabledByUserInput
             ) {
-                tracing::warn!(?event_type, "tap disabled by macOS; re-enabling synchronously");
+                tracing::warn!(
+                    ?event_type,
+                    "tap disabled by macOS; re-enabling synchronously"
+                );
                 reenable_tap_from_callback();
                 return;
             }
             let keycode = event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE);
             let mods = mod_flags_from_raw(event.get_flags().bits());
-            let mut st = state_cb.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut st = state_cb
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             match event_type {
                 CGEventType::FlagsChanged => {
                     st.mods = mods;
@@ -349,8 +361,7 @@ fn hotkey_worker(
                     st.base_key = None;
                 }
                 CGEventType::OtherMouseDown => {
-                    let btn =
-                        event.get_integer_value_field(EventField::MOUSE_EVENT_BUTTON_NUMBER);
+                    let btn = event.get_integer_value_field(EventField::MOUSE_EVENT_BUTTON_NUMBER);
                     // CGEvent button numbers are 0-based; the side buttons that
                     // users call "Mouse 4" / "Mouse 5" report 3 / 4 here.
                     st.mouse = match btn {

@@ -8,10 +8,10 @@
     Languages,
     AppWindow,
     TriangleAlert,
-  } from '@lucide/svelte';
-  import { lda, type Dictation } from '$lib/tauri';
-  import Spinner from '$lib/components/Spinner.svelte';
-  import { formatMs, formatAbsolute } from './format';
+  } from "@lucide/svelte";
+  import { lda, type Dictation } from "$lib/tauri";
+  import Spinner from "$lib/components/Spinner.svelte";
+  import { formatMs, formatAbsolute } from "./format";
 
   interface Props {
     id: number;
@@ -44,8 +44,8 @@
       });
   });
 
-  let cleanupSkipped = $derived(detail?.cleanupStatus === 'skipped');
-  let cleanupFailed = $derived(detail?.cleanupStatus === 'failed');
+  let cleanupSkipped = $derived(detail?.cleanupStatus === "skipped");
+  let cleanupFailed = $derived(detail?.cleanupStatus === "failed");
 </script>
 
 <div>
@@ -72,7 +72,7 @@
           </span>
           <ArrowRight class="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/60" />
           <p class="whitespace-pre-wrap break-words text-sm text-foreground">
-            {detail.rawText || '(no transcript)'}
+            {detail.rawText || "(no transcript)"}
           </p>
         </div>
         <div class="flex items-center gap-3 pl-1 text-[11px] text-muted-foreground">
@@ -111,19 +111,21 @@
           </div>
         {:else}
           <div class="flex items-start gap-3 rounded-md bg-muted/30 p-3">
-            <p class="min-w-0 flex-1 whitespace-pre-wrap break-words text-xs text-muted-foreground line-clamp-3">
+            <p
+              class="min-w-0 flex-1 whitespace-pre-wrap break-words text-xs text-muted-foreground line-clamp-3"
+            >
               {detail.rawText}
             </p>
             <ArrowRight class="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/60" />
             <p class="min-w-0 flex-1 whitespace-pre-wrap break-words text-sm text-foreground">
-              {detail.cleanedText || '(empty)'}
+              {detail.cleanedText || "(empty)"}
             </p>
           </div>
         {/if}
         {#if !cleanupSkipped}
           <div class="flex items-center gap-3 pl-1 text-[11px] text-muted-foreground">
             <span class="inline-flex items-center gap-1">
-              <Cpu class="h-3 w-3" />{detail.llmModel ?? '—'}
+              <Cpu class="h-3 w-3" />{detail.llmModel ?? "—"}
             </span>
             <span class="inline-flex items-center gap-1 tabular-nums">
               <Clock class="h-3 w-3" />{formatMs(detail.cleanMs)}

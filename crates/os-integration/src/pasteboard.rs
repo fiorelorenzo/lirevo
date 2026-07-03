@@ -6,9 +6,7 @@ use core_graphics::event::{CGEvent, CGEventFlags, CGEventTapLocation};
 use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
-use objc2_app_kit::{
-    NSPasteboard, NSPasteboardItem, NSPasteboardTypeString, NSPasteboardWriting,
-};
+use objc2_app_kit::{NSPasteboard, NSPasteboardItem, NSPasteboardTypeString, NSPasteboardWriting};
 use objc2_foundation::{NSArray, NSData, NSString};
 
 use crate::inject::InjectError;
@@ -227,8 +225,7 @@ mod tests {
         );
 
         // Assert the PNG data came back.
-        let recovered_png =
-            unsafe { pb.dataForType(NSPasteboardTypePNG).map(|d| d.to_vec()) };
+        let recovered_png = unsafe { pb.dataForType(NSPasteboardTypePNG).map(|d| d.to_vec()) };
         assert_eq!(
             recovered_png.as_deref(),
             Some(fake_png.as_slice()),

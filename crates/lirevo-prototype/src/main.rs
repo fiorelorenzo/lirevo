@@ -16,13 +16,18 @@ use hyper_util::rt::TokioExecutor;
 use hyperlocal::{UnixConnector, Uri};
 use os_integration::{
     check_accessibility, prompt_accessibility, spec_from_env, HotkeyEvent, HotkeyListener,
-    HotkeySpec, InjectionMethod, Injector, Modifier, ModifierFlags, PermissionStatus, Side, Trigger,
+    HotkeySpec, InjectionMethod, Injector, Modifier, ModifierFlags, PermissionStatus, Side,
+    Trigger,
 };
 use serde::Deserialize;
 use serde_json::json;
 
 #[derive(Parser, Debug)]
-#[command(name = "lirevo-prototype", version, about = "push-to-talk dictation prototype for macOS")]
+#[command(
+    name = "lirevo-prototype",
+    version,
+    about = "push-to-talk dictation prototype for macOS"
+)]
 struct Cli {
     #[arg(long)]
     hotkey: Option<String>,
@@ -146,7 +151,9 @@ fn run_preflight(cli: &Cli) -> Result<PathBuf, ExitCode> {
         return Err(ExitCode::from(4));
     }
     if !health.llm_ready {
-        eprintln!("sidecar reachable but llm_ready=false; set SIDECAR_LLM_MODEL_PATH and restart it");
+        eprintln!(
+            "sidecar reachable but llm_ready=false; set SIDECAR_LLM_MODEL_PATH and restart it"
+        );
         return Err(ExitCode::from(4));
     }
     tracing::info!(version = %health.version, status = %health.status, "sidecar healthy");
@@ -246,19 +253,21 @@ async fn post_and_inject(
         Ok(c) => c,
         Err(e) => {
             tracing::warn!(error = %e, "LLM cleanup failed; injecting raw STT");
-            ChatBody { text: stt.text.clone(), model: "fallback-raw".into() }
+            ChatBody {
+                text: stt.text.clone(),
+                model: "fallback-raw".into(),
+            }
         }
     };
     let t_clean = t0.elapsed() - t_stt;
 
     let injector_for_blocking = injector.clone();
     let text_for_inject = chat.text.clone();
-    let method: InjectionMethod = tokio::task::spawn_blocking(move || {
-        injector_for_blocking.inject(&text_for_inject)
-    })
-    .await
-    .context("inject task join")?
-    .context("inject failed")?;
+    let method: InjectionMethod =
+        tokio::task::spawn_blocking(move || injector_for_blocking.inject(&text_for_inject))
+            .await
+            .context("inject task join")?
+            .context("inject failed")?;
     let t_inject = t0.elapsed() - t_stt - t_clean;
 
     tracing::info!(

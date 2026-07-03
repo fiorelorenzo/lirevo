@@ -35,10 +35,9 @@ pub fn check_microphone() -> Result<String, AppError> {
 #[tauri::command]
 pub async fn prompt_microphone() -> Result<String, AppError> {
     // Move the blocking AVCaptureDevice call off the runtime thread.
-    let status =
-        tokio::task::spawn_blocking(prompt_mic)
-            .await
-            .map_err(|e| AppError::Internal(format!("prompt_microphone join: {e}")))?;
+    let status = tokio::task::spawn_blocking(prompt_mic)
+        .await
+        .map_err(|e| AppError::Internal(format!("prompt_microphone join: {e}")))?;
     Ok(to_status(status))
 }
 
@@ -61,7 +60,9 @@ pub fn open_system_settings_accessibility() -> Result<(), AppError> {
 #[cfg(target_os = "macos")]
 fn open_privacy_pane(which: &'static str) -> Result<(), AppError> {
     let url = match which {
-        "microphone" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+        "microphone" => {
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+        }
         "accessibility" => {
             "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
         }
@@ -91,9 +92,16 @@ pub async fn retry_hotkey_install(
 ) -> Result<(), AppError> {
     let (hotkey, activation_mode) = {
         let inner = state.inner.lock().unwrap();
-        (inner.settings.hotkey.clone(), inner.settings.activation_mode)
+        (
+            inner.settings.hotkey.clone(),
+            inner.settings.activation_mode,
+        )
     };
-    tracing::info!(?hotkey, ?activation_mode, "retry_hotkey_install: invoked from frontend");
+    tracing::info!(
+        ?hotkey,
+        ?activation_mode,
+        "retry_hotkey_install: invoked from frontend"
+    );
     let result = crate::hotkey::reinstall(&app, hotkey, activation_mode);
     match &result {
         Ok(()) => tracing::info!("retry_hotkey_install: success"),

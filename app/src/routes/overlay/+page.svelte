@@ -1,15 +1,15 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
-  import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-  import { invoke } from '@tauri-apps/api/core';
-  import { getCurrentWindow } from '@tauri-apps/api/window';
-  import { t } from '$lib/i18n';
-  import type { PartialTranscript } from '$lib/tauri';
+  import { onMount, onDestroy } from "svelte";
+  import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+  import { invoke } from "@tauri-apps/api/core";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { t } from "$lib/i18n";
+  import type { PartialTranscript } from "$lib/tauri";
 
   // Overlay is click-through so devtools isn't reachable here — log to the
   // backend instead so listener registration can be confirmed from the log.
   const flog = (msg: string) => {
-    void invoke('frontend_log', { source: 'overlay', msg }).catch(() => {});
+    void invoke("frontend_log", { source: "overlay", msg }).catch(() => {});
   };
 
   // Number of vertical bars in the waveform.
@@ -30,21 +30,21 @@
   //                during cleanup).
   //   done       → the final text was handled; play the exit animation, then
   //                this webview hides its own window.
-  type Phase = 'idle' | 'recording' | 'processing' | 'done';
-  let phase = $state<Phase>('idle');
-  let isRecording = $derived(phase === 'recording');
+  type Phase = "idle" | "recording" | "processing" | "done";
+  let phase = $state<Phase>("idle");
+  let isRecording = $derived(phase === "recording");
 
   let bars = $state<number[]>(Array(BARS).fill(0));
   // Mutated imperatively (the level event fires ~30 Hz); snapshot into `bars`.
   let barsBuf: number[] = Array(BARS).fill(0);
 
-  let partialText = $state('');
+  let partialText = $state("");
   let partialFinal = $state(false);
 
   let displayText = $derived.by(() => {
     const s = partialText;
     if (s.length <= LIVE_TEXT_MAX_CHARS) return s;
-    return '…' + s.slice(s.length - LIVE_TEXT_MAX_CHARS + 1);
+    return "…" + s.slice(s.length - LIVE_TEXT_MAX_CHARS + 1);
   });
   // The text pill shows while recording (live transcript / placeholder) or
   // whenever there is captured text to keep visible through processing.
@@ -67,48 +67,56 @@
   function resetTake() {
     barsBuf = Array(BARS).fill(0);
     bars = barsBuf.slice();
-    partialText = '';
+    partialText = "";
     partialFinal = false;
   }
 
   onMount(() => {
-    void listen<number>('recording:level', (e) => {
+    void listen<number>("recording:level", (e) => {
       barsBuf = [...barsBuf.slice(1), e.payload];
       bars = barsBuf.slice();
     })
-      .then((u) => { unlistenLevel = u; })
+      .then((u) => {
+        unlistenLevel = u;
+      })
       .catch((err) => flog(`recording:level listen failed: ${err}`));
 
-    void listen<PartialTranscript>('recording:partial_transcript', (e) => {
+    void listen<PartialTranscript>("recording:partial_transcript", (e) => {
       partialText = e.payload.text;
       partialFinal = e.payload.isFinal;
     })
-      .then((u) => { unlistenPartial = u; })
+      .then((u) => {
+        unlistenPartial = u;
+      })
       .catch((err) => flog(`recording:partial_transcript listen failed: ${err}`));
 
-    void listen<string>('overlay:phase', (e) => {
+    void listen<string>("overlay:phase", (e) => {
       const p = e.payload as Phase;
-      if (p === 'recording') {
+      if (p === "recording") {
         cancelHide();
         resetTake();
-        phase = 'recording';
-      } else if (p === 'processing') {
+        phase = "recording";
+      } else if (p === "processing") {
         cancelHide();
-        phase = 'processing';
-      } else if (p === 'done') {
+        phase = "processing";
+      } else if (p === "done") {
         cancelHide();
-        phase = 'done';
+        phase = "done";
         // Let the exit animation play, then hide our own window and reset so
         // the next take starts clean.
         hideTimer = setTimeout(() => {
-          void getCurrentWindow().hide().catch(() => {});
-          phase = 'idle';
+          void getCurrentWindow()
+            .hide()
+            .catch(() => {});
+          phase = "idle";
           resetTake();
           hideTimer = null;
         }, EXIT_MS);
       }
     })
-      .then((u) => { unlistenPhase = u; })
+      .then((u) => {
+        unlistenPhase = u;
+      })
       .catch((err) => flog(`overlay:phase listen failed: ${err}`));
   });
 
@@ -127,7 +135,9 @@
     pill bleeds a black square around itself.
   -->
   <style>
-    html, body, #svelte {
+    html,
+    body,
+    #svelte {
       background: transparent !important;
       margin: 0;
       overflow: hidden;
@@ -137,8 +147,8 @@
 </svelte:head>
 
 <div class="overlay-root">
-  {#if phase !== 'idle'}
-    <div class="pill-stack" class:leaving={phase === 'done'}>
+  {#if phase !== "idle"}
+    <div class="pill-stack" class:leaving={phase === "done"}>
       <div class="pill">
         <span class="dot" class:recording={isRecording} class:processing={!isRecording}>
           {#if isRecording}
@@ -161,7 +171,7 @@
       {#if showText}
         <div class="live-text" class:final={partialFinal} class:processing={!isRecording}>
           {#if displayText.length === 0}
-            <span class="placeholder">{t('overlay.live_transcript_placeholder')}</span>
+            <span class="placeholder">{t("overlay.live_transcript_placeholder")}</span>
           {:else}
             <span class="live-text-body">{displayText}</span>
           {/if}
@@ -195,11 +205,20 @@
     animation: pop-out 420ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
   }
   @keyframes pop-in {
-    from { opacity: 0; transform: translateY(-6px) scale(0.96); }
-    to   { opacity: 1; transform: none; }
+    from {
+      opacity: 0;
+      transform: translateY(-6px) scale(0.96);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
   }
   @keyframes pop-out {
-    to { opacity: 0; transform: translateY(-6px) scale(0.96); }
+    to {
+      opacity: 0;
+      transform: translateY(-6px) scale(0.96);
+    }
   }
 
   .pill {
@@ -211,7 +230,8 @@
     background: rgba(15, 17, 21, 0.88);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45),
+    box-shadow:
+      0 8px 24px rgba(0, 0, 0, 0.45),
       0 1px 0 rgba(255, 255, 255, 0.06) inset;
   }
 
@@ -256,8 +276,12 @@
     animation: shimmer 1.6s linear infinite;
   }
   @keyframes shimmer {
-    from { background-position: 150% 0; }
-    to   { background-position: -150% 0; }
+    from {
+      background-position: 150% 0;
+    }
+    to {
+      background-position: -150% 0;
+    }
   }
   .placeholder {
     color: rgba(180, 195, 215, 0.55);
@@ -273,8 +297,14 @@
     animation: caret-blink 1.05s steps(2, end) infinite;
   }
   @keyframes caret-blink {
-    0%, 50% { opacity: 1; }
-    50.01%, 100% { opacity: 0; }
+    0%,
+    50% {
+      opacity: 1;
+    }
+    50.01%,
+    100% {
+      opacity: 0;
+    }
   }
 
   .dot {
@@ -289,7 +319,9 @@
     height: 8px;
     border-radius: 9999px;
   }
-  .dot.recording .dot-core { background: #ef4444; }
+  .dot.recording .dot-core {
+    background: #ef4444;
+  }
   .dot.processing .dot-core {
     background: #6ea8fe;
     transform-origin: center;
@@ -304,13 +336,29 @@
     animation: ping 1.4s cubic-bezier(0, 0, 0.2, 1) infinite;
   }
   @keyframes ping {
-    0%   { transform: scale(1);    opacity: 0.55; }
-    75%  { transform: scale(2.2);  opacity: 0; }
-    100% { transform: scale(2.2);  opacity: 0; }
+    0% {
+      transform: scale(1);
+      opacity: 0.55;
+    }
+    75% {
+      transform: scale(2.2);
+      opacity: 0;
+    }
+    100% {
+      transform: scale(2.2);
+      opacity: 0;
+    }
   }
   @keyframes dot-breathe {
-    0%, 100% { transform: scale(0.85); opacity: 0.7; }
-    50%      { transform: scale(1.25); opacity: 1; }
+    0%,
+    100% {
+      transform: scale(0.85);
+      opacity: 0.7;
+    }
+    50% {
+      transform: scale(1.25);
+      opacity: 1;
+    }
   }
 
   .waveform {
@@ -341,18 +389,30 @@
     animation-delay: calc(var(--i) * -28ms);
   }
   @keyframes think {
-    0%, 100% { transform: scaleY(0.35); opacity: 0.5; }
-    50%      { transform: scaleY(2.4);  opacity: 1; }
+    0%,
+    100% {
+      transform: scaleY(0.35);
+      opacity: 0.5;
+    }
+    50% {
+      transform: scaleY(2.4);
+      opacity: 1;
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .pill-stack, .pill-stack.leaving,
-    .dot.processing .dot-core, .dot-ping,
-    .waveform.processing .bar, .live-text.processing .live-text-body,
+    .pill-stack,
+    .pill-stack.leaving,
+    .dot.processing .dot-core,
+    .dot-ping,
+    .waveform.processing .bar,
+    .live-text.processing .live-text-body,
     .caret {
       animation-duration: 0.001ms;
       animation-iteration-count: 1;
     }
-    .pill-stack.leaving { opacity: 0; }
+    .pill-stack.leaving {
+      opacity: 0;
+    }
   }
 </style>

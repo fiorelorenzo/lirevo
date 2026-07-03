@@ -43,7 +43,11 @@ impl TestServer {
             std::thread::sleep(Duration::from_millis(50));
         }
         assert!(socket.exists(), "sidecar did not create socket within 3s");
-        Self { child, socket, _tmp: tmp }
+        Self {
+            child,
+            socket,
+            _tmp: tmp,
+        }
     }
 }
 
@@ -61,10 +65,10 @@ async fn unix_post(
     content_type: &str,
     body_bytes: Vec<u8>,
 ) -> (hyper::StatusCode, String) {
+    use http_body_util::{BodyExt, Full};
     use hyper::body::Bytes;
     use hyper::Request;
     use hyperlocal::{UnixConnector, Uri};
-    use http_body_util::{BodyExt, Full};
 
     let connector = UnixConnector;
     let client: hyper_util::client::legacy::Client<UnixConnector, Full<Bytes>> =
@@ -106,10 +110,10 @@ fn synth_wav_i16_mono_16k(samples: &[i16]) -> Vec<u8> {
 /// Performs a raw HTTP GET over a UNIX socket and returns (status, body).
 /// We use hyper directly because reqwest does not support unix:// URLs.
 async fn unix_get(socket: &std::path::Path, path: &str) -> (hyper::StatusCode, String) {
+    use http_body_util::{BodyExt, Empty};
     use hyper::body::Bytes;
     use hyper::Request;
     use hyperlocal::{UnixConnector, Uri};
-    use http_body_util::{BodyExt, Empty};
 
     let connector = UnixConnector;
     let client: hyper_util::client::legacy::Client<UnixConnector, Empty<Bytes>> =
@@ -142,8 +146,14 @@ async fn version_returns_build_info() {
     let (status, body) = unix_get(&server.socket, "/version").await;
     assert!(status.is_success(), "expected 2xx, got {status}");
     assert!(body.contains("\"version\":\"0.0.1\""), "body: {body}");
-    assert!(body.contains("\"backend\":\"inference-core\""), "body: {body}");
-    assert!(body.contains("\"build\":"), "body should contain build field: {body}");
+    assert!(
+        body.contains("\"backend\":\"inference-core\""),
+        "body: {body}"
+    );
+    assert!(
+        body.contains("\"build\":"),
+        "body should contain build field: {body}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -155,7 +165,12 @@ async fn sigterm_removes_socket_file() {
     // Send SIGTERM to the child.
     let pid = i32::try_from(server.child.id()).expect("pid fits in i32");
     let result = unsafe { libc::kill(pid, libc::SIGTERM) };
-    assert_eq!(result, 0, "kill returned {result}, errno={}", std::io::Error::last_os_error());
+    assert_eq!(
+        result,
+        0,
+        "kill returned {result}, errno={}",
+        std::io::Error::last_os_error()
+    );
 
     // Wait up to 3 s for the process to exit.
     let deadline = std::time::Instant::now() + Duration::from_secs(3);
@@ -164,14 +179,20 @@ async fn sigterm_removes_socket_file() {
         match unsafe { libc::waitpid(pid, std::ptr::null_mut(), libc::WNOHANG) } {
             0 => std::thread::sleep(Duration::from_millis(50)),
             -1 => panic!("waitpid failed: {}", std::io::Error::last_os_error()),
-            _ => { exited = true; break; }
+            _ => {
+                exited = true;
+                break;
+            }
         }
     }
     assert!(exited, "sidecar did not exit within 3 s after SIGTERM");
 
     // Drop the TestServer at the end of scope to avoid double-kill.
     // Socket file must be gone.
-    assert!(!socket.exists(), "socket file should be removed after SIGTERM cleanup");
+    assert!(
+        !socket.exists(),
+        "socket file should be removed after SIGTERM cleanup"
+    );
     std::mem::forget(server); // already reaped above; skip Drop double-kill
 }
 
@@ -201,7 +222,10 @@ async fn stt_with_stub_returns_text() {
     let wav = synth_wav_i16_mono_16k(&pcm);
     let (status, body) = unix_post(&server.socket, "/v1/stt", "audio/wav", wav).await;
     assert!(status.is_success(), "status={status} body={body}");
-    assert!(body.contains("\"text\":\"[stub] 1600 samples\""), "body: {body}");
+    assert!(
+        body.contains("\"text\":\"[stub] 1600 samples\""),
+        "body: {body}"
+    );
     assert!(body.contains("\"backend\":\"stub\""), "body: {body}");
 }
 
@@ -235,7 +259,6 @@ async fn models_lists_stub_when_loaded() {
     assert!(body.contains("\"loaded\":true"), "body: {body}");
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn stt_returns_503_busy_on_concurrent_requests() {
     // Stub sleeps 800 ms per request. Stub's LOCK_TIMEOUT is 200 ms (in src/stub.rs).
@@ -261,8 +284,15 @@ async fn stt_returns_503_busy_on_concurrent_requests() {
     let (status1, body1) = r1.unwrap();
     let (status2, body2) = r2.unwrap();
 
-    assert!(status1.is_success(), "first request failed: {status1} {body1}");
-    assert_eq!(status2, hyper::StatusCode::SERVICE_UNAVAILABLE, "body: {body2}");
+    assert!(
+        status1.is_success(),
+        "first request failed: {status1} {body1}"
+    );
+    assert_eq!(
+        status2,
+        hyper::StatusCode::SERVICE_UNAVAILABLE,
+        "body: {body2}"
+    );
     assert!(body2.contains("\"error\":\"busy\""), "body: {body2}");
 }
 
@@ -271,10 +301,10 @@ async fn unix_get_with_accept(
     path: &str,
     accept: &str,
 ) -> (hyper::StatusCode, Vec<u8>, String) {
+    use http_body_util::{BodyExt, Empty};
     use hyper::body::Bytes;
     use hyper::Request;
     use hyperlocal::{UnixConnector, Uri};
-    use http_body_util::{BodyExt, Empty};
 
     let connector = UnixConnector;
     let client: hyper_util::client::legacy::Client<UnixConnector, Empty<Bytes>> =
@@ -302,7 +332,12 @@ async fn unix_get_with_accept(
 async fn healthz_negotiates_msgpack() {
     use serde::Deserialize;
     #[derive(Deserialize)]
-    struct H { status: String, version: String, stt_ready: bool, llm_ready: bool }
+    struct H {
+        status: String,
+        version: String,
+        stt_ready: bool,
+        llm_ready: bool,
+    }
 
     let server = TestServer::spawn();
     let (status, bytes, ct) =
@@ -346,8 +381,15 @@ async fn chat_503_when_no_backend_loaded() {
     let req = serde_json::json!({ "user": "Hi" });
     let body = serde_json::to_vec(&req).unwrap();
     let (status, body) = unix_post(&server.socket, "/v1/chat", "application/json", body).await;
-    assert_eq!(status, hyper::StatusCode::SERVICE_UNAVAILABLE, "body: {body}");
-    assert!(body.contains("\"error\":\"llm_unavailable\""), "body: {body}");
+    assert_eq!(
+        status,
+        hyper::StatusCode::SERVICE_UNAVAILABLE,
+        "body: {body}"
+    );
+    assert!(
+        body.contains("\"error\":\"llm_unavailable\""),
+        "body: {body}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -372,8 +414,15 @@ async fn chat_returns_503_busy_on_concurrent_requests() {
     let (status1, body1) = r1.unwrap();
     let (status2, body2) = r2.unwrap();
 
-    assert!(status1.is_success(), "first request failed: {status1} {body1}");
-    assert_eq!(status2, hyper::StatusCode::SERVICE_UNAVAILABLE, "body: {body2}");
+    assert!(
+        status1.is_success(),
+        "first request failed: {status1} {body1}"
+    );
+    assert_eq!(
+        status2,
+        hyper::StatusCode::SERVICE_UNAVAILABLE,
+        "body: {body2}"
+    );
     assert!(body2.contains("\"error\":\"busy\""), "body: {body2}");
 }
 
@@ -390,7 +439,10 @@ async fn chat_413_context_overflow() {
     let body = serde_json::to_vec(&req).unwrap();
     let (status, body) = unix_post(&server.socket, "/v1/chat", "application/json", body).await;
     assert_eq!(status, hyper::StatusCode::PAYLOAD_TOO_LARGE, "body: {body}");
-    assert!(body.contains("\"error\":\"context_overflow\""), "body: {body}");
+    assert!(
+        body.contains("\"error\":\"context_overflow\""),
+        "body: {body}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -462,7 +514,10 @@ async fn models_lists_both_stt_and_llm_when_both_loaded() {
 async fn chat_real_llama_generates_text() {
     let model_path = std::env::var("SIDECAR_LLM_MODEL_PATH")
         .expect("set SIDECAR_LLM_MODEL_PATH to a real GGUF model");
-    assert!(std::path::Path::new(&model_path).exists(), "model not found at {model_path}");
+    assert!(
+        std::path::Path::new(&model_path).exists(),
+        "model not found at {model_path}"
+    );
 
     let server = TestServer::spawn_with_env(&[
         ("SIDECAR_LLM_BACKEND", "llama"),
@@ -498,22 +553,28 @@ async fn chat_real_llama_consecutive_requests_dont_share_kv_cache() {
     // The fix clears the KV cache at the start of every chat() call.
     let model_path = std::env::var("SIDECAR_LLM_MODEL_PATH")
         .expect("set SIDECAR_LLM_MODEL_PATH to a real GGUF model");
-    assert!(std::path::Path::new(&model_path).exists(), "model not found at {model_path}");
+    assert!(
+        std::path::Path::new(&model_path).exists(),
+        "model not found at {model_path}"
+    );
 
     let server = TestServer::spawn_with_env(&[
         ("SIDECAR_LLM_BACKEND", "llama"),
         ("SIDECAR_LLM_MODEL_PATH", model_path.as_str()),
     ]);
 
-    for prompt in ["Capital of Italy?", "Capital of France?", "Capital of Germany?"] {
+    for prompt in [
+        "Capital of Italy?",
+        "Capital of France?",
+        "Capital of Germany?",
+    ] {
         let req = serde_json::json!({
             "user": prompt,
             "max_tokens": 20,
             "temperature": 0.0
         });
         let body = serde_json::to_vec(&req).unwrap();
-        let (status, body) =
-            unix_post(&server.socket, "/v1/chat", "application/json", body).await;
+        let (status, body) = unix_post(&server.socket, "/v1/chat", "application/json", body).await;
         assert!(
             status.is_success(),
             "consecutive chat failed for {prompt:?}: status={status} body={body}"

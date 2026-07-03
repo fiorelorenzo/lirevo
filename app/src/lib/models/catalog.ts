@@ -1,6 +1,6 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from "@tauri-apps/api/core";
 
-export type LanguageCoverage = 'european_25' | 'global_30' | 'multilingual_99';
+export type LanguageCoverage = "european_25" | "global_30" | "multilingual_99";
 
 /**
  * Frontend mirror of `app/src-tauri/src/stt/catalog.rs`. Keep the two
@@ -23,20 +23,42 @@ export interface SttModelEntry {
 }
 
 const PARAKEET_LANGUAGES = [
-  'en', 'it', 'de', 'fr', 'es', 'pt', 'nl', 'pl', 'ru', 'uk', 'cs', 'hr',
-  'bg', 'da', 'el', 'et', 'fi', 'hu', 'lv', 'lt', 'mt', 'ro', 'sk', 'sl',
-  'sv',
+  "en",
+  "it",
+  "de",
+  "fr",
+  "es",
+  "pt",
+  "nl",
+  "pl",
+  "ru",
+  "uk",
+  "cs",
+  "hr",
+  "bg",
+  "da",
+  "el",
+  "et",
+  "fi",
+  "hu",
+  "lv",
+  "lt",
+  "mt",
+  "ro",
+  "sk",
+  "sl",
+  "sv",
 ];
 
 export const STT_MODELS: SttModelEntry[] = [
   {
-    id: 'parakeet-tdt-0.6b-v3',
-    displayName: 'Parakeet TDT v3',
+    id: "parakeet-tdt-0.6b-v3",
+    displayName: "Parakeet TDT v3",
     // q4_k GGUF, ~644 MB on disk. Mirrors catalog.rs.
     sizeBytes: 644_000_000,
-    languageCoverage: 'european_25',
-    summary: '25 European languages. Runs fully on-device.',
-    license: 'CC-BY-4.0',
+    languageCoverage: "european_25",
+    summary: "25 European languages. Runs fully on-device.",
+    license: "CC-BY-4.0",
     languages: PARAKEET_LANGUAGES,
     default: true,
   },
@@ -45,7 +67,7 @@ export const STT_MODELS: SttModelEntry[] = [
 export function defaultModelId(): string {
   const def = STT_MODELS.find((m) => m.default);
   if (!def) {
-    throw new Error('STT_MODELS catalog has no default entry');
+    throw new Error("STT_MODELS catalog has no default entry");
   }
   return def.id;
 }
@@ -55,7 +77,7 @@ export function findModel(id: string): SttModelEntry | undefined {
 }
 
 /** Catalog id of the STT model. */
-export const PARAKEET_MODEL_ID = 'parakeet-tdt-0.6b-v3';
+export const PARAKEET_MODEL_ID = "parakeet-tdt-0.6b-v3";
 
 /**
  * Resolve the STT model for a given language code. With a single-model
@@ -71,45 +93,45 @@ export function modelForLanguage(_code: string): string {
  * runtime locale-display dependency would dwarf the strings themselves.
  */
 const LANGUAGE_NAMES: Record<string, string> = {
-  ar: 'Arabic',
-  bg: 'Bulgarian',
-  cs: 'Czech',
-  da: 'Danish',
-  de: 'German',
-  el: 'Greek',
-  en: 'English',
-  es: 'Spanish',
-  et: 'Estonian',
-  fa: 'Persian',
-  fi: 'Finnish',
-  fr: 'French',
-  he: 'Hebrew',
-  hi: 'Hindi',
-  hr: 'Croatian',
-  hu: 'Hungarian',
-  id: 'Indonesian',
-  it: 'Italian',
-  ja: 'Japanese',
-  ko: 'Korean',
-  lt: 'Lithuanian',
-  lv: 'Latvian',
-  ms: 'Malay',
-  mt: 'Maltese',
-  nl: 'Dutch',
-  no: 'Norwegian',
-  pl: 'Polish',
-  pt: 'Portuguese',
-  ro: 'Romanian',
-  ru: 'Russian',
-  sk: 'Slovak',
-  sl: 'Slovenian',
-  sv: 'Swedish',
-  sw: 'Swahili',
-  th: 'Thai',
-  tr: 'Turkish',
-  uk: 'Ukrainian',
-  vi: 'Vietnamese',
-  zh: 'Chinese',
+  ar: "Arabic",
+  bg: "Bulgarian",
+  cs: "Czech",
+  da: "Danish",
+  de: "German",
+  el: "Greek",
+  en: "English",
+  es: "Spanish",
+  et: "Estonian",
+  fa: "Persian",
+  fi: "Finnish",
+  fr: "French",
+  he: "Hebrew",
+  hi: "Hindi",
+  hr: "Croatian",
+  hu: "Hungarian",
+  id: "Indonesian",
+  it: "Italian",
+  ja: "Japanese",
+  ko: "Korean",
+  lt: "Lithuanian",
+  lv: "Latvian",
+  ms: "Malay",
+  mt: "Maltese",
+  nl: "Dutch",
+  no: "Norwegian",
+  pl: "Polish",
+  pt: "Portuguese",
+  ro: "Romanian",
+  ru: "Russian",
+  sk: "Slovak",
+  sl: "Slovenian",
+  sv: "Swedish",
+  sw: "Swahili",
+  th: "Thai",
+  tr: "Turkish",
+  uk: "Ukrainian",
+  vi: "Vietnamese",
+  zh: "Chinese",
 };
 
 export function languageLabel(code: string): string {
@@ -136,9 +158,10 @@ export function languagesForModel(id: string): string[] {
  * languages, sorted by display name. Picking any of these resolves to
  * Parakeet via {@link modelForLanguage}.
  */
-export const WIZARD_LANGUAGES: WizardLanguage[] = PARAKEET_LANGUAGES
-  .map((code) => ({ code, label: languageLabel(code) }))
-  .sort((a, b) => a.label.localeCompare(b.label));
+export const WIZARD_LANGUAGES: WizardLanguage[] = PARAKEET_LANGUAGES.map((code) => ({
+  code,
+  label: languageLabel(code),
+})).sort((a, b) => a.label.localeCompare(b.label));
 
 // ---------- Dev-only parity check ----------
 
@@ -169,11 +192,11 @@ export async function assertCatalogParity(): Promise<void> {
   if (!import.meta.env.DEV) return;
   let backend: BackendCatalogEntry[];
   try {
-    backend = await invoke<BackendCatalogEntry[]>('get_stt_catalog');
+    backend = await invoke<BackendCatalogEntry[]>("get_stt_catalog");
   } catch (e) {
     // Tauri unavailable (e.g. running vitest under jsdom) — treat as no-op.
     // The Rust-side unit tests are the canonical guarantee.
-    console.debug('[stt-catalog] backend probe failed, skipping parity check:', e);
+    console.debug("[stt-catalog] backend probe failed, skipping parity check:", e);
     return;
   }
   if (backend.length !== STT_MODELS.length) {
@@ -187,8 +210,12 @@ export async function assertCatalogParity(): Promise<void> {
       throw new Error(`[stt-catalog] frontend entry '${fe.id}' missing from backend`);
     }
     const fields: (keyof SttModelEntry & keyof BackendCatalogEntry)[] = [
-      'displayName', 'sizeBytes', 'languageCoverage', 'summary', 'license',
-      'default',
+      "displayName",
+      "sizeBytes",
+      "languageCoverage",
+      "summary",
+      "license",
+      "default",
     ];
     for (const f of fields) {
       if (fe[f] !== be[f]) {
@@ -197,8 +224,10 @@ export async function assertCatalogParity(): Promise<void> {
         );
       }
     }
-    if (fe.languages.length !== be.languages.length
-      || fe.languages.some((l, i) => l !== be.languages[i])) {
+    if (
+      fe.languages.length !== be.languages.length ||
+      fe.languages.some((l, i) => l !== be.languages[i])
+    ) {
       throw new Error(
         `[stt-catalog] '${fe.id}'.languages mismatch — frontend=${JSON.stringify(fe.languages)}, backend=${JSON.stringify(be.languages)}`,
       );

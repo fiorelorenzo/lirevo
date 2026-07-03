@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { get } from 'svelte/store';
-import { listen } from '@tauri-apps/api/event';
-import { settings, startSettingsSync } from '../stores/settings.svelte';
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { get } from "svelte/store";
+import { listen } from "@tauri-apps/api/event";
+import { settings, startSettingsSync } from "../stores/settings.svelte";
 
 // `listen` is mocked once, globally, in vitest.setup.ts and is therefore a
 // single spy shared by every test (`vi.resetModules()` does NOT reset the mocks
@@ -18,8 +18,8 @@ beforeEach(() => {
   vi.mocked(listen).mockReset();
 });
 
-describe('startSettingsSync', () => {
-  it('registers the settings:updated listener once and pipes payloads into the store', async () => {
+describe("startSettingsSync", () => {
+  it("registers the settings:updated listener once and pipes payloads into the store", async () => {
     let capturedCallback: ((event: { payload: unknown }) => void) | null = null;
     vi.mocked(listen).mockImplementation((_event, cb) => {
       capturedCallback = cb as (event: { payload: unknown }) => void;
@@ -34,21 +34,24 @@ describe('startSettingsSync', () => {
 
     const settingsListenerCalls = vi
       .mocked(listen)
-      .mock.calls.filter(([event]) => event === 'settings:updated');
+      .mock.calls.filter(([event]) => event === "settings:updated");
     expect(settingsListenerCalls).toHaveLength(1);
 
     // The single registered callback drives the settings store.
     expect(capturedCallback).not.toBeNull();
 
     const updatedSettings = {
-      sttModelId: 'parakeet-tdt-0.6b-v2',
+      sttModelId: "parakeet-tdt-0.6b-v2",
       whisperModelPath: null,
       llmModelPath: null,
       llmCtxSize: 4096,
       whisperCoreMLDisable: false,
-      hotkey: { modifiers: {}, trigger: { modifierOnly: { modifier: 'option', side: 'right' } } } as const,
-      activationMode: 'hold' as const,
-      language: 'en',
+      hotkey: {
+        modifiers: {},
+        trigger: { modifierOnly: { modifier: "option", side: "right" } },
+      } as const,
+      activationMode: "hold" as const,
+      language: "en",
       inputDeviceName: null,
       smartMicRouting: true,
       backupInputDevice: null,
@@ -56,10 +59,10 @@ describe('startSettingsSync', () => {
       launchAtLogin: false,
       startMinimized: false,
       recordHistory: true,
-      profileMode: 'auto',
-      uiLanguage: 'en',
+      profileMode: "auto",
+      uiLanguage: "en",
       onboardingComplete: true,
-      appVersion: '0.6.0',
+      appVersion: "0.6.0",
     };
 
     capturedCallback!({ payload: updatedSettings });

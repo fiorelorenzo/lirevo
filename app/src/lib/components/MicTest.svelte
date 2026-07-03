@@ -1,17 +1,17 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
-  import { Button } from '$lib/components/ui/button';
-  import { Mic, Square, Check } from '@lucide/svelte';
-  import { lda, type PermissionStatus as Status } from '$lib/tauri';
-  import { toastError, withErrorToast } from '$lib/stores/toasts';
-  import { settings } from '$lib/stores/settings.svelte';
-  import { audioLevel } from '$lib/stores/recording';
-  import { t } from '$lib/i18n';
+  import { onMount, onDestroy } from "svelte";
+  import { Button } from "$lib/components/ui/button";
+  import { Mic, Square, Check } from "@lucide/svelte";
+  import { lda, type PermissionStatus as Status } from "$lib/tauri";
+  import { toastError, withErrorToast } from "$lib/stores/toasts";
+  import { settings } from "$lib/stores/settings.svelte";
+  import { audioLevel } from "$lib/stores/recording";
+  import { t } from "$lib/i18n";
 
   let testing = $state(false);
   let currentPeak = $state(0);
   let testStartedAt = $state(0);
-  let hint = $state<'try_other' | 'speak_louder' | null>(null);
+  let hint = $state<"try_other" | "speak_louder" | null>(null);
   let hintTimer: ReturnType<typeof setInterval> | null = null;
 
   const BARS = 24;
@@ -27,18 +27,18 @@
   let unsubAudioLevel: (() => void) | null = null;
 
   type Result =
-    | { kind: 'ok'; peak: number; device: string }
-    | { kind: 'no_capture' }
-    | { kind: 'device_silent'; device: string }
-    | { kind: 'cancelled' }
-    | { kind: 'no_audio'; peak: number; device: string }
-    | { kind: 'tcc_blocked' }
-    | { kind: 'error'; message: string };
+    | { kind: "ok"; peak: number; device: string }
+    | { kind: "no_capture" }
+    | { kind: "device_silent"; device: string }
+    | { kind: "cancelled" }
+    | { kind: "no_audio"; peak: number; device: string }
+    | { kind: "tcc_blocked" }
+    | { kind: "error"; message: string };
 
   let result = $state<Result | null>(null);
 
   async function openMicrophoneSettings() {
-    await withErrorToast(t('settings.general.microphone.error.open_settings'), () =>
+    await withErrorToast(t("settings.general.microphone.error.open_settings"), () =>
       lda.openSystemSettingsMicrophone(),
     );
   }
@@ -65,27 +65,27 @@
     // the device through Core Audio HAL which does NOT trigger the TCC
     // prompt automatically when run from an unsigned dev build — the stream
     // succeeds but produces silent zeros.
-    const initialStatus = await lda.checkMicrophone().catch(() => 'denied' as const);
-    if (initialStatus === 'not_determined') {
+    const initialStatus = await lda.checkMicrophone().catch(() => "denied" as const);
+    if (initialStatus === "not_determined") {
       const t0 = performance.now();
       let postStatus: Status = initialStatus;
       try {
         postStatus = await lda.promptMicrophone();
       } catch (e) {
         const reason = e instanceof Error ? e.message : String(e);
-        toastError(`${t('settings.general.microphone.error.prompt')}: ${reason}`);
+        toastError(`${t("settings.general.microphone.error.prompt")}: ${reason}`);
       }
-      if (postStatus !== 'granted') {
+      if (postStatus !== "granted") {
         const elapsed = performance.now() - t0;
         if (elapsed < 250) {
-          result = { kind: 'tcc_blocked' };
+          result = { kind: "tcc_blocked" };
         } else {
-          result = { kind: 'error', message: 'Microphone permission was not granted.' };
+          result = { kind: "error", message: "Microphone permission was not granted." };
         }
         return;
       }
-    } else if (initialStatus === 'denied') {
-      result = { kind: 'tcc_blocked' };
+    } else if (initialStatus === "denied") {
+      result = { kind: "tcc_blocked" };
       return;
     }
 
@@ -100,27 +100,27 @@
     hintTimer = setInterval(() => {
       const elapsedMs = performance.now() - testStartedAt;
       if (elapsedMs > 7000 && currentPeak > 0 && currentPeak < 0.02) {
-        hint = 'speak_louder';
+        hint = "speak_louder";
       } else if (elapsedMs > 3500 && currentPeak < 0.005) {
-        hint = 'try_other';
+        hint = "try_other";
       }
     }, 1000);
 
     try {
       const res = await lda.testMic(selectedDevice);
       if (res.cancelled) {
-        result = { kind: 'cancelled' };
+        result = { kind: "cancelled" };
       } else if (res.sampleCount === 0) {
-        result = { kind: 'no_capture' };
+        result = { kind: "no_capture" };
       } else if (res.detected) {
-        result = { kind: 'ok', peak: res.peak, device: res.deviceLabel };
+        result = { kind: "ok", peak: res.peak, device: res.deviceLabel };
       } else if (res.deviceSilent) {
-        result = { kind: 'device_silent', device: res.deviceLabel };
+        result = { kind: "device_silent", device: res.deviceLabel };
       } else {
-        result = { kind: 'no_audio', peak: res.peak, device: res.deviceLabel };
+        result = { kind: "no_audio", peak: res.peak, device: res.deviceLabel };
       }
     } catch (e) {
-      result = { kind: 'error', message: String(e) };
+      result = { kind: "error", message: String(e) };
     } finally {
       if (hintTimer) {
         clearInterval(hintTimer);
@@ -131,7 +131,7 @@
   }
 
   async function stopTest() {
-    await withErrorToast(t('settings.general.microphone.error.cancel_test'), () =>
+    await withErrorToast(t("settings.general.microphone.error.cancel_test"), () =>
       lda.cancelTestMic(),
     );
   }
@@ -155,58 +155,72 @@
           <span class="absolute inset-0 rounded-full bg-destructive animate-ping opacity-75"></span>
           <span class="relative inline-flex h-2 w-2 rounded-full bg-destructive"></span>
         </span>
-        {t('settings.general.microphone.listening')}
+        {t("settings.general.microphone.listening")}
         <span class="text-xs text-muted-foreground tabular-nums">
           · peak {(currentPeak * 100).toFixed(0)}%
         </span>
       </div>
-      {#if hint === 'try_other'}
-        <p class="text-xs text-warning mt-2">{t('settings.general.microphone.hint_try_other')}</p>
-      {:else if hint === 'speak_louder'}
-        <p class="text-xs text-warning mt-2">{t('settings.general.microphone.hint_speak_louder')}</p>
+      {#if hint === "try_other"}
+        <p class="text-xs text-warning mt-2">{t("settings.general.microphone.hint_try_other")}</p>
+      {:else if hint === "speak_louder"}
+        <p class="text-xs text-warning mt-2">
+          {t("settings.general.microphone.hint_speak_louder")}
+        </p>
       {/if}
-    {:else if result?.kind === 'ok'}
+    {:else if result?.kind === "ok"}
       <div class="flex items-center justify-center gap-2 font-medium text-success">
         <Check class="h-4 w-4" />
-        {t('settings.general.microphone.tested_ok')}
+        {t("settings.general.microphone.tested_ok")}
         <span class="text-xs text-muted-foreground tabular-nums">
           · peak {(result.peak * 100).toFixed(0)}%
         </span>
       </div>
-    {:else if result?.kind === 'no_audio'}
+    {:else if result?.kind === "no_audio"}
       <div class="space-y-1">
-        <p class="font-medium text-warning">{t('settings.general.microphone.tested_no_audio')}</p>
-        <p class="text-xs text-muted-foreground">{t('settings.general.microphone.tested_no_audio_hint')}</p>
-      </div>
-    {:else if result?.kind === 'no_capture'}
-      <div class="space-y-1">
-        <p class="font-medium text-destructive">{t('settings.general.microphone.tested_no_capture')}</p>
-        <p class="text-xs text-muted-foreground">{t('settings.general.microphone.tested_no_capture_hint')}</p>
-      </div>
-    {:else if result?.kind === 'device_silent'}
-      <div class="space-y-1">
-        <p class="font-medium text-warning">{t('settings.general.microphone.tested_device_silent')}</p>
+        <p class="font-medium text-warning">{t("settings.general.microphone.tested_no_audio")}</p>
         <p class="text-xs text-muted-foreground">
-          {t('settings.general.microphone.tested_device_silent_hint', { device: result.device })}
+          {t("settings.general.microphone.tested_no_audio_hint")}
         </p>
       </div>
-    {:else if result?.kind === 'cancelled'}
-      <p class="text-muted-foreground">{t('settings.general.microphone.tested_cancelled')}</p>
-    {:else if result?.kind === 'tcc_blocked'}
+    {:else if result?.kind === "no_capture"}
+      <div class="space-y-1">
+        <p class="font-medium text-destructive">
+          {t("settings.general.microphone.tested_no_capture")}
+        </p>
+        <p class="text-xs text-muted-foreground">
+          {t("settings.general.microphone.tested_no_capture_hint")}
+        </p>
+      </div>
+    {:else if result?.kind === "device_silent"}
+      <div class="space-y-1">
+        <p class="font-medium text-warning">
+          {t("settings.general.microphone.tested_device_silent")}
+        </p>
+        <p class="text-xs text-muted-foreground">
+          {t("settings.general.microphone.tested_device_silent_hint", { device: result.device })}
+        </p>
+      </div>
+    {:else if result?.kind === "cancelled"}
+      <p class="text-muted-foreground">{t("settings.general.microphone.tested_cancelled")}</p>
+    {:else if result?.kind === "tcc_blocked"}
       <div class="space-y-2">
-        <p class="font-medium text-destructive">{t('settings.general.microphone.tested_tcc_blocked')}</p>
-        <p class="text-xs text-muted-foreground">{t('settings.general.microphone.tested_tcc_blocked_hint')}</p>
+        <p class="font-medium text-destructive">
+          {t("settings.general.microphone.tested_tcc_blocked")}
+        </p>
+        <p class="text-xs text-muted-foreground">
+          {t("settings.general.microphone.tested_tcc_blocked_hint")}
+        </p>
         <Button variant="outline" size="sm" onclick={openMicrophoneSettings}>
-          {t('settings.general.microphone.open_system_settings')}
+          {t("settings.general.microphone.open_system_settings")}
         </Button>
       </div>
-    {:else if result?.kind === 'error'}
+    {:else if result?.kind === "error"}
       <div class="space-y-1">
-        <p class="font-medium text-destructive">{t('settings.general.microphone.tested_error')}</p>
+        <p class="font-medium text-destructive">{t("settings.general.microphone.tested_error")}</p>
         <p class="text-xs text-muted-foreground font-mono">{result.message}</p>
       </div>
     {:else}
-      <p class="text-muted-foreground">{t('settings.general.microphone.idle_hint')}</p>
+      <p class="text-muted-foreground">{t("settings.general.microphone.idle_hint")}</p>
     {/if}
   </div>
 
@@ -214,12 +228,12 @@
     {#if testing}
       <Button variant="outline" onclick={stopTest}>
         <Square class="h-4 w-4 mr-2" />
-        {t('settings.general.microphone.stop')}
+        {t("settings.general.microphone.stop")}
       </Button>
     {:else}
       <Button onclick={startTest}>
         <Mic class="h-4 w-4 mr-2" />
-        {t('settings.general.microphone.test_mic')}
+        {t("settings.general.microphone.test_mic")}
       </Button>
     {/if}
   </div>

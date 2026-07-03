@@ -68,7 +68,12 @@ unsafe fn apply_floating_click_through_impl(
         let level: i64 = msg_send![ns_window, level];
         let behavior: u64 = msg_send![ns_window, collectionBehavior];
         let ignores: bool = msg_send![ns_window, ignoresMouseEvents];
-        tracing::info!(level, behavior, ignores, "overlay: NSWindow attrs after set");
+        tracing::info!(
+            level,
+            behavior,
+            ignores,
+            "overlay: NSWindow attrs after set"
+        );
     }
     Ok(())
 }

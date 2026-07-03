@@ -101,7 +101,9 @@
 }
 
 @layer base {
-  * { border-color: var(--color-border); }
+  * {
+    border-color: var(--color-border);
+  }
   body {
     background: var(--color-background);
     color: var(--color-foreground);
@@ -110,19 +112,37 @@
     -webkit-font-smoothing: antialiased;
     letter-spacing: var(--tracking-normal);
   }
-  h1, h2, h3 { letter-spacing: var(--tracking-tight); font-weight: 600; }
-  .font-mono, code, pre { font-family: var(--font-mono); }
+  h1,
+  h2,
+  h3 {
+    letter-spacing: var(--tracking-tight);
+    font-weight: 600;
+  }
+  .font-mono,
+  code,
+  pre {
+    font-family: var(--font-mono);
+  }
 }
 
 @layer utilities {
   .animate-shimmer {
-    background: linear-gradient(90deg, var(--color-muted) 0%, oklch(from var(--color-muted) calc(l + 0.04) c h) 50%, var(--color-muted) 100%);
+    background: linear-gradient(
+      90deg,
+      var(--color-muted) 0%,
+      oklch(from var(--color-muted) calc(l + 0.04) c h) 50%,
+      var(--color-muted) 100%
+    );
     background-size: 200% 100%;
     animation: shimmer 1.5s linear infinite;
   }
   @keyframes shimmer {
-    0% { background-position: 200% 0; }
-    100% { background-position: -200% 0; }
+    0% {
+      background-position: 200% 0;
+    }
+    100% {
+      background-position: -200% 0;
+    }
   }
 
   ::view-transition-old(root),
@@ -130,11 +150,25 @@
     animation-duration: 250ms;
     animation-timing-function: var(--ease-out-soft);
   }
-  ::view-transition-old(root) { animation-name: lda-fade-out; }
-  ::view-transition-new(root) { animation-name: lda-fade-slide; }
-  @keyframes lda-fade-out { to { opacity: 0; } }
+  ::view-transition-old(root) {
+    animation-name: lda-fade-out;
+  }
+  ::view-transition-new(root) {
+    animation-name: lda-fade-slide;
+  }
+  @keyframes lda-fade-out {
+    to {
+      opacity: 0;
+    }
+  }
   @keyframes lda-fade-slide {
-    from { opacity: 0; transform: translateY(8px); }
-    to   { opacity: 1; transform: translateY(0); }
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 }

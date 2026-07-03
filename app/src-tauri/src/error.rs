@@ -71,7 +71,10 @@ mod tests {
     fn serializes_with_message() {
         let e = AppError::Inference("bad utf8".into());
         let j = serde_json::to_value(&e).unwrap();
-        assert_eq!(j, serde_json::json!({ "kind": "inference", "message": "bad utf8" }));
+        assert_eq!(
+            j,
+            serde_json::json!({ "kind": "inference", "message": "bad utf8" })
+        );
     }
 
     #[test]

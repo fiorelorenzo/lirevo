@@ -22,7 +22,7 @@ mod inject;
 mod permissions;
 
 pub use hotkey::{HotkeyError, HotkeyListener};
-pub use inject::{InjectError, Injector, InjectionMethod};
+pub use inject::{InjectError, InjectionMethod, Injector};
 pub use permissions::{
     check_accessibility, check_microphone, dev_skip_perms, prompt_accessibility, prompt_microphone,
     PermissionStatus,

@@ -1,15 +1,15 @@
+use once_cell::sync::Lazy;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
-use once_cell::sync::Lazy;
-use tauri::{AppHandle, Manager, image::Image};
-use tauri::tray::{TrayIcon, TrayIconBuilder};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::tray::{TrayIcon, TrayIconBuilder};
+use tauri::{image::Image, AppHandle, Manager};
 
 use inference_core::profile::{mode_to_str, ProfileName};
 
-use crate::{AppError, AppState};
 use crate::state::ModelState;
+use crate::{AppError, AppState};
 
 // Icons embedded at compile time. Paths relative to this source file.
 // Monochrome template images (black + alpha) — the tray is built with
@@ -27,16 +27,16 @@ const ICON_LOADING_FRAMES: [&[u8]; 6] = [
     include_bytes!("../icons/tray/tray-loading-5.png"),
     include_bytes!("../icons/tray/tray-loading-6.png"),
 ];
-const ICON_LOADING:            &[u8] = ICON_LOADING_FRAMES[0];
-const ICON_READY_POWER_SAVER:  &[u8] = include_bytes!("../icons/tray/tray-ready-power_saver.png");
-const ICON_READY_BALANCED:     &[u8] = include_bytes!("../icons/tray/tray-ready-balanced.png");
-const ICON_READY_PERFORMANCE:  &[u8] = include_bytes!("../icons/tray/tray-ready-performance.png");
-const ICON_RECORDING1:         &[u8] = include_bytes!("../icons/tray/tray-recording-1.png");
-const ICON_RECORDING2:         &[u8] = include_bytes!("../icons/tray/tray-recording-2.png");
-const ICON_ERROR:              &[u8] = include_bytes!("../icons/tray/tray-error.png");
+const ICON_LOADING: &[u8] = ICON_LOADING_FRAMES[0];
+const ICON_READY_POWER_SAVER: &[u8] = include_bytes!("../icons/tray/tray-ready-power_saver.png");
+const ICON_READY_BALANCED: &[u8] = include_bytes!("../icons/tray/tray-ready-balanced.png");
+const ICON_READY_PERFORMANCE: &[u8] = include_bytes!("../icons/tray/tray-ready-performance.png");
+const ICON_RECORDING1: &[u8] = include_bytes!("../icons/tray/tray-recording-1.png");
+const ICON_RECORDING2: &[u8] = include_bytes!("../icons/tray/tray-recording-2.png");
+const ICON_ERROR: &[u8] = include_bytes!("../icons/tray/tray-error.png");
 // Shown (in place of the Ready icon) when Accessibility or Microphone is
 // missing — the waveform with a dot badge. Dictation can't work without both.
-const ICON_ATTENTION:          &[u8] = include_bytes!("../icons/tray/tray-attention.png");
+const ICON_ATTENTION: &[u8] = include_bytes!("../icons/tray/tray-attention.png");
 
 /// Ready-state tray icon whose waveform amplitude encodes the active energy
 /// profile (PowerSaver = low, Balanced = medium, Performance = tall).
@@ -98,7 +98,10 @@ pub fn install(app: &AppHandle) -> Result<(), AppError> {
                 tauri::async_runtime::spawn(spawn_recording_pulse(app2.clone()));
             }
             let loading = !recording
-                && matches!(model, ModelState::Loading { .. } | ModelState::Reloading { .. });
+                && matches!(
+                    model,
+                    ModelState::Loading { .. } | ModelState::Reloading { .. }
+                );
             if loading && !was_loading {
                 tauri::async_runtime::spawn(spawn_loading_pulse(app2.clone()));
             }
@@ -135,9 +138,15 @@ async fn spawn_recording_pulse(app: AppHandle) {
     let mut frame: u8 = 0;
     loop {
         let state = app.state::<AppState>();
-        if !*state.recording_state_tx.subscribe().borrow() { break; }
+        if !*state.recording_state_tx.subscribe().borrow() {
+            break;
+        }
         frame = if frame == 0 { 1 } else { 0 };
-        let bytes = if frame == 0 { ICON_RECORDING1 } else { ICON_RECORDING2 };
+        let bytes = if frame == 0 {
+            ICON_RECORDING1
+        } else {
+            ICON_RECORDING2
+        };
         if let Ok(img) = Image::from_bytes(bytes) {
             if let Some(tray) = TRAY.lock().unwrap().as_ref() {
                 let _ = tray.set_icon(Some(img));
@@ -211,8 +220,8 @@ fn update_for_state(app: &AppHandle, model: &ModelState, recording: bool) -> Res
             _ => ICON_LOADING,
         }
     };
-    let icon = Image::from_bytes(bytes)
-        .map_err(|e| AppError::Internal(format!("tray icon: {e}")))?;
+    let icon =
+        Image::from_bytes(bytes).map_err(|e| AppError::Internal(format!("tray icon: {e}")))?;
     let label = if needs_permission {
         "Permissions needed".to_string()
     } else {
@@ -232,17 +241,32 @@ fn update_for_state(app: &AppHandle, model: &ModelState, recording: bool) -> Res
 fn state_label(s: &ModelState) -> String {
     match s {
         ModelState::Idle => "Idle".into(),
-        ModelState::Loading { stt, llama } => format!("Loading (STT {} LLM {})", flag(*stt), flag(*llama)),
-        ModelState::Ready { stt, llama } => format!("Ready (STT {} LLM {})", flag(*stt), flag(*llama)),
+        ModelState::Loading { stt, llama } => {
+            format!("Loading (STT {} LLM {})", flag(*stt), flag(*llama))
+        }
+        ModelState::Ready { stt, llama } => {
+            format!("Ready (STT {} LLM {})", flag(*stt), flag(*llama))
+        }
         ModelState::Reloading { reason } => format!("Reloading — {reason}"),
         ModelState::Error { reason } => format!("⚠️ {reason}"),
     }
 }
 
-fn flag(ok: bool) -> &'static str { if ok { "✓" } else { "✗" } }
+fn flag(ok: bool) -> &'static str {
+    if ok {
+        "✓"
+    } else {
+        "✗"
+    }
+}
 
-fn build_menu(app: &AppHandle, recording: bool, status_label: &str) -> Result<Menu<tauri::Wry>, AppError> {
-    let state_item = MenuItem::with_id(app, "status", status_label, false, None::<&str>).map_err(menu_err)?;
+fn build_menu(
+    app: &AppHandle,
+    recording: bool,
+    status_label: &str,
+) -> Result<Menu<tauri::Wry>, AppError> {
+    let state_item =
+        MenuItem::with_id(app, "status", status_label, false, None::<&str>).map_err(menu_err)?;
     let hotkey_label = if recording {
         "Recording...".to_string()
     } else {
@@ -255,24 +279,50 @@ fn build_menu(app: &AppHandle, recording: bool, status_label: &str) -> Result<Me
             os_integration::ActivationMode::Tap => "Tap your hotkey to dictate".to_string(),
         }
     };
-    let hotkey_item = MenuItem::with_id(app, "hotkey", &hotkey_label, false, None::<&str>).map_err(menu_err)?;
+    let hotkey_item =
+        MenuItem::with_id(app, "hotkey", &hotkey_label, false, None::<&str>).map_err(menu_err)?;
     let energy_item = build_energy_submenu(app)?;
     let sep1 = PredefinedMenuItem::separator(app).map_err(menu_err)?;
     // "Show window" exists primarily for the silent-at-login flow — the
     // home window may never have been opened, and the user needs a single
     // tray-clickable affordance to bring up the dashboard. Also useful in
     // the close-to-tray flow when the home window is just hidden.
-    let show_item = MenuItem::with_id(app, "show-home", "Show Lirevo", true, None::<&str>).map_err(menu_err)?;
-    let settings_item = MenuItem::with_id(app, "open-settings", "Settings...", true, Some("CmdOrCtrl+,")).map_err(menu_err)?;
+    let show_item =
+        MenuItem::with_id(app, "show-home", "Show Lirevo", true, None::<&str>).map_err(menu_err)?;
+    let settings_item = MenuItem::with_id(
+        app,
+        "open-settings",
+        "Settings...",
+        true,
+        Some("CmdOrCtrl+,"),
+    )
+    .map_err(menu_err)?;
     let sep2 = PredefinedMenuItem::separator(app).map_err(menu_err)?;
-    let updates_item = MenuItem::with_id(app, "check-updates", "Check for updates", true, None::<&str>).map_err(menu_err)?;
+    let updates_item = MenuItem::with_id(
+        app,
+        "check-updates",
+        "Check for updates",
+        true,
+        None::<&str>,
+    )
+    .map_err(menu_err)?;
     let quit_item = PredefinedMenuItem::quit(app, None).map_err(menu_err)?;
 
-    Menu::with_items(app, &[
-        &state_item, &hotkey_item, &energy_item, &sep1,
-        &show_item, &settings_item, &updates_item, &sep2,
-        &quit_item,
-    ]).map_err(menu_err)
+    Menu::with_items(
+        app,
+        &[
+            &state_item,
+            &hotkey_item,
+            &energy_item,
+            &sep1,
+            &show_item,
+            &settings_item,
+            &updates_item,
+            &sep2,
+            &quit_item,
+        ],
+    )
+    .map_err(menu_err)
 }
 
 /// Title-cased English label for a profile, used for both the submenu item
@@ -292,15 +342,15 @@ fn profile_display(p: ProfileName) -> &'static str {
 fn build_energy_submenu(app: &AppHandle) -> Result<Submenu<tauri::Wry>, AppError> {
     let selector = app.state::<AppState>().profile_selector();
     // `profile-auto` when in Auto (or selector not ready), else the pinned id.
-    let checked_id = selector
-        .as_ref()
-        .map_or("profile-auto", |sel| match mode_to_str(sel.current_mode()) {
+    let checked_id = selector.as_ref().map_or("profile-auto", |sel| {
+        match mode_to_str(sel.current_mode()) {
             "auto" => "profile-auto",
             "power_saver" => "profile-power_saver",
             "balanced" => "profile-balanced",
             "performance" => "profile-performance",
             _ => "profile-auto",
-        });
+        }
+    });
 
     let status_label = match &selector {
         Some(sel) => {
@@ -355,26 +405,37 @@ fn check_item(
     CheckMenuItem::with_id(app, id, label, true, id == checked_id, None::<&str>).map_err(menu_err)
 }
 
-fn menu_err(e: tauri::Error) -> AppError { AppError::Internal(format!("menu: {e}")) }
+fn menu_err(e: tauri::Error) -> AppError {
+    AppError::Internal(format!("menu: {e}"))
+}
 
 fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
     match event.id().as_ref() {
-        "show-home" => { let _ = crate::commands::windows::open_window_internal(app, "home"); }
-        "open-settings" => { let _ = crate::commands::windows::open_window_internal(app, "settings"); }
+        "show-home" => {
+            let _ = crate::commands::windows::open_window_internal(app, "home");
+        }
+        "open-settings" => {
+            let _ = crate::commands::windows::open_window_internal(app, "settings");
+        }
         "check-updates" => {
             let app2 = app.clone();
             tauri::async_runtime::spawn(async move {
                 let _ = crate::commands::updater::check_for_updates(app2).await;
             });
         }
-        id @ ("profile-auto" | "profile-power_saver" | "profile-balanced"
+        id @ ("profile-auto"
+        | "profile-power_saver"
+        | "profile-balanced"
         | "profile-performance") => {
             // Map the menu id to the persisted mode string (strip the
             // `profile-` prefix): `profile-auto` -> `auto`, etc.
             let mode = id.trim_start_matches("profile-").to_string();
             let app2 = app.clone();
             tauri::async_runtime::spawn(async move {
-                if crate::commands::profile::apply_profile_mode(&app2, mode).await.is_ok() {
+                if crate::commands::profile::apply_profile_mode(&app2, mode)
+                    .await
+                    .is_ok()
+                {
                     // The decided profile may not change (e.g. re-pinning the
                     // current band), so the watch-driven refresh in lib.rs
                     // won't always fire — refresh here so the checkmark moves.

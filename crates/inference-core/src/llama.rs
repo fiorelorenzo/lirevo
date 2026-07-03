@@ -24,8 +24,8 @@ fn global_backend() -> Result<Arc<LlamaCppBackend>, LlmError> {
     if let Some(b) = LLAMA_BACKEND.get() {
         return Ok(b.clone());
     }
-    let backend = LlamaCppBackend::init()
-        .map_err(|e| LlmError::Llama(format!("backend init: {e}")))?;
+    let backend =
+        LlamaCppBackend::init().map_err(|e| LlmError::Llama(format!("backend init: {e}")))?;
     let arc = Arc::new(backend);
     let _ = LLAMA_BACKEND.set(arc.clone());
     Ok(LLAMA_BACKEND.get().expect("set just now").clone())

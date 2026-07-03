@@ -1,38 +1,38 @@
 <script lang="ts">
-  import '../app.css';
-  import { onMount } from 'svelte';
-  import { page } from '$app/state';
-  import { ModeWatcher } from 'mode-watcher';
-  import { Toaster } from 'svelte-sonner';
+  import "../app.css";
+  import { onMount } from "svelte";
+  import { page } from "$app/state";
+  import { ModeWatcher } from "mode-watcher";
+  import { Toaster } from "svelte-sonner";
 
-  import Titlebar from '$lib/components/Titlebar.svelte';
+  import Titlebar from "$lib/components/Titlebar.svelte";
 
-  import { initI18n } from '$lib/i18n';
-  import { loadSettings, startSettingsSync } from '$lib/stores/settings.svelte';
+  import { initI18n } from "$lib/i18n";
+  import { loadSettings, startSettingsSync } from "$lib/stores/settings.svelte";
 
   // Side-effect imports: instantiate stores so they subscribe to backend events.
-  import '$lib/stores/modelState';
-  import '$lib/stores/recording';
-  import '$lib/stores/downloads';
-  import '$lib/stores/toasts';
+  import "$lib/stores/modelState";
+  import "$lib/stores/recording";
+  import "$lib/stores/downloads";
+  import "$lib/stores/toasts";
 
   let { children } = $props();
   let i18nReady = $state(false);
 
   // The transparent recording overlay window loads /overlay and needs
   // none of the regular chrome: no titlebar, no opaque background.
-  let isOverlay = $derived(page.url.pathname.startsWith('/overlay'));
+  let isOverlay = $derived(page.url.pathname.startsWith("/overlay"));
 
   // Derive page title from current route.
   let titlebarLabel = $derived.by(() => {
     const path = page.url.pathname;
-    if (path.startsWith('/settings')) return 'Settings';
-    if (path.startsWith('/wizard')) return 'Setup';
-    return '';
+    if (path.startsWith("/settings")) return "Settings";
+    if (path.startsWith("/wizard")) return "Setup";
+    return "";
   });
 
   onMount(async () => {
-    await initI18n('en');
+    await initI18n("en");
     i18nReady = true;
     void loadSettings();
     void startSettingsSync();

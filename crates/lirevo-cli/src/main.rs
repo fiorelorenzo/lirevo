@@ -2,14 +2,18 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand};
+use http_body_util::{BodyExt, Empty, Full};
 use hyper::body::Bytes;
 use hyper::Request;
-use http_body_util::{BodyExt, Empty, Full};
 use hyperlocal::{UnixConnector, Uri};
 use serde::{Deserialize, Serialize};
 
 #[derive(Parser, Debug)]
-#[command(name = "lirevo-cli", version, about = "client for the Lirevo inference sidecar")]
+#[command(
+    name = "lirevo-cli",
+    version,
+    about = "client for the Lirevo inference sidecar"
+)]
 struct Cli {
     #[arg(long, global = true)]
     socket: Option<PathBuf>,
@@ -140,10 +144,18 @@ fn resolve_socket(arg: Option<PathBuf>) -> Result<PathBuf> {
 }
 
 fn accept_header(msgpack: bool) -> &'static str {
-    if msgpack { "application/msgpack" } else { "application/json" }
+    if msgpack {
+        "application/msgpack"
+    } else {
+        "application/json"
+    }
 }
 
-async fn unix_get_bytes(socket: &Path, path: &str, accept: &str) -> Result<(hyper::StatusCode, Vec<u8>)> {
+async fn unix_get_bytes(
+    socket: &Path,
+    path: &str,
+    accept: &str,
+) -> Result<(hyper::StatusCode, Vec<u8>)> {
     let connector = UnixConnector;
     let client: hyper_util::client::legacy::Client<UnixConnector, Empty<Bytes>> =
         hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
@@ -155,7 +167,12 @@ async fn unix_get_bytes(socket: &Path, path: &str, accept: &str) -> Result<(hype
         .body(Empty::<Bytes>::new())?;
     let resp = client.request(req).await.context("request failed")?;
     let (parts, body) = resp.into_parts();
-    let bytes = body.collect().await.context("body collect failed")?.to_bytes().to_vec();
+    let bytes = body
+        .collect()
+        .await
+        .context("body collect failed")?
+        .to_bytes()
+        .to_vec();
     Ok((parts.status, bytes))
 }
 
@@ -188,7 +205,10 @@ async fn cmd_version(socket: &Path, msgpack: bool) -> Result<i32> {
         return Ok(if status.is_client_error() { 3 } else { 4 });
     }
     let v: VersionBody = decode_body(&bytes, msgpack)?;
-    println!("version={}  build={}  backend={}", v.version, v.build, v.backend);
+    println!(
+        "version={}  build={}  backend={}",
+        v.version, v.build, v.backend
+    );
     Ok(0)
 }
 
@@ -203,7 +223,10 @@ async fn cmd_models(socket: &Path, msgpack: bool) -> Result<i32> {
         println!("(no models loaded)");
         return Ok(0);
     }
-    println!("{:<20} {:<8} {:<12} coreml loaded path", "id", "kind", "backend");
+    println!(
+        "{:<20} {:<8} {:<12} coreml loaded path",
+        "id", "kind", "backend"
+    );
     for m in &body.models {
         println!(
             "{:<20} {:<8} {:<12} {:<6} {:<6} {}",
@@ -240,7 +263,11 @@ async fn cmd_stt(
     if segments {
         qs.push("segments=true".to_string());
     }
-    let q = if qs.is_empty() { String::new() } else { format!("?{}", qs.join("&")) };
+    let q = if qs.is_empty() {
+        String::new()
+    } else {
+        format!("?{}", qs.join("&"))
+    };
     let endpoint = format!("/v1/stt{q}");
 
     let connector = UnixConnector;
@@ -256,7 +283,12 @@ async fn cmd_stt(
         .body(Full::new(Bytes::from(wav)))?;
     let resp = client.request(req).await.context("request failed")?;
     let (parts, body) = resp.into_parts();
-    let bytes = body.collect().await.context("body collect failed")?.to_bytes().to_vec();
+    let bytes = body
+        .collect()
+        .await
+        .context("body collect failed")?
+        .to_bytes()
+        .to_vec();
 
     if !parts.status.is_success() {
         eprintln!("{} {}", parts.status, String::from_utf8_lossy(&bytes));
@@ -282,7 +314,12 @@ async fn cmd_stt(
         };
         eprintln!(
             "[{}] {} ({}) {}ms audio, {}ms processing (rtf {:.2}x)",
-            parsed.backend, parsed.model, parsed.language, parsed.duration_ms, parsed.processing_ms, rtf
+            parsed.backend,
+            parsed.model,
+            parsed.language,
+            parsed.duration_ms,
+            parsed.processing_ms,
+            rtf
         );
         println!("{}", parsed.text);
     }
@@ -451,12 +488,60 @@ async fn main() -> std::process::ExitCode {
         Cmd::Health => cmd_health(&socket, cli.msgpack).await,
         Cmd::Version => cmd_version(&socket, cli.msgpack).await,
         Cmd::Models => cmd_models(&socket, cli.msgpack).await,
-        Cmd::Stt { file, language, translate, segments, json } =>
-            cmd_stt(&socket, cli.msgpack, file, language, translate, segments, json).await,
-        Cmd::Chat { user, system, temperature, max_tokens, stop, json } =>
-            cmd_chat(&socket, cli.msgpack, user, system, temperature, max_tokens, stop, json).await,
-        Cmd::Clean { text, language, temperature, max_tokens } =>
-            cmd_clean(&socket, cli.msgpack, text, language, temperature, max_tokens).await,
+        Cmd::Stt {
+            file,
+            language,
+            translate,
+            segments,
+            json,
+        } => {
+            cmd_stt(
+                &socket,
+                cli.msgpack,
+                file,
+                language,
+                translate,
+                segments,
+                json,
+            )
+            .await
+        }
+        Cmd::Chat {
+            user,
+            system,
+            temperature,
+            max_tokens,
+            stop,
+            json,
+        } => {
+            cmd_chat(
+                &socket,
+                cli.msgpack,
+                user,
+                system,
+                temperature,
+                max_tokens,
+                stop,
+                json,
+            )
+            .await
+        }
+        Cmd::Clean {
+            text,
+            language,
+            temperature,
+            max_tokens,
+        } => {
+            cmd_clean(
+                &socket,
+                cli.msgpack,
+                text,
+                language,
+                temperature,
+                max_tokens,
+            )
+            .await
+        }
     };
     match code {
         Ok(c) => std::process::ExitCode::from(c as u8),

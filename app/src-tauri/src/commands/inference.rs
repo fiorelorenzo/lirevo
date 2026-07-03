@@ -500,11 +500,17 @@ pub(crate) async fn warm_up(engine: &Arc<crate::engine::Engine>) {
                 match guard.transcribe(
                     &silence,
                     16_000,
-                    &SttOptions { language: Some("en".to_string()) },
+                    &SttOptions {
+                        language: Some("en".to_string()),
+                    },
                 ) {
                     Ok(_) => tracing::info!(elapsed_ms = elapsed_ms(), "STT warm-up completed"),
                     Err(e) => {
-                        tracing::warn!(?e, elapsed_ms = elapsed_ms(), "STT warm-up failed (non-fatal)");
+                        tracing::warn!(
+                            ?e,
+                            elapsed_ms = elapsed_ms(),
+                            "STT warm-up failed (non-fatal)"
+                        );
                     }
                 }
             })
@@ -529,7 +535,11 @@ pub(crate) async fn warm_up(engine: &Arc<crate::engine::Engine>) {
     let elapsed_ms = || u64::try_from(t0.elapsed().as_millis()).unwrap_or(u64::MAX);
     match engine.chat(req).await {
         Ok(_) => tracing::info!(elapsed_ms = elapsed_ms(), "llama warm-up completed"),
-        Err(e) => tracing::warn!(?e, elapsed_ms = elapsed_ms(), "llama warm-up failed (non-fatal)"),
+        Err(e) => tracing::warn!(
+            ?e,
+            elapsed_ms = elapsed_ms(),
+            "llama warm-up failed (non-fatal)"
+        ),
     }
 }
 
@@ -592,17 +602,18 @@ struct PartialTranscriptEvent {
 
 impl PartialTranscriptEvent {
     fn final_text(text: &str) -> Self {
-        Self { text: text.to_string(), delta: String::new(), is_final: true }
+        Self {
+            text: text.to_string(),
+            delta: String::new(),
+            is_final: true,
+        }
     }
 }
 
 /// Snapshot of the recorder's resampled buffer past `cursor`, taken
 /// without stopping the audio stream. Returns the new tail and the
 /// updated cursor (in 16 kHz output samples).
-fn peek_recorder_tail(
-    state: &AppState,
-    cursor: usize,
-) -> Option<(Vec<f32>, usize)> {
+fn peek_recorder_tail(state: &AppState, cursor: usize) -> Option<(Vec<f32>, usize)> {
     let inner = state.inner.lock().ok()?;
     let rec = inner.recorder.as_ref()?;
     rec.peek_resampled_since(cursor).ok()
@@ -707,7 +718,11 @@ fn run_streaming_worker(
                         last_text = t.text.clone();
                         let _ = app.emit(
                             PARTIAL_TRANSCRIPT_EVENT,
-                            PartialTranscriptEvent { text: t.text, delta, is_final: false },
+                            PartialTranscriptEvent {
+                                text: t.text,
+                                delta,
+                                is_final: false,
+                            },
                         );
                     }
                     Err(e) => {

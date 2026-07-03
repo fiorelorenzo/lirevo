@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { MessagesSquare } from '@lucide/svelte';
-  import type { ActivationMode } from '$lib/hotkey';
+  import { MessagesSquare } from "@lucide/svelte";
+  import type { ActivationMode } from "$lib/hotkey";
 
   interface Props {
     /** Chip tokens for the configured hotkey (e.g. ["⌥ right"] or ["⌃","⇧","K"]). */
@@ -8,7 +8,7 @@
     /** Activation mode, so the prompt verb matches Tap/Hold. */
     mode?: ActivationMode;
   }
-  let { hotkeyChips, mode = 'hold' }: Props = $props();
+  let { hotkeyChips, mode = "hold" }: Props = $props();
 </script>
 
 <div class="flex-1 flex flex-col items-center justify-center gap-5 px-8 text-center">
@@ -29,7 +29,7 @@
         {/each}
       </div>
       <p class="text-xs text-muted-foreground">
-        {mode === 'tap' ? 'Tap to start dictating' : 'Press and hold to start dictating'}
+        {mode === "tap" ? "Tap to start dictating" : "Press and hold to start dictating"}
       </p>
     </div>
   {/if}

@@ -65,7 +65,11 @@ impl LlmSlot {
         match self {
             LlmSlot::Unloaded => SlotSnapshot::Unloaded,
             LlmSlot::Loading { .. } => SlotSnapshot::Loading,
-            LlmSlot::Loaded { last_use, loaded_n_threads, .. } => SlotSnapshot::Loaded {
+            LlmSlot::Loaded {
+                last_use,
+                loaded_n_threads,
+                ..
+            } => SlotSnapshot::Loaded {
                 last_use: *last_use,
                 loaded_n_threads: Some(*loaded_n_threads),
             },

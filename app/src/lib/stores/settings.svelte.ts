@@ -1,7 +1,7 @@
-import { writable, type Writable } from 'svelte/store';
-import { listen } from '@tauri-apps/api/event';
-import { lda, type Settings } from '../tauri';
-import { showToast } from './toasts';
+import { writable, type Writable } from "svelte/store";
+import { listen } from "@tauri-apps/api/event";
+import { lda, type Settings } from "../tauri";
+import { showToast } from "./toasts";
 
 export const settings: Writable<Settings | null> = writable(null);
 
@@ -13,7 +13,7 @@ let syncStarted = false;
 export async function startSettingsSync(): Promise<void> {
   if (syncStarted) return;
   syncStarted = true;
-  await listen<Settings>('settings:updated', (event) => {
+  await listen<Settings>("settings:updated", (event) => {
     settings.set(event.payload);
   });
 }
@@ -36,7 +36,7 @@ export async function updateSettings(patch: Partial<Settings>): Promise<Settings
     return next;
   } catch (e) {
     const reason = e instanceof Error ? e.message : String(e);
-    showToast('error', `Save settings failed: ${reason}`);
+    showToast("error", `Save settings failed: ${reason}`);
     return null;
   }
 }
