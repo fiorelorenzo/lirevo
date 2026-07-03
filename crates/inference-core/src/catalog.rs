@@ -12,8 +12,7 @@ use serde::{Deserialize, Serialize};
 pub const CURRENT_SCHEMA_VERSION: u32 = 1;
 
 /// Embedded JSON catalog. Single source of truth at build time.
-pub const EMBEDDED_JSON: &str =
-    include_str!("../data/model_catalog.json");
+pub const EMBEDDED_JSON: &str = include_str!("../data/model_catalog.json");
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -43,7 +43,10 @@ impl Db {
         match Self::open(path) {
             Ok(db) => db,
             Err(e) => {
-                tracing::error!(?e, "failed to open data.db; using in-memory history (not persisted)");
+                tracing::error!(
+                    ?e,
+                    "failed to open data.db; using in-memory history (not persisted)"
+                );
                 Self::memory().expect("in-memory DB must open")
             }
         }
@@ -123,8 +126,15 @@ mod tests {
             .unwrap()
             .collect::<rusqlite::Result<Vec<_>>>()
             .unwrap();
-        for expected in ["input_device", "smart_routing_enabled", "smart_routing_applied"] {
-            assert!(cols.iter().any(|c| c == expected), "missing column {expected}");
+        for expected in [
+            "input_device",
+            "smart_routing_enabled",
+            "smart_routing_applied",
+        ] {
+            assert!(
+                cols.iter().any(|c| c == expected),
+                "missing column {expected}"
+            );
         }
     }
 }

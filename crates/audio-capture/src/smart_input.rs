@@ -32,10 +32,16 @@ pub fn choose_input_device(
 ) -> InputChoice {
     if enabled && output_is_active() && input_is_bluetooth(configured.as_deref()) {
         if let Some(device) = backup.or_else(builtin_input_name) {
-            return InputChoice { device: Some(device), rerouted: true };
+            return InputChoice {
+                device: Some(device),
+                rerouted: true,
+            };
         }
     }
-    InputChoice { device: configured, rerouted: false }
+    InputChoice {
+        device: configured,
+        rerouted: false,
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -107,7 +113,10 @@ mod imp {
 
     /// Enumerate every audio device id known to the HAL.
     fn all_devices() -> Vec<AudioObjectID> {
-        let addr = address(kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal);
+        let addr = address(
+            kAudioHardwarePropertyDevices,
+            kAudioObjectPropertyScopeGlobal,
+        );
         let mut byte_size: u32 = 0;
         // SAFETY: `addr` and `byte_size` are valid local pointers; null
         // qualifier with size 0. On success `byte_size` holds the property's
@@ -230,13 +239,13 @@ mod imp {
         // `mNumberBuffers` of them contiguously).
         unsafe {
             let n = std::ptr::addr_of!((*list_ptr).mNumberBuffers).read_unaligned();
-            let first = std::ptr::addr_of!((*list_ptr).mBuffers).cast::<objc2_core_audio_types::AudioBuffer>();
+            let first = std::ptr::addr_of!((*list_ptr).mBuffers)
+                .cast::<objc2_core_audio_types::AudioBuffer>();
             let mut total = 0u32;
             for i in 0..n as usize {
                 let buf = first.add(i);
-                total = total.saturating_add(
-                    std::ptr::addr_of!((*buf).mNumberChannels).read_unaligned(),
-                );
+                total = total
+                    .saturating_add(std::ptr::addr_of!((*buf).mNumberChannels).read_unaligned());
             }
             total
         }
@@ -271,9 +280,9 @@ mod imp {
                 kAudioHardwarePropertyDefaultInputDevice,
                 kAudioObjectPropertyScopeGlobal,
             ),
-            Some(want) => all_devices().into_iter().find(|&d| {
-                input_channel_count(d) > 0 && device_name(d).as_deref() == Some(want)
-            }),
+            Some(want) => all_devices()
+                .into_iter()
+                .find(|&d| input_channel_count(d) > 0 && device_name(d).as_deref() == Some(want)),
         };
         let Some(dev) = dev else { return false };
         get_fixed::<u32>(

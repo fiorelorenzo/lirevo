@@ -35,7 +35,11 @@ pub struct WireResponse<T: Serialize> {
 
 impl<T: Serialize> WireResponse<T> {
     pub fn ok(wire: Wire, body: T) -> Self {
-        Self { wire, status: StatusCode::OK, body }
+        Self {
+            wire,
+            status: StatusCode::OK,
+            body,
+        }
     }
     pub fn with_status(wire: Wire, status: StatusCode, body: T) -> Self {
         Self { wire, status, body }
@@ -80,8 +84,20 @@ pub struct ErrorBody {
     pub reason: String,
 }
 
-pub fn error_response(wire: Wire, status: StatusCode, error: &'static str, reason: impl Into<String>) -> WireResponse<ErrorBody> {
-    WireResponse::with_status(wire, status, ErrorBody { error, reason: reason.into() })
+pub fn error_response(
+    wire: Wire,
+    status: StatusCode,
+    error: &'static str,
+    reason: impl Into<String>,
+) -> WireResponse<ErrorBody> {
+    WireResponse::with_status(
+        wire,
+        status,
+        ErrorBody {
+            error,
+            reason: reason.into(),
+        },
+    )
 }
 
 #[cfg(test)]
@@ -113,7 +129,10 @@ mod tests {
 
     #[test]
     fn msgpack_roundtrip_named_fields() {
-        let s = Sample { s: "hello".into(), n: 42 };
+        let s = Sample {
+            s: "hello".into(),
+            n: 42,
+        };
         let bytes = rmp_serde::to_vec_named(&s).unwrap();
         let decoded: Sample = rmp_serde::from_slice(&bytes).unwrap();
         assert_eq!(decoded, s);

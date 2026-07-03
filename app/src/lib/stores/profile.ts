@@ -1,5 +1,5 @@
-import { writable, type Readable } from 'svelte/store';
-import { lda, type ProfileStatus } from '../tauri';
+import { writable, type Readable } from "svelte/store";
+import { lda, type ProfileStatus } from "../tauri";
 
 const _profile = writable<ProfileStatus | null>(null);
 
@@ -31,8 +31,6 @@ void seed();
  *  `profile:changed` event; we optimistically reflect `mode` immediately for
  *  snappiness and let the event confirm (and resolve `active`). */
 export async function setProfileMode(mode: string): Promise<void> {
-  _profile.update((p) =>
-    p ? { ...p, mode: mode as ProfileStatus['mode'] } : p,
-  );
+  _profile.update((p) => (p ? { ...p, mode: mode as ProfileStatus["mode"] } : p));
   await lda.profileSetMode(mode);
 }

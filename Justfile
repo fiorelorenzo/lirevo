@@ -123,15 +123,21 @@ check:
     cd app && pnpm exec svelte-check --threshold error
     cd app/src-tauri && cargo check --all-targets
 
-# Format Rust + frontend (prettier).
+# Format Rust (both workspaces) + frontend (prettier).
 fmt:
     cargo fmt --all
-    cd app && pnpm exec prettier --write 'src/**/*.{ts,svelte,css,json}' 2>/dev/null || true
+    cd app/src-tauri && cargo fmt --all
+    cd app && pnpm exec prettier --write 'src/**/*.{ts,svelte,css,json}'
 
-# Lint Rust + frontend (eslint if configured).
+# Lint gate (same checks CI runs): rustfmt + clippy on both workspaces,
+# prettier + eslint on the frontend.
 lint:
+    cargo fmt --all --check
+    cd app/src-tauri && cargo fmt --all --check
     cargo clippy --workspace --all-targets -- -D warnings
-    cd app && pnpm exec eslint 'src/**/*.{ts,svelte}' 2>/dev/null || true
+    cd app/src-tauri && cargo clippy --all-targets -- -D warnings
+    cd app && pnpm exec prettier --check 'src/**/*.{ts,svelte,css,json}'
+    cd app && pnpm exec eslint 'src/**/*.{ts,svelte}'
 
 # Wipe caches.
 clean:

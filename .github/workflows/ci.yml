@@ -1,7 +1,7 @@
 name: ci
 
 # Base CI: checks only, no artifacts. Runs on every push to main + PRs.
-#   - check-macos:               full type-check + tests on the primary platform.
+#   - check-macos:               type-check, lint, and tests on the primary platform.
 #   - check-linux / check-windows: compile-only guard that the shipped app still
 #     builds cross-platform (per AGENTS.md). These prove it COMPILES — not that
 #     Lirevo is functional there (os-integration is macOS-only with stubs
@@ -49,6 +49,9 @@ jobs:
 
       - name: Type check
         run: just check
+
+      - name: Lint
+        run: just lint
 
       - name: Tests
         run: just test

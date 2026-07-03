@@ -79,7 +79,11 @@ pub struct Engine {
 
 impl Engine {
     #[must_use]
-    pub fn new(config: EngineConfig, initial_profile: ProfileName, models_dir: PathBuf) -> Arc<Self> {
+    pub fn new(
+        config: EngineConfig,
+        initial_profile: ProfileName,
+        models_dir: PathBuf,
+    ) -> Arc<Self> {
         // Point both engines at their loadable ggml backend modules BEFORE any
         // model is created. parakeet reads `PARAKEET_BACKENDS_DIR` on its first
         // load; the LLM modules must be loaded before `LlamaBackend::init()`.
@@ -177,7 +181,9 @@ impl Engine {
 
         {
             let mut slot = self.llm.lock().await;
-            *slot = LlmSlot::Loading { since: Instant::now() };
+            *slot = LlmSlot::Loading {
+                since: Instant::now(),
+            };
         }
 
         let loaded = tokio::task::spawn_blocking(move || LlamaBackend::load(path, ctx, n_threads))
@@ -272,7 +278,9 @@ impl Engine {
 
         {
             let mut state = self.stt.lock().await;
-            *state = SttSlotState::Loading { since: Instant::now() };
+            *state = SttSlotState::Loading {
+                since: Instant::now(),
+            };
         }
 
         let models_dir = self.models_dir.clone();
@@ -329,7 +337,9 @@ impl Engine {
             if matches!(&*slot, LlmSlot::Unloaded | LlmSlot::Loading { .. }) {
                 return;
             }
-            *slot = LlmSlot::Loading { since: Instant::now() };
+            *slot = LlmSlot::Loading {
+                since: Instant::now(),
+            };
         }
         let loaded =
             tokio::task::spawn_blocking(move || LlamaBackend::load(path, ctx, n_threads)).await;
@@ -443,7 +453,11 @@ mod tests {
     }
 
     fn test_engine(path: Option<std::path::PathBuf>) -> Arc<Engine> {
-        Engine::new(cfg(path), ProfileName::Balanced, std::path::PathBuf::from("/tmp"))
+        Engine::new(
+            cfg(path),
+            ProfileName::Balanced,
+            std::path::PathBuf::from("/tmp"),
+        )
     }
 
     #[tokio::test(flavor = "multi_thread")]

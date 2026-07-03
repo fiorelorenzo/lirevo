@@ -45,8 +45,7 @@ pub fn run(args: &BlessArgs) -> Result<()> {
 
     apply_scores(&mut catalog, &scores, &report)?;
 
-    let written = serde_json::to_string_pretty(&catalog)
-        .context("serialize updated catalog")?;
+    let written = serde_json::to_string_pretty(&catalog).context("serialize updated catalog")?;
     std::fs::write(&catalog_path, format!("{written}\n"))
         .with_context(|| format!("write catalog {}", catalog_path.display()))?;
 
@@ -74,11 +73,7 @@ fn resolve_catalog_path(explicit: Option<&Path>) -> Result<PathBuf> {
     )
 }
 
-fn apply_scores(
-    catalog: &mut Catalog,
-    scores: &[ModelScore],
-    report: &ReportData,
-) -> Result<()> {
+fn apply_scores(catalog: &mut Catalog, scores: &[ModelScore], report: &ReportData) -> Result<()> {
     let unknown: Vec<&str> = scores
         .iter()
         .filter(|s| !catalog.llm.iter().any(|e| e.id == s.backend_id))
@@ -236,7 +231,10 @@ mod tests {
             schema_version: 1,
             last_run: None,
             stt: vec![],
-            llm: vec![llm_entry("quality_wins", false), llm_entry("speed_wins", false)],
+            llm: vec![
+                llm_entry("quality_wins", false),
+                llm_entry("speed_wins", false),
+            ],
         };
         let scores = vec![
             score("quality_wins", 100, 0, 0, 50),
@@ -305,7 +303,10 @@ mod tests {
         apply_scores(&mut c, &scores, &empty_report()).unwrap();
         let b = c.llm.iter().find(|e| e.id == "broken_fast").unwrap();
         let d = c.llm.iter().find(|e| e.id == "decent").unwrap();
-        assert!(!b.recommended, "model below chrF floor must not be recommended");
+        assert!(
+            !b.recommended,
+            "model below chrF floor must not be recommended"
+        );
         assert!(d.recommended, "eligible peer should pick up the badge");
     }
 

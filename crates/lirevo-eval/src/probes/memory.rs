@@ -62,7 +62,11 @@ mod imp {
                 std::ptr::addr_of_mut!(count),
             )
         };
-        if kr == KERN_SUCCESS { Some(info) } else { None }
+        if kr == KERN_SUCCESS {
+            Some(info)
+        } else {
+            None
+        }
     }
 
     pub fn peak_rss_kb() -> Option<u64> {

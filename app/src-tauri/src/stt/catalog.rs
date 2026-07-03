@@ -64,9 +64,8 @@ pub struct Metadata {
 // the [`Metadata`] entry can reference it by `&'static [&'static str]`.
 
 const PARAKEET_LANGUAGES: &[&str] = &[
-    "en", "it", "de", "fr", "es", "pt", "nl", "pl", "ru", "uk", "cs", "hr",
-    "bg", "da", "el", "et", "fi", "hu", "lv", "lt", "mt", "ro", "sk", "sl",
-    "sv",
+    "en", "it", "de", "fr", "es", "pt", "nl", "pl", "ru", "uk", "cs", "hr", "bg", "da", "el", "et",
+    "fi", "hu", "lv", "lt", "mt", "ro", "sk", "sl", "sv",
 ];
 
 const PARAKEET_V3: Metadata = Metadata {
@@ -105,7 +104,10 @@ mod tests {
     #[test]
     fn exactly_one_default_entry() {
         let defaults = list_models().iter().filter(|m| m.default).count();
-        assert_eq!(defaults, 1, "expected exactly one default model, got {defaults}");
+        assert_eq!(
+            defaults, 1,
+            "expected exactly one default model, got {defaults}"
+        );
     }
 
     #[test]

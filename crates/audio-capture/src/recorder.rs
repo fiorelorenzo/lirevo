@@ -42,7 +42,10 @@ pub struct RecorderConfig {
 
 impl Default for RecorderConfig {
     fn default() -> Self {
-        Self { device_name: None, max_duration_secs: 60 }
+        Self {
+            device_name: None,
+            max_duration_secs: 60,
+        }
     }
 }
 
@@ -71,7 +74,12 @@ impl Recorder {
         // Eagerly resolve so configuration errors surface at construction.
         let _ = device::resolve(cfg.device_name.as_deref())?;
         let (level_tx, level_rx) = watch::channel(0.0_f32);
-        Ok(Self { cfg, state: None, level_tx, level_rx })
+        Ok(Self {
+            cfg,
+            state: None,
+            level_tx,
+            level_rx,
+        })
     }
 
     /// Subscribe to live RMS levels emitted while recording.
@@ -166,13 +174,23 @@ impl Recorder {
             .play()
             .map_err(|e| AudioError::Cpal(format!("stream play: {e}")))?;
 
-        self.state = Some(Active { stream, buf, source_rate, device_label: dev.label });
+        self.state = Some(Active {
+            stream,
+            buf,
+            source_rate,
+            device_label: dev.label,
+        });
         Ok(())
     }
 
     pub fn stop(&mut self) -> Result<Recording, AudioError> {
         let active = self.state.take().ok_or(AudioError::NotRecording)?;
-        let Active { stream, buf, source_rate, device_label } = active;
+        let Active {
+            stream,
+            buf,
+            source_rate,
+            device_label,
+        } = active;
         drop(stream);
 
         // Clone-out rather than try_unwrap: peek_resampled_since may hold an
@@ -186,7 +204,11 @@ impl Recorder {
         let samples = resample_to_16k_mono(&mono, source_rate)?;
 
         let duration_ms = u32::try_from(samples.len() * 1000 / 16_000).unwrap_or(u32::MAX);
-        Ok(Recording { samples, duration_ms, device_label })
+        Ok(Recording {
+            samples,
+            duration_ms,
+            device_label,
+        })
     }
 
     /// Read the currently-captured buffer, resample it to 16 kHz mono, and
@@ -207,10 +229,7 @@ impl Recorder {
     /// Returns `Err(NotRecording)` if the recorder hasn't been started.
     /// Returns an empty tail (and an unchanged cursor) if no new samples
     /// have accumulated since the last call.
-    pub fn peek_resampled_since(
-        &self,
-        cursor: usize,
-    ) -> Result<(Vec<f32>, usize), AudioError> {
+    pub fn peek_resampled_since(&self, cursor: usize) -> Result<(Vec<f32>, usize), AudioError> {
         let active = self.state.as_ref().ok_or(AudioError::NotRecording)?;
         let snapshot = active
             .buf

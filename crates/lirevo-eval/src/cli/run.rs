@@ -71,14 +71,9 @@ pub async fn run(args: RunArgs) -> Result<()> {
     let system_prompts = build_system_prompts(&cases, &profiles)?;
 
     for spec in &args.backends {
-        let resp = run_one_backend(
-            spec,
-            &cases,
-            &system_prompts,
-            &args.no_think_for,
-        )
-        .await
-        .with_context(|| format!("backend {spec}"))?;
+        let resp = run_one_backend(spec, &cases, &system_prompts, &args.no_think_for)
+            .await
+            .with_context(|| format!("backend {spec}"))?;
 
         let descriptor = BackendDescriptor {
             spec: spec.clone(),
@@ -90,9 +85,9 @@ pub async fn run(args: RunArgs) -> Result<()> {
         let by_case: HashMap<&str, &crate::cli::bake_cell::BakeCellResult> =
             resp.cells.iter().map(|c| (c.case_id.as_str(), c)).collect();
         for case in &cases {
-            let cell = by_case.get(case.id.as_str()).ok_or_else(|| {
-                anyhow::anyhow!("child returned no result for case {}", case.id)
-            })?;
+            let cell = by_case
+                .get(case.id.as_str())
+                .ok_or_else(|| anyhow::anyhow!("child returned no result for case {}", case.id))?;
             let profile = profiles.get(&case.profile).expect("validated upstream");
             let outcome = score_one_cell(
                 case,
@@ -163,11 +158,11 @@ async fn run_one_backend(
         .with_context(|| format!("spawn {} bake-cell", exe.display()))?;
 
     {
-        let stdin = child
-            .stdin
-            .as_mut()
-            .context("child stdin missing")?;
-        stdin.write_all(&req_json).await.context("write child stdin")?;
+        let stdin = child.stdin.as_mut().context("child stdin missing")?;
+        stdin
+            .write_all(&req_json)
+            .await
+            .context("write child stdin")?;
         stdin.shutdown().await.context("close child stdin")?;
     }
 

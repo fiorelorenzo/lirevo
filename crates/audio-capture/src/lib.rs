@@ -176,7 +176,9 @@ mod tests {
 
     #[test]
     fn to_mono_averages_stereo_channels() {
-        let s: Vec<f32> = (0..200).map(|i| if i % 2 == 0 { 1.0 } else { -1.0 }).collect();
+        let s: Vec<f32> = (0..200)
+            .map(|i| if i % 2 == 0 { 1.0 } else { -1.0 })
+            .collect();
         let out = to_mono(s, 2);
         assert_eq!(out.len(), 100);
         for v in &out {

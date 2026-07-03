@@ -1,10 +1,12 @@
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use tracing_appender::rolling;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 /// Initialize logging. Must be called once at app startup.
 /// Returns the WorkerGuard which must be kept alive for the program's lifetime
 /// to avoid losing buffered log lines.
-pub fn init(app: &tauri::AppHandle) -> Result<tracing_appender::non_blocking::WorkerGuard, anyhow::Error> {
+pub fn init(
+    app: &tauri::AppHandle,
+) -> Result<tracing_appender::non_blocking::WorkerGuard, anyhow::Error> {
     let log_dir = crate::paths::log_dir(app)?;
     std::fs::create_dir_all(&log_dir)?;
 

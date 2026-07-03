@@ -62,6 +62,7 @@ pub(crate) fn register_quit_safety_atexit() {
 /// Show the Dock icon (Regular) when any real (non-overlay) window is visible;
 /// otherwise stay menu-bar-only (Accessory). macOS-only effect; a no-op on
 /// other platforms so it is safe to call unconditionally.
+#[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
 pub(crate) fn refresh_activation_policy(app: &tauri::AppHandle) {
     #[cfg(target_os = "macos")]
     {

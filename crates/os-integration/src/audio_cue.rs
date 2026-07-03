@@ -30,7 +30,9 @@ fn play_impl(kind: CueKind) {
         // Pop = thumpier, signals the act of release / commit.
         CueKind::Stop => "/System/Library/Sounds/Pop.aiff",
     };
-    let _ = std::process::Command::new("/usr/bin/afplay").arg(path).spawn();
+    let _ = std::process::Command::new("/usr/bin/afplay")
+        .arg(path)
+        .spawn();
 }
 
 #[cfg(not(target_os = "macos"))]

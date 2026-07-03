@@ -1,13 +1,17 @@
 <script lang="ts">
-  interface Props { size?: number; class?: string; loading?: boolean; }
-  let { size = 64, class: cls = '', loading = false }: Props = $props();
+  interface Props {
+    size?: number;
+    class?: string;
+    loading?: boolean;
+  }
+  let { size = 64, class: cls = "", loading = false }: Props = $props();
 </script>
 
 <svg
   viewBox="0 0 64 64"
   width={size}
   height={size}
-  class={[cls, loading ? 'lirevo-logo-loading' : ''].join(' ')}
+  class={[cls, loading ? "lirevo-logo-loading" : ""].join(" ")}
   aria-hidden="true"
 >
   <defs>
@@ -38,8 +42,15 @@
   }
 
   @keyframes lirevo-bar {
-    0%, 100% { transform: scaleY(0.6); opacity: 0.45; }
-    50%      { transform: scaleY(1.15); opacity: 1; }
+    0%,
+    100% {
+      transform: scaleY(0.6);
+      opacity: 0.45;
+    }
+    50% {
+      transform: scaleY(1.15);
+      opacity: 1;
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -48,8 +59,13 @@
       animation-delay: 0ms;
     }
     @keyframes lirevo-bar-pulse {
-      0%, 100% { opacity: 0.5; }
-      50%      { opacity: 1; }
+      0%,
+      100% {
+        opacity: 0.5;
+      }
+      50% {
+        opacity: 1;
+      }
     }
   }
 </style>

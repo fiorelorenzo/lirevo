@@ -1,7 +1,7 @@
-use tauri::{AppHandle, State};
-use crate::{AppError, AppState};
-use crate::models::{catalog, CatalogEntry, LocalModel, list_local};
+use crate::models::{catalog, list_local, CatalogEntry, LocalModel};
 use crate::stt::catalog as stt_catalog;
+use crate::{AppError, AppState};
+use tauri::{AppHandle, State};
 
 #[tauri::command]
 pub fn models_catalog() -> Vec<CatalogEntry> {
@@ -40,7 +40,7 @@ pub async fn models_download(
 /// `.partial` temp file → rename).
 #[tauri::command]
 pub async fn stt_download(app: AppHandle, id: String) -> Result<(), AppError> {
-    use crate::models::{DownloadProgress, DownloadProgressState, models_dir};
+    use crate::models::{models_dir, DownloadProgress, DownloadProgressState};
     use futures_util::StreamExt;
     use tauri::Emitter;
     use tokio::io::AsyncWriteExt;
@@ -213,8 +213,7 @@ pub async fn models_delete(
         .await?;
     }
 
-    let result = crate::models::delete_by_id(&app, &id)
-        .map_err(|e| AppError::Fs(e.to_string()));
+    let result = crate::models::delete_by_id(&app, &id).map_err(|e| AppError::Fs(e.to_string()));
     match &result {
         Ok(()) => tracing::info!(id = %id, "models_delete: success"),
         Err(e) => {

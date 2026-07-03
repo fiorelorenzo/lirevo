@@ -1,8 +1,8 @@
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::{AppError, AppState, Settings};
-use crate::state::ModelState;
 use crate::commands::toast;
+use crate::state::ModelState;
+use crate::{AppError, AppState, Settings};
 
 #[tauri::command]
 pub async fn get_settings(state: State<'_, AppState>) -> Result<Settings, AppError> {
@@ -32,7 +32,12 @@ pub async fn update_settings(
     // early-returns until onboarding completes anyway). `complete_wizard` does
     // the first real load once onboarding is done.
     if Settings::env_affecting_diff(&before, &after) && after.onboarding_complete {
-        state.set_model_state(&app, ModelState::Reloading { reason: "settings changed".into() });
+        state.set_model_state(
+            &app,
+            ModelState::Reloading {
+                reason: "settings changed".into(),
+            },
+        );
         let _ = app.emit("toast", toast("info", "Reloading models..."));
         let app2 = app.clone();
         tauri::async_runtime::spawn(async move {
@@ -41,7 +46,8 @@ pub async fn update_settings(
         });
     }
     if before.hotkey != after.hotkey || before.activation_mode != after.activation_mode {
-        if let Err(e) = crate::hotkey::reinstall(&app, after.hotkey.clone(), after.activation_mode) {
+        if let Err(e) = crate::hotkey::reinstall(&app, after.hotkey.clone(), after.activation_mode)
+        {
             tracing::warn!(%e, "hotkey reinstall failed; restoring previous spec");
             let restored = {
                 let mut inner = state.inner.lock().unwrap();
@@ -51,7 +57,10 @@ pub async fn update_settings(
                 inner.settings.clone()
             };
             let _ = crate::hotkey::reinstall(&app, before.hotkey.clone(), before.activation_mode);
-            let _ = app.emit("toast", toast("error", "Couldn't set that hotkey — reverted"));
+            let _ = app.emit(
+                "toast",
+                toast("error", "Couldn't set that hotkey — reverted"),
+            );
             return Ok(restored);
         }
     }
@@ -80,9 +89,13 @@ fn update_autostart(app: &AppHandle, enabled: bool) -> Result<(), AppError> {
     use tauri_plugin_autostart::ManagerExt;
     let manager = app.autolaunch();
     if enabled {
-        manager.enable().map_err(|e| AppError::Settings(format!("autostart enable: {e}")))?;
+        manager
+            .enable()
+            .map_err(|e| AppError::Settings(format!("autostart enable: {e}")))?;
     } else {
-        manager.disable().map_err(|e| AppError::Settings(format!("autostart disable: {e}")))?;
+        manager
+            .disable()
+            .map_err(|e| AppError::Settings(format!("autostart disable: {e}")))?;
     }
     Ok(())
 }

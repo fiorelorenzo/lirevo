@@ -1,13 +1,13 @@
 <script lang="ts">
-  import { Download, X, Check, Sparkles, Trash2 } from '@lucide/svelte';
-  import { Button } from '$lib/components/ui/button';
-  import { Progress } from '$lib/components/ui/progress';
-  import * as AlertDialog from '$lib/components/ui/alert-dialog';
-  import Spinner from '$lib/components/Spinner.svelte';
-  import { progressFor } from '$lib/stores/downloads';
-  import { withErrorToast } from '$lib/stores/toasts';
-  import { lda, type CatalogEntry } from '$lib/tauri';
-  import { t } from '$lib/i18n';
+  import { Download, X, Check, Sparkles, Trash2 } from "@lucide/svelte";
+  import { Button } from "$lib/components/ui/button";
+  import { Progress } from "$lib/components/ui/progress";
+  import * as AlertDialog from "$lib/components/ui/alert-dialog";
+  import Spinner from "$lib/components/Spinner.svelte";
+  import { progressFor } from "$lib/stores/downloads";
+  import { withErrorToast } from "$lib/stores/toasts";
+  import { lda, type CatalogEntry } from "$lib/tauri";
+  import { t } from "$lib/i18n";
 
   interface Props {
     entry: CatalogEntry;
@@ -31,19 +31,19 @@
   }
 
   function scoreTone(v: number): string {
-    if (v >= 80) return 'text-success';
-    if (v >= 50) return 'text-foreground';
-    return 'text-muted-foreground';
+    if (v >= 80) return "text-success";
+    if (v >= 50) return "text-foreground";
+    return "text-muted-foreground";
   }
 
   async function startDownload() {
-    await withErrorToast(t('settings.models.download_failed', { name: entry.displayName }), () =>
+    await withErrorToast(t("settings.models.download_failed", { name: entry.displayName }), () =>
       lda.modelsDownload(entry.id),
     );
   }
 
   async function cancelDownload() {
-    await withErrorToast(t('settings.models.cancel_failed', { name: entry.displayName }), () =>
+    await withErrorToast(t("settings.models.cancel_failed", { name: entry.displayName }), () =>
       lda.modelsCancelDownload(entry.id),
     );
   }
@@ -51,7 +51,7 @@
   async function confirmDelete() {
     deleting = true;
     const result = await withErrorToast(
-      t('settings.models.uninstall_failed', { name: entry.displayName }),
+      t("settings.models.uninstall_failed", { name: entry.displayName }),
       async () => {
         await lda.modelsDelete(entry.id);
         // Await the refresh so the UI is in sync BEFORE the dialog closes —
@@ -79,9 +79,9 @@
 -->
 <div
   class={[
-    'relative w-full p-4 bg-surface border-2 rounded-lg text-left transition-colors duration-150',
-    selected ? 'border-primary ring-2 ring-primary/30' : 'border-border',
-  ].join(' ')}
+    "relative w-full p-4 bg-surface border-2 rounded-lg text-left transition-colors duration-150",
+    selected ? "border-primary ring-2 ring-primary/30" : "border-border",
+  ].join(" ")}
   role="group"
   aria-label={entry.displayName}
 >
@@ -102,19 +102,26 @@
       </div>
       <p class="text-sm text-muted-foreground mt-1">{entry.description}</p>
 
-      {#if $progress && $progress.state === 'downloading'}
+      {#if $progress && $progress.state === "downloading"}
         <div class="mt-3 space-y-1">
-          <Progress value={($progress.bytesReceived / Math.max(1, $progress.bytesTotal)) * 100} class="h-1.5" />
+          <Progress
+            value={($progress.bytesReceived / Math.max(1, $progress.bytesTotal)) * 100}
+            class="h-1.5"
+          />
           <div class="flex justify-between text-xs text-muted-foreground tabular-nums">
             <span>{fmtSize($progress.bytesReceived)} / {fmtSize($progress.bytesTotal)}</span>
-            <span>{Math.round(($progress.bytesReceived / Math.max(1, $progress.bytesTotal)) * 100)}%</span>
+            <span
+              >{Math.round(
+                ($progress.bytesReceived / Math.max(1, $progress.bytesTotal)) * 100,
+              )}%</span
+            >
           </div>
         </div>
-      {:else if $progress && $progress.state === 'verifying'}
+      {:else if $progress && $progress.state === "verifying"}
         <p class="text-xs text-muted-foreground mt-3">Verifying integrity…</p>
-      {:else if $progress && $progress.state === 'error'}
+      {:else if $progress && $progress.state === "error"}
         <p class="text-xs text-destructive mt-3 font-mono break-words">
-          {$progress.errorMessage ?? 'Download failed'}
+          {$progress.errorMessage ?? "Download failed"}
         </p>
       {/if}
     </div>
@@ -127,24 +134,28 @@
           signal across border + badge. No "Use" button needed — it's
           already the active one.
         -->
-        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
+        <span
+          class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium"
+        >
           <Check class="h-3 w-3" />
-          {t('settings.models.in_use_badge')}
+          {t("settings.models.in_use_badge")}
         </span>
       {:else if installed}
-        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-success/10 text-success text-xs font-medium">
+        <span
+          class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-success/10 text-success text-xs font-medium"
+        >
           <Check class="h-3 w-3" />
-          {t('settings.models.installed_badge')}
+          {t("settings.models.installed_badge")}
         </span>
         <Button variant="outline" size="sm" onclick={() => onselect?.()}>
-          {t('settings.models.use_button')}
+          {t("settings.models.use_button")}
         </Button>
-      {:else if $progress && ($progress.state === 'downloading' || $progress.state === 'queued')}
+      {:else if $progress && ($progress.state === "downloading" || $progress.state === "queued")}
         <Button variant="ghost" size="sm" onclick={cancelDownload}>
           <X class="h-3 w-3 mr-1" />
           Cancel
         </Button>
-      {:else if $progress && $progress.state === 'verifying'}
+      {:else if $progress && $progress.state === "verifying"}
         <div class="text-xs text-muted-foreground px-2.5 py-1">Verifying…</div>
       {:else}
         <Button variant="outline" size="sm" onclick={startDownload}>
@@ -171,16 +182,8 @@
       class="mt-3 pr-10 grid grid-cols-4 gap-2 text-[11px] tabular-nums"
       aria-label="Benchmark scores (0-100)"
     >
-      {#each [
-        { label: 'Quality',  v: s.quality, hint: `chrF̄ ${s.rawChrfMean.toFixed(2)}` },
-        { label: 'Latency',  v: s.latency, hint: s.rawWarmP50Ms != null ? `${s.rawWarmP50Ms} ms` : '' },
-        { label: 'RAM',      v: s.ram,     hint: s.rawPeakRssKb != null ? `${Math.round(s.rawPeakRssKb / 1024)} MB` : '' },
-        { label: 'Score',    v: s.compositeWeighted, hint: 'weighted composite' },
-      ] as { label, v, hint } (label)}
-        <div
-          class="rounded-md border border-border/60 px-2 py-1.5"
-          title={hint}
-        >
+      {#each [{ label: "Quality", v: s.quality, hint: `chrF̄ ${s.rawChrfMean.toFixed(2)}` }, { label: "Latency", v: s.latency, hint: s.rawWarmP50Ms != null ? `${s.rawWarmP50Ms} ms` : "" }, { label: "RAM", v: s.ram, hint: s.rawPeakRssKb != null ? `${Math.round(s.rawPeakRssKb / 1024)} MB` : "" }, { label: "Score", v: s.compositeWeighted, hint: "weighted composite" }] as { label, v, hint } (label)}
+        <div class="rounded-md border border-border/60 px-2 py-1.5" title={hint}>
           <div class="flex items-baseline justify-between">
             <span class="text-muted-foreground">{label}</span>
             <span class={`font-medium ${scoreTone(v)}`}>{v}</span>
@@ -209,18 +212,18 @@
       type="button"
       disabled={selected}
       aria-label={selected
-        ? t('settings.models.delete_blocked_aria', { name: entry.displayName })
-        : t('settings.models.delete_aria', { name: entry.displayName })}
+        ? t("settings.models.delete_blocked_aria", { name: entry.displayName })
+        : t("settings.models.delete_aria", { name: entry.displayName })}
       title={selected
-        ? t('settings.models.delete_blocked_tooltip')
-        : t('settings.models.delete_tooltip')}
+        ? t("settings.models.delete_blocked_tooltip")
+        : t("settings.models.delete_tooltip")}
       onclick={() => (confirmOpen = true)}
       class={[
-        'absolute bottom-3 right-3 p-1.5 rounded-md transition-colors',
+        "absolute bottom-3 right-3 p-1.5 rounded-md transition-colors",
         selected
-          ? 'text-muted-foreground/40 cursor-not-allowed'
-          : 'text-muted-foreground hover:text-destructive hover:bg-destructive/10',
-      ].join(' ')}
+          ? "text-muted-foreground/40 cursor-not-allowed"
+          : "text-muted-foreground hover:text-destructive hover:bg-destructive/10",
+      ].join(" ")}
     >
       <Trash2 class="h-3.5 w-3.5" />
     </button>
@@ -231,22 +234,22 @@
   <AlertDialog.Content>
     <AlertDialog.Header>
       <AlertDialog.Title>
-        {t('settings.models.delete_confirm_title', { name: entry.displayName })}
+        {t("settings.models.delete_confirm_title", { name: entry.displayName })}
       </AlertDialog.Title>
       <AlertDialog.Description>
-        {t('settings.models.delete_confirm_body', { size: fmtSize(entry.sizeBytes) })}
+        {t("settings.models.delete_confirm_body", { size: fmtSize(entry.sizeBytes) })}
       </AlertDialog.Description>
     </AlertDialog.Header>
     <AlertDialog.Footer>
       <AlertDialog.Action variant="destructive" disabled={deleting} onclick={confirmDelete}>
         {#if deleting}
-          <Spinner size="sm" label={t('settings.models.delete_confirm_in_progress')} />
+          <Spinner size="sm" label={t("settings.models.delete_confirm_in_progress")} />
         {:else}
-          {t('settings.models.delete_confirm_action')}
+          {t("settings.models.delete_confirm_action")}
         {/if}
       </AlertDialog.Action>
       <AlertDialog.Cancel variant="default" disabled={deleting}>
-        {t('settings.models.delete_confirm_cancel')}
+        {t("settings.models.delete_confirm_cancel")}
       </AlertDialog.Cancel>
     </AlertDialog.Footer>
   </AlertDialog.Content>

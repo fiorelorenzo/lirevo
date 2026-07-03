@@ -1,6 +1,6 @@
-import { readable, type Readable } from 'svelte/store';
-import { getCurrentWindow } from '@tauri-apps/api/window';
-import { lda, type PermissionStatus } from '../tauri';
+import { readable, type Readable } from "svelte/store";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { lda, type PermissionStatus } from "../tauri";
 
 export interface PermissionsState {
   accessibility: PermissionStatus | null;
@@ -23,10 +23,7 @@ export const permissionsState: Readable<PermissionsState> = readable<Permissions
 
     async function refresh() {
       try {
-        const [ax, mic] = await Promise.all([
-          lda.checkAccessibility(),
-          lda.checkMicrophone(),
-        ]);
+        const [ax, mic] = await Promise.all([lda.checkAccessibility(), lda.checkMicrophone()]);
         if (!disposed) set({ accessibility: ax, microphone: mic });
       } catch {
         // Backend probably not ready yet; next tick will retry.
@@ -37,7 +34,9 @@ export const permissionsState: Readable<PermissionsState> = readable<Permissions
     interval = setInterval(refresh, 3000);
 
     void getCurrentWindow()
-      .listen('tauri://focus', () => { void refresh(); })
+      .listen("tauri://focus", () => {
+        void refresh();
+      })
       .then((u) => {
         if (disposed) u();
         else unfocus = u;

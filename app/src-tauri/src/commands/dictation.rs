@@ -40,7 +40,10 @@ pub struct InputDeviceEntry {
 
 impl From<InputDeviceInfo> for InputDeviceEntry {
     fn from(d: InputDeviceInfo) -> Self {
-        Self { name: d.name, is_default: d.is_default }
+        Self {
+            name: d.name,
+            is_default: d.is_default,
+        }
     }
 }
 
@@ -112,8 +115,8 @@ pub async fn test_mic(
 
     tracing::info!(device = %device_label, "test_mic: starting");
 
-    let mut recorder = Recorder::new(cfg)
-        .map_err(|e| AppError::Permission(format!("recorder new: {e}")))?;
+    let mut recorder =
+        Recorder::new(cfg).map_err(|e| AppError::Permission(format!("recorder new: {e}")))?;
     recorder
         .start()
         .map_err(|e| AppError::Permission(format!("recorder start: {e}")))?;
@@ -301,7 +304,10 @@ pub fn cancel_test_mic() -> Result<(), AppError> {
     match taken {
         Some(tx) => {
             let send_result = tx.send(());
-            tracing::info!(send_ok = send_result.is_ok(), "cancel_test_mic: cancellation dispatched");
+            tracing::info!(
+                send_ok = send_result.is_ok(),
+                "cancel_test_mic: cancellation dispatched"
+            );
         }
         None => {
             tracing::info!("cancel_test_mic: no in-flight test_mic to cancel");

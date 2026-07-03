@@ -1,8 +1,8 @@
+use serde::Serialize;
 use std::sync::{Arc, Mutex};
+use tauri::{AppHandle, Emitter};
 use tokio::sync::watch;
 use tokio::sync::Mutex as AsyncMutex;
-use serde::Serialize;
-use tauri::{AppHandle, Emitter};
 
 use audio_capture::Recorder;
 use os_integration::Injector;
@@ -122,10 +122,7 @@ impl AppState {
 
     /// Install the energy-profile selector. Called once from the `setup()`
     /// async task after the resource monitor's signal stream exists.
-    pub fn set_profile_selector(
-        &self,
-        selector: Arc<inference_core::profile::ProfileSelector>,
-    ) {
+    pub fn set_profile_selector(&self, selector: Arc<inference_core::profile::ProfileSelector>) {
         self.profile_selector.store(Some(selector));
     }
 
@@ -144,7 +141,6 @@ impl AppState {
     pub fn current_model_state(&self) -> ModelState {
         self.model_state_tx.borrow().clone()
     }
-
 }
 
 #[cfg(test)]
@@ -153,20 +149,32 @@ mod tests {
 
     #[test]
     fn model_state_serializes_with_tagged_kind() {
-        let s = ModelState::Loading { stt: true, llama: false };
+        let s = ModelState::Loading {
+            stt: true,
+            llama: false,
+        };
         let j = serde_json::to_value(&s).unwrap();
-        assert_eq!(j, serde_json::json!({
-            "kind": "loading", "stt": true, "llama": false
-        }));
+        assert_eq!(
+            j,
+            serde_json::json!({
+                "kind": "loading", "stt": true, "llama": false
+            })
+        );
     }
 
     #[test]
     fn ready_state_serializes() {
-        let s = ModelState::Ready { stt: true, llama: true };
+        let s = ModelState::Ready {
+            stt: true,
+            llama: true,
+        };
         let j = serde_json::to_value(&s).unwrap();
-        assert_eq!(j, serde_json::json!({
-            "kind": "ready", "stt": true, "llama": true
-        }));
+        assert_eq!(
+            j,
+            serde_json::json!({
+                "kind": "ready", "stt": true, "llama": true
+            })
+        );
     }
 
     #[test]

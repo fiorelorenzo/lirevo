@@ -1,7 +1,7 @@
-use std::path::PathBuf;
-use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
 use serde::Serialize;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 use tokio::sync::oneshot;
 
 use inference_core::catalog as ic_catalog;
@@ -36,7 +36,10 @@ pub struct CatalogEntry {
 
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum ModelKind { Stt, Llm }
+pub enum ModelKind {
+    Stt,
+    Llm,
+}
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -76,7 +79,11 @@ fn raw_catalog() -> &'static IcCatalog {
 
 fn stt_to_wire(e: &IcStt) -> CatalogEntry {
     let (url, filename, sha) = match &e.coreml_encoder {
-        Some(c) => (Some(c.url.clone()), Some(c.filename.clone()), c.sha256.clone()),
+        Some(c) => (
+            Some(c.url.clone()),
+            Some(c.filename.clone()),
+            c.sha256.clone(),
+        ),
         None => (None, None, None),
     };
     CatalogEntry {
@@ -156,7 +163,10 @@ pub fn models_dir(app: &tauri::AppHandle) -> std::io::Result<PathBuf> {
 pub fn delete_by_id(app: &tauri::AppHandle, id: &str) -> std::io::Result<()> {
     tracing::info!(id, "delete_by_id: start");
     let entry = find_by_id(id).ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::NotFound, format!("unknown model id: {id}"))
+        std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("unknown model id: {id}"),
+        )
     })?;
     let dir = models_dir(app)?;
     let dir_canon = std::fs::canonicalize(&dir)?;
@@ -225,7 +235,9 @@ pub fn list_local(app: &tauri::AppHandle) -> std::io::Result<Vec<LocalModel>> {
         let entry = entry?;
         let path = entry.path();
         let meta = entry.metadata()?;
-        if !meta.is_file() { continue; }
+        if !meta.is_file() {
+            continue;
+        }
         let name = match path.file_name().and_then(|n| n.to_str()) {
             Some(n) => n.to_string(),
             None => continue,
@@ -237,10 +249,15 @@ pub fn list_local(app: &tauri::AppHandle) -> std::io::Result<Vec<LocalModel>> {
         } else {
             None
         };
-        let Some(ext_kind) = kind_from_ext else { continue; };
+        let Some(ext_kind) = kind_from_ext else {
+            continue;
+        };
         let catalog_hit = find_by_filename(&name);
         out.push(LocalModel {
-            id: catalog_hit.as_ref().map(|c| c.id.clone()).unwrap_or_else(|| format!("custom:{name}")),
+            id: catalog_hit
+                .as_ref()
+                .map(|c| c.id.clone())
+                .unwrap_or_else(|| format!("custom:{name}")),
             kind: catalog_hit.as_ref().map(|c| c.kind).unwrap_or(ext_kind),
             path,
             size_bytes: meta.len(),
@@ -256,7 +273,9 @@ pub static ACTIVE_DOWNLOADS: Mutex<Option<HashMap<String, oneshot::Sender<()>>>>
 
 pub fn init_active_downloads() {
     let mut g = ACTIVE_DOWNLOADS.lock().unwrap();
-    if g.is_none() { *g = Some(HashMap::new()); }
+    if g.is_none() {
+        *g = Some(HashMap::new());
+    }
 }
 
 use futures_util::StreamExt;
@@ -274,10 +293,7 @@ pub(crate) enum DownloadError {
 /// reload should also catch a tampered file. Buffer size is 64 KiB —
 /// large enough to amortize syscalls without ballooning memory on 2 GB
 /// models.
-async fn verify_sha256(
-    path: &std::path::Path,
-    expected: &str,
-) -> Result<(), DownloadError> {
+async fn verify_sha256(path: &std::path::Path, expected: &str) -> Result<(), DownloadError> {
     use sha2::{Digest, Sha256};
     use std::fmt::Write as _;
 
@@ -313,15 +329,12 @@ async fn verify_sha256(
     }
 }
 
-pub async fn download(
-    app: tauri::AppHandle,
-    id: String,
-) -> Result<(), crate::AppError> {
-    use tauri::Emitter;
+pub async fn download(app: tauri::AppHandle, id: String) -> Result<(), crate::AppError> {
     use crate::AppError;
+    use tauri::Emitter;
 
-    let entry = find_by_id(&id)
-        .ok_or_else(|| AppError::Download(format!("unknown model id: {id}")))?;
+    let entry =
+        find_by_id(&id).ok_or_else(|| AppError::Download(format!("unknown model id: {id}")))?;
 
     let (cancel_tx, mut cancel_rx) = oneshot::channel::<()>();
     {
@@ -333,50 +346,64 @@ pub async fn download(
         map.insert(id.clone(), cancel_tx);
     }
 
-    let _ = app.emit("download:progress", DownloadProgress {
-        id: id.clone(),
-        state: DownloadProgressState::Queued,
-        bytes_received: 0,
-        bytes_total: entry.size_bytes,
-        error_message: None,
-    });
+    let _ = app.emit(
+        "download:progress",
+        DownloadProgress {
+            id: id.clone(),
+            state: DownloadProgressState::Queued,
+            bytes_received: 0,
+            bytes_total: entry.size_bytes,
+            error_message: None,
+        },
+    );
 
     let result = download_inner(&app, &entry, &mut cancel_rx).await;
 
     {
         let mut g = ACTIVE_DOWNLOADS.lock().unwrap();
-        if let Some(map) = g.as_mut() { map.remove(&id); }
+        if let Some(map) = g.as_mut() {
+            map.remove(&id);
+        }
     }
 
     match result {
         Ok(_) => {
-            let _ = app.emit("download:progress", DownloadProgress {
-                id: id.clone(),
-                state: DownloadProgressState::Complete,
-                bytes_received: entry.size_bytes,
-                bytes_total: entry.size_bytes,
-                error_message: None,
-            });
+            let _ = app.emit(
+                "download:progress",
+                DownloadProgress {
+                    id: id.clone(),
+                    state: DownloadProgressState::Complete,
+                    bytes_received: entry.size_bytes,
+                    bytes_total: entry.size_bytes,
+                    error_message: None,
+                },
+            );
             Ok(())
         }
         Err(DownloadError::Cancelled) => {
-            let _ = app.emit("download:progress", DownloadProgress {
-                id,
-                state: DownloadProgressState::Cancelled,
-                bytes_received: 0,
-                bytes_total: 0,
-                error_message: None,
-            });
+            let _ = app.emit(
+                "download:progress",
+                DownloadProgress {
+                    id,
+                    state: DownloadProgressState::Cancelled,
+                    bytes_received: 0,
+                    bytes_total: 0,
+                    error_message: None,
+                },
+            );
             Ok(())
         }
         Err(DownloadError::Failed(msg)) => {
-            let _ = app.emit("download:progress", DownloadProgress {
-                id,
-                state: DownloadProgressState::Error,
-                bytes_received: 0,
-                bytes_total: 0,
-                error_message: Some(msg.clone()),
-            });
+            let _ = app.emit(
+                "download:progress",
+                DownloadProgress {
+                    id,
+                    state: DownloadProgressState::Error,
+                    bytes_received: 0,
+                    bytes_total: 0,
+                    error_message: Some(msg.clone()),
+                },
+            );
             Err(AppError::Download(msg))
         }
     }
@@ -396,14 +423,18 @@ async fn download_inner(
     ));
 
     let client = reqwest::Client::new();
-    let resp = client.get(&entry.url).send().await
+    let resp = client
+        .get(&entry.url)
+        .send()
+        .await
         .map_err(|e| DownloadError::Failed(format!("http: {e}")))?;
     if !resp.status().is_success() {
         return Err(DownloadError::Failed(format!("HTTP {}", resp.status())));
     }
     let total = resp.content_length().unwrap_or(entry.size_bytes);
 
-    let mut file = tokio::fs::File::create(&tmp).await
+    let mut file = tokio::fs::File::create(&tmp)
+        .await
         .map_err(|e| DownloadError::Failed(format!("create tmp: {e}")))?;
 
     let mut received: u64 = 0;
@@ -419,43 +450,56 @@ async fn download_inner(
             return Err(DownloadError::Cancelled);
         }
         let chunk = chunk_result.map_err(|e| DownloadError::Failed(format!("stream: {e}")))?;
-        file.write_all(&chunk).await
+        file.write_all(&chunk)
+            .await
             .map_err(|e| DownloadError::Failed(format!("write: {e}")))?;
         received += chunk.len() as u64;
         if last_emit.elapsed() >= std::time::Duration::from_millis(100) {
             last_emit = std::time::Instant::now();
-            let _ = app.emit("download:progress", DownloadProgress {
-                id: entry.id.clone(),
-                state: DownloadProgressState::Downloading,
-                bytes_received: received,
-                bytes_total: total,
-                error_message: None,
-            });
+            let _ = app.emit(
+                "download:progress",
+                DownloadProgress {
+                    id: entry.id.clone(),
+                    state: DownloadProgressState::Downloading,
+                    bytes_received: received,
+                    bytes_total: total,
+                    error_message: None,
+                },
+            );
         }
     }
     // Always emit a final downloading event so the UI shows 100% before
     // transitioning to Complete (avoids a visual "snap" at the end).
-    let _ = app.emit("download:progress", DownloadProgress {
-        id: entry.id.clone(),
-        state: DownloadProgressState::Downloading,
-        bytes_received: received,
-        bytes_total: total,
-        error_message: None,
-    });
-    file.flush().await.map_err(|e| DownloadError::Failed(format!("flush: {e}")))?;
-    drop(file);
-
-    tokio::fs::rename(&tmp, &dest).await
-        .map_err(|e| DownloadError::Failed(format!("rename: {e}")))?;
-
-    if let Some(expected) = &entry.sha256 {
-        let _ = app.emit("download:progress", DownloadProgress {
+    let _ = app.emit(
+        "download:progress",
+        DownloadProgress {
             id: entry.id.clone(),
-            state: DownloadProgressState::Verifying,
+            state: DownloadProgressState::Downloading,
             bytes_received: received,
             bytes_total: total,
             error_message: None,
-        });
+        },
+    );
+    file.flush()
+        .await
+        .map_err(|e| DownloadError::Failed(format!("flush: {e}")))?;
+    drop(file);
+
+    tokio::fs::rename(&tmp, &dest)
+        .await
+        .map_err(|e| DownloadError::Failed(format!("rename: {e}")))?;
+
+    if let Some(expected) = &entry.sha256 {
+        let _ = app.emit(
+            "download:progress",
+            DownloadProgress {
+                id: entry.id.clone(),
+                state: DownloadProgressState::Verifying,
+                bytes_received: received,
+                bytes_total: total,
+                error_message: None,
+            },
+        );
         if let Err(e) = verify_sha256(&dest, expected).await {
             // Remove the corrupted file so a retry starts from scratch.
             let _ = tokio::fs::remove_file(&dest).await;
@@ -477,31 +521,45 @@ pub(crate) async fn download_and_extract_coreml(
     cancel_rx: &mut oneshot::Receiver<()>,
 ) -> Result<(), DownloadError> {
     use tauri::Emitter;
-    let Some(url) = entry.coreml_encoder_url.as_deref() else { return Ok(()); };
-    let Some(filename) = entry.coreml_encoder_filename.as_deref() else { return Ok(()); };
+    let Some(url) = entry.coreml_encoder_url.as_deref() else {
+        return Ok(());
+    };
+    let Some(filename) = entry.coreml_encoder_filename.as_deref() else {
+        return Ok(());
+    };
     let models_dir = models_dir(app).map_err(|e| DownloadError::Failed(e.to_string()))?;
     let zip_path = models_dir.join(filename);
     let tmp = zip_path.with_extension("zip.partial");
 
     let progress_id = format!("{}:coreml", entry.id);
 
-    let _ = app.emit("download:progress", DownloadProgress {
-        id: progress_id.clone(),
-        state: DownloadProgressState::Downloading,
-        bytes_received: 0,
-        bytes_total: 0,
-        error_message: None,
-    });
+    let _ = app.emit(
+        "download:progress",
+        DownloadProgress {
+            id: progress_id.clone(),
+            state: DownloadProgressState::Downloading,
+            bytes_received: 0,
+            bytes_total: 0,
+            error_message: None,
+        },
+    );
 
     let client = reqwest::Client::new();
-    let resp = client.get(url).send().await
+    let resp = client
+        .get(url)
+        .send()
+        .await
         .map_err(|e| DownloadError::Failed(format!("coreml http: {e}")))?;
     if !resp.status().is_success() {
-        return Err(DownloadError::Failed(format!("coreml HTTP {}", resp.status())));
+        return Err(DownloadError::Failed(format!(
+            "coreml HTTP {}",
+            resp.status()
+        )));
     }
     let total = resp.content_length().unwrap_or(0);
 
-    let mut file = tokio::fs::File::create(&tmp).await
+    let mut file = tokio::fs::File::create(&tmp)
+        .await
         .map_err(|e| DownloadError::Failed(format!("coreml create tmp: {e}")))?;
 
     let mut received: u64 = 0;
@@ -513,37 +571,47 @@ pub(crate) async fn download_and_extract_coreml(
             let _ = tokio::fs::remove_file(&tmp).await;
             return Err(DownloadError::Cancelled);
         }
-        let chunk = chunk_result.map_err(|e| DownloadError::Failed(format!("coreml stream: {e}")))?;
-        tokio::io::AsyncWriteExt::write_all(&mut file, &chunk).await
+        let chunk =
+            chunk_result.map_err(|e| DownloadError::Failed(format!("coreml stream: {e}")))?;
+        tokio::io::AsyncWriteExt::write_all(&mut file, &chunk)
+            .await
             .map_err(|e| DownloadError::Failed(format!("coreml write: {e}")))?;
         received += chunk.len() as u64;
         if last_emit.elapsed() >= std::time::Duration::from_millis(100) {
             last_emit = std::time::Instant::now();
-            let _ = app.emit("download:progress", DownloadProgress {
-                id: progress_id.clone(),
-                state: DownloadProgressState::Downloading,
-                bytes_received: received,
-                bytes_total: total,
-                error_message: None,
-            });
+            let _ = app.emit(
+                "download:progress",
+                DownloadProgress {
+                    id: progress_id.clone(),
+                    state: DownloadProgressState::Downloading,
+                    bytes_received: received,
+                    bytes_total: total,
+                    error_message: None,
+                },
+            );
         }
     }
-    tokio::io::AsyncWriteExt::flush(&mut file).await
+    tokio::io::AsyncWriteExt::flush(&mut file)
+        .await
         .map_err(|e| DownloadError::Failed(format!("coreml flush: {e}")))?;
     drop(file);
-    tokio::fs::rename(&tmp, &zip_path).await
+    tokio::fs::rename(&tmp, &zip_path)
+        .await
         .map_err(|e| DownloadError::Failed(format!("coreml rename: {e}")))?;
 
     // Verify the zip itself before we extract — a corrupted zip would
     // succeed at `unzip` for a while before failing partway through and
     // leaving a broken half-extracted .mlmodelc behind.
-    let _ = app.emit("download:progress", DownloadProgress {
-        id: progress_id.clone(),
-        state: DownloadProgressState::Verifying,
-        bytes_received: received,
-        bytes_total: received,
-        error_message: None,
-    });
+    let _ = app.emit(
+        "download:progress",
+        DownloadProgress {
+            id: progress_id.clone(),
+            state: DownloadProgressState::Verifying,
+            bytes_received: received,
+            bytes_total: received,
+            error_message: None,
+        },
+    );
     if let Some(expected) = entry.coreml_encoder_sha256.as_deref() {
         if let Err(e) = verify_sha256(&zip_path, expected).await {
             let _ = tokio::fs::remove_file(&zip_path).await;
@@ -676,7 +744,10 @@ mod tests {
     #[test]
     fn coreml_encoder_paired() {
         for c in catalog() {
-            assert_eq!(c.coreml_encoder_url.is_some(), c.coreml_encoder_filename.is_some());
+            assert_eq!(
+                c.coreml_encoder_url.is_some(),
+                c.coreml_encoder_filename.is_some()
+            );
         }
     }
 

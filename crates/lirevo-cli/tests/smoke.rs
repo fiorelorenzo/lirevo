@@ -52,7 +52,9 @@ fn lirevo_cli_stt_with_stub_backend_prints_stub_text() {
 
     let deadline = std::time::Instant::now() + Duration::from_secs(3);
     while std::time::Instant::now() < deadline {
-        if socket.exists() { break; }
+        if socket.exists() {
+            break;
+        }
         std::thread::sleep(Duration::from_millis(50));
     }
     assert!(socket.exists(), "sidecar socket never appeared");
@@ -67,7 +69,11 @@ fn lirevo_cli_stt_with_stub_backend_prints_stub_text() {
     let _ = child.kill();
     let _ = child.wait();
 
-    assert!(out.status.success(), "lirevo-cli failed: stderr={}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "lirevo-cli failed: stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("[stub] 1600 samples"), "stdout: {stdout}");
 }
@@ -132,7 +138,11 @@ fn lirevo_cli_stt_pipe_clean_with_stubs() {
     let _ = child.kill();
     let _ = child.wait();
 
-    assert!(out.status.success(), "lirevo-cli clean failed: status={:?}", out.status);
+    assert!(
+        out.status.success(),
+        "lirevo-cli clean failed: status={:?}",
+        out.status
+    );
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("[stub-llm]"), "stdout: {stdout}");
     assert!(

@@ -1,9 +1,13 @@
-import { readable, type Readable } from 'svelte/store';
-import { lda, type PartialTranscript } from '../tauri';
+import { readable, type Readable } from "svelte/store";
+import { lda, type PartialTranscript } from "../tauri";
 
 export const recording: Readable<boolean> = readable<boolean>(false, (set) => {
   let unlisten: (() => void) | null = null;
-  void lda.onRecordingState((r) => set(r)).then((u) => { unlisten = u; });
+  void lda
+    .onRecordingState((r) => set(r))
+    .then((u) => {
+      unlisten = u;
+    });
   return () => unlisten?.();
 });
 
@@ -13,10 +17,14 @@ export const recording: Readable<boolean> = readable<boolean>(false, (set) => {
  *  event directly (see overlay/+page.svelte) because each webview gets
  *  its own module instance. */
 export const partialTranscript: Readable<PartialTranscript> = readable<PartialTranscript>(
-  { text: '', delta: '', isFinal: false },
+  { text: "", delta: "", isFinal: false },
   (set) => {
     let unlisten: (() => void) | null = null;
-    void lda.onPartialTranscript((p) => set(p)).then((u) => { unlisten = u; });
+    void lda
+      .onPartialTranscript((p) => set(p))
+      .then((u) => {
+        unlisten = u;
+      });
     return () => unlisten?.();
   },
 );
@@ -24,25 +32,23 @@ export const partialTranscript: Readable<PartialTranscript> = readable<PartialTr
 let audioLevelDebugCount = 0;
 export const audioLevel: Readable<number> = readable<number>(0, (set) => {
   let unlisten: (() => void) | null = null;
-  console.info('[audioLevel] subscribing to recording:level event');
+  console.info("[audioLevel] subscribing to recording:level event");
   void lda
     .onAudioLevel((l) => {
       // Log first 5 and every 30th level so we can confirm events arrive
       // without flooding the console.
       audioLevelDebugCount++;
       if (audioLevelDebugCount <= 5 || audioLevelDebugCount % 30 === 0) {
-        console.info(
-          `[audioLevel] event #${audioLevelDebugCount}: level=${l.toFixed(4)}`,
-        );
+        console.info(`[audioLevel] event #${audioLevelDebugCount}: level=${l.toFixed(4)}`);
       }
       set(l);
     })
     .then((u) => {
       unlisten = u;
-      console.info('[audioLevel] listener installed');
+      console.info("[audioLevel] listener installed");
     });
   return () => {
-    console.info('[audioLevel] unsubscribing (no more consumers)');
+    console.info("[audioLevel] unsubscribing (no more consumers)");
     unlisten?.();
   };
 });

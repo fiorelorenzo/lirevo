@@ -167,8 +167,7 @@ fn handle_down(app: &AppHandle, state: &tauri::State<'_, AppState>) {
     // Human label of the device actually used, for the history row.
     let input_device = match &choice.device {
         Some(name) => name.clone(),
-        None => audio_capture::default_input_device_label()
-            .unwrap_or_else(|_| "(default)".into()),
+        None => audio_capture::default_input_device_label().unwrap_or_else(|_| "(default)".into()),
     };
     let recording_meta = crate::state::RecordingMeta {
         input_device,
@@ -177,7 +176,10 @@ fn handle_down(app: &AppHandle, state: &tauri::State<'_, AppState>) {
     };
 
     let result = (|| -> Result<Recorder, String> {
-        let cfg = RecorderConfig { device_name: choice.device.clone(), ..Default::default() };
+        let cfg = RecorderConfig {
+            device_name: choice.device.clone(),
+            ..Default::default()
+        };
         let mut recorder = Recorder::new(cfg).map_err(|e| e.to_string())?;
         recorder.start().map_err(|e| e.to_string())?;
         Ok(recorder)
@@ -283,7 +285,10 @@ fn handle_up(app: &AppHandle, state: &tauri::State<AppState>) {
 
     let samples = match r.stop() {
         Ok(recording) => {
-            tracing::info!(samples = recording.samples.len(), "handle_up: recording stopped");
+            tracing::info!(
+                samples = recording.samples.len(),
+                "handle_up: recording stopped"
+            );
             audio_cue::play(CueKind::Stop);
             recording.samples
         }
@@ -407,7 +412,9 @@ async fn run_pipeline(
                         "run_pipeline: streaming worker yielded no text — running one-shot"
                     );
                     match crate::commands::inference::transcribe_samples_async(
-                        stt_slot, samples, lang_for_stt,
+                        stt_slot,
+                        samples,
+                        lang_for_stt,
                     )
                     .await
                     {
@@ -415,7 +422,10 @@ async fn run_pipeline(
                         Err(e) => {
                             let _ = app.emit(
                                 "toast",
-                                crate::commands::toast("error", format!("Transcription failed: {e}")),
+                                crate::commands::toast(
+                                    "error",
+                                    format!("Transcription failed: {e}"),
+                                ),
                             );
                             return;
                         }
@@ -424,7 +434,9 @@ async fn run_pipeline(
             }
         }
         None => match crate::commands::inference::transcribe_samples_async(
-            stt_slot, samples, lang_for_stt,
+            stt_slot,
+            samples,
+            lang_for_stt,
         )
         .await
         {

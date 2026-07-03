@@ -495,7 +495,11 @@ impl ProfileSelector {
     /// emergency trigger is forcing `PowerSaver` regardless of mode/score.
     #[must_use]
     pub fn emergency(&self) -> Option<EmergencyReason> {
-        self.inner.decider.lock().expect("decider mutex").emergency()
+        self.inner
+            .decider
+            .lock()
+            .expect("decider mutex")
+            .emergency()
     }
 
     /// User override (Auto vs `PinnedSoft`). Takes effect on the next signal.

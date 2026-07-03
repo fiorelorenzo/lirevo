@@ -13,10 +13,10 @@
 // plus a +layout.svelte subscriber forwarding into Sonner — two queues
 // for the same payload, with an unbounded `shown` Set leak in the
 // layout. Now there's exactly one Sonner instance per webview.
-import { toast } from 'svelte-sonner';
-import { lda } from '../tauri';
+import { toast } from "svelte-sonner";
+import { lda } from "../tauri";
 
-export type ToastKind = 'info' | 'warn' | 'error' | 'success';
+export type ToastKind = "info" | "warn" | "error" | "success";
 
 export interface ToastOptions {
   /**
@@ -58,9 +58,9 @@ function resolveOpts(kind: ToastKind, override?: ToastOptions): Required<ToastOp
 export function showToast(kind: ToastKind, message: string, opts?: ToastOptions): void {
   const { duration, closeButton } = resolveOpts(kind, opts);
   const sonnerOpts = { duration, closeButton };
-  if (kind === 'info') toast.info(message, sonnerOpts);
-  else if (kind === 'warn') toast.warning(message, sonnerOpts);
-  else if (kind === 'success') toast.success(message, sonnerOpts);
+  if (kind === "info") toast.info(message, sonnerOpts);
+  else if (kind === "warn") toast.warning(message, sonnerOpts);
+  else if (kind === "success") toast.success(message, sonnerOpts);
   else toast.error(message, sonnerOpts);
 }
 
@@ -68,13 +68,13 @@ export function showToast(kind: ToastKind, message: string, opts?: ToastOptions)
 // noise than `showToast('error', ...)` and to make grepping for a
 // specific kind easy. Each accepts the same optional override bag.
 export const toastInfo = (message: string, opts?: ToastOptions): void =>
-  showToast('info', message, opts);
+  showToast("info", message, opts);
 export const toastWarn = (message: string, opts?: ToastOptions): void =>
-  showToast('warn', message, opts);
+  showToast("warn", message, opts);
 export const toastError = (message: string, opts?: ToastOptions): void =>
-  showToast('error', message, opts);
+  showToast("error", message, opts);
 export const toastSuccess = (message: string, opts?: ToastOptions): void =>
-  showToast('success', message, opts);
+  showToast("success", message, opts);
 
 /**
  * Run an async operation; on failure, surface the error as a toast with the
@@ -91,15 +91,12 @@ export const toastSuccess = (message: string, opts?: ToastOptions): void =>
  * message (e.g. "Uninstall failed: model file not at expected path ...").
  * For non-Error throws we fall back to `String(e)`.
  */
-export async function withErrorToast<T>(
-  label: string,
-  op: () => Promise<T>,
-): Promise<T | null> {
+export async function withErrorToast<T>(label: string, op: () => Promise<T>): Promise<T | null> {
   try {
     return await op();
   } catch (e) {
     const reason = e instanceof Error ? e.message : String(e);
-    showToast('error', `${label} failed: ${reason}`);
+    showToast("error", `${label} failed: ${reason}`);
     return null;
   }
 }

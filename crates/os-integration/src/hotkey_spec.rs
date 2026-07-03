@@ -112,7 +112,13 @@ impl HotkeySpec {
                 st.base_key.as_deref() == Some(name.as_str()) && st.mods == self.modifiers
             }
             Trigger::ModifierOnly { modifier, side } => st.mod_only == Some((*modifier, *side)),
-            Trigger::Fn => st.mods == (ModifierFlags { fnkey: true, ..ModifierFlags::default() }),
+            Trigger::Fn => {
+                st.mods
+                    == (ModifierFlags {
+                        fnkey: true,
+                        ..ModifierFlags::default()
+                    })
+            }
             Trigger::Mouse(b) => st.mouse == Some(*b),
         }
     }
@@ -137,7 +143,11 @@ impl EdgeDetector {
             return None;
         }
         self.down = now;
-        Some(if now { HotkeyEvent::Down } else { HotkeyEvent::Up })
+        Some(if now {
+            HotkeyEvent::Down
+        } else {
+            HotkeyEvent::Up
+        })
     }
 }
 
@@ -224,7 +234,13 @@ mod tests {
     use super::*;
 
     fn mods(c: bool, o: bool, m: bool, s: bool, f: bool) -> ModifierFlags {
-        ModifierFlags { control: c, option: o, command: m, shift: s, fnkey: f }
+        ModifierFlags {
+            control: c,
+            option: o,
+            command: m,
+            shift: s,
+            fnkey: f,
+        }
     }
 
     #[test]
@@ -247,7 +263,10 @@ mod tests {
     fn modifier_only_satisfied_by_side_specific_press() {
         let spec = HotkeySpec {
             modifiers: ModifierFlags::default(),
-            trigger: Trigger::ModifierOnly { modifier: Modifier::Option, side: Side::Right },
+            trigger: Trigger::ModifierOnly {
+                modifier: Modifier::Option,
+                side: Side::Right,
+            },
         };
         let mut st = LiveState::default();
         st.mod_only = Some((Modifier::Option, Side::Left));
@@ -258,7 +277,10 @@ mod tests {
 
     #[test]
     fn fn_satisfied_when_only_fn_flag_held() {
-        let spec = HotkeySpec { modifiers: ModifierFlags::default(), trigger: Trigger::Fn };
+        let spec = HotkeySpec {
+            modifiers: ModifierFlags::default(),
+            trigger: Trigger::Fn,
+        };
         let mut st = LiveState::default();
         st.mods = mods(false, false, false, false, true);
         assert!(spec.satisfied(&st));
@@ -268,7 +290,10 @@ mod tests {
 
     #[test]
     fn mouse_satisfied_by_button() {
-        let spec = HotkeySpec { modifiers: ModifierFlags::default(), trigger: Trigger::Mouse(4) };
+        let spec = HotkeySpec {
+            modifiers: ModifierFlags::default(),
+            trigger: Trigger::Mouse(4),
+        };
         let mut st = LiveState::default();
         st.mouse = Some(5);
         assert!(!spec.satisfied(&st));
@@ -278,7 +303,10 @@ mod tests {
 
     #[test]
     fn edge_detector_emits_down_then_up_once() {
-        let spec = HotkeySpec { modifiers: ModifierFlags::default(), trigger: Trigger::Mouse(4) };
+        let spec = HotkeySpec {
+            modifiers: ModifierFlags::default(),
+            trigger: Trigger::Mouse(4),
+        };
         let mut det = EdgeDetector::new(spec);
         let mut st = LiveState::default();
         assert_eq!(det.update(&st), None);
@@ -293,10 +321,25 @@ mod tests {
     #[test]
     fn spec_json_roundtrips_for_each_variant() {
         let cases = [
-            HotkeySpec { modifiers: mods(true, false, false, true, false), trigger: Trigger::Key("K".into()) },
-            HotkeySpec { modifiers: ModifierFlags::default(), trigger: Trigger::Fn },
-            HotkeySpec { modifiers: ModifierFlags::default(), trigger: Trigger::ModifierOnly { modifier: Modifier::Command, side: Side::Right } },
-            HotkeySpec { modifiers: ModifierFlags::default(), trigger: Trigger::Mouse(5) },
+            HotkeySpec {
+                modifiers: mods(true, false, false, true, false),
+                trigger: Trigger::Key("K".into()),
+            },
+            HotkeySpec {
+                modifiers: ModifierFlags::default(),
+                trigger: Trigger::Fn,
+            },
+            HotkeySpec {
+                modifiers: ModifierFlags::default(),
+                trigger: Trigger::ModifierOnly {
+                    modifier: Modifier::Command,
+                    side: Side::Right,
+                },
+            },
+            HotkeySpec {
+                modifiers: ModifierFlags::default(),
+                trigger: Trigger::Mouse(5),
+            },
         ];
         for c in cases {
             let j = serde_json::to_value(&c).unwrap();

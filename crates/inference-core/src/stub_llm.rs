@@ -44,7 +44,9 @@ impl Default for StubLlmBackend {
 }
 
 fn approx_token_count(text: &str) -> u32 {
-    u32::try_from(text.chars().count() / 4).unwrap_or(u32::MAX).max(1)
+    u32::try_from(text.chars().count() / 4)
+        .unwrap_or(u32::MAX)
+        .max(1)
 }
 
 #[async_trait]
@@ -90,7 +92,10 @@ impl LlmBackend for StubLlmBackend {
             text,
             model: "stub-llm".to_string(),
             stopped_by: StoppedBy::Eos,
-            tokens: TokenUsage { prompt: prompt_tokens, completion },
+            tokens: TokenUsage {
+                prompt: prompt_tokens,
+                completion,
+            },
         })
     }
 

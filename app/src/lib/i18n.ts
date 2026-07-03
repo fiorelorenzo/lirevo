@@ -1,10 +1,10 @@
-import i18next from 'i18next';
-import en from '../locales/en.json';
+import i18next from "i18next";
+import en from "../locales/en.json";
 
-export async function initI18n(locale: string = 'en'): Promise<void> {
+export async function initI18n(locale: string = "en"): Promise<void> {
   await i18next.init({
     lng: locale,
-    fallbackLng: 'en',
+    fallbackLng: "en",
     resources: { en: { translation: en } },
     interpolation: { escapeValue: false },
     returnNull: false,

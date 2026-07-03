@@ -1,4 +1,4 @@
-use tauri::{AppHandle, WebviewWindowBuilder, WebviewUrl};
+use tauri::{AppHandle, WebviewUrl, WebviewWindowBuilder};
 
 use crate::{AppError, AppState};
 
@@ -9,7 +9,9 @@ pub fn open_window(app: AppHandle, route: String) -> Result<(), AppError> {
 
 #[tauri::command]
 pub fn close_window(window: tauri::Window) -> Result<(), AppError> {
-    window.close().map_err(|e| AppError::Internal(e.to_string()))?;
+    window
+        .close()
+        .map_err(|e| AppError::Internal(e.to_string()))?;
     Ok(())
 }
 
@@ -104,12 +106,26 @@ pub fn open_window_internal_with_query(
     // SvelteKit with adapter-static: routes are paths like /settings, /wizard, etc.
     // Tauri loads build/<route>/index.html which prerendered SvelteKit gives us.
     // For "home" we load the root (/).
-    let base = if route == "home" { String::new() } else { format!("/{route}") };
+    let base = if route == "home" {
+        String::new()
+    } else {
+        format!("/{route}")
+    };
     let path = match query {
-        Some(q) if !q.is_empty() => format!("{}?{q}", if base.is_empty() { "/" } else { base.as_str() }),
-        _ => if base.is_empty() { "/".to_string() } else { base },
+        Some(q) if !q.is_empty() => {
+            format!("{}?{q}", if base.is_empty() { "/" } else { base.as_str() })
+        }
+        _ => {
+            if base.is_empty() {
+                "/".to_string()
+            } else {
+                base
+            }
+        }
     };
     let url = WebviewUrl::App(path.into());
+    // `mut` is used only by the macOS cfg block below (title-bar styling).
+    #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
     let mut builder = WebviewWindowBuilder::new(app, route, url)
         .title("Lirevo")
         .inner_size(w as f64, h as f64)
@@ -136,6 +152,8 @@ fn build_overlay_window(app: &AppHandle) -> Result<(), AppError> {
     const OVERLAY_W: f64 = 320.0;
     const OVERLAY_H: f64 = 80.0;
 
+    // `mut` is used only by the macOS cfg block below (title-bar styling).
+    #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
     let mut builder = WebviewWindowBuilder::new(app, "overlay", WebviewUrl::App("/overlay".into()))
         .title("")
         .inner_size(OVERLAY_W, OVERLAY_H)
@@ -182,9 +200,9 @@ fn build_overlay_window(app: &AppHandle) -> Result<(), AppError> {
                 tracing::info!(ptr = ?ns_window, "overlay: applying NSWindow attrs");
                 // SAFETY: `ns_window` is a live `NSWindow *` returned by
                 // Tauri; it remains valid for the duration of this call.
-                if let Err(e) = unsafe {
-                    os_integration::overlay::apply_floating_click_through(ns_window)
-                } {
+                if let Err(e) =
+                    unsafe { os_integration::overlay::apply_floating_click_through(ns_window) }
+                {
                     tracing::warn!(?e, "overlay: apply_floating_click_through failed");
                 }
             }
