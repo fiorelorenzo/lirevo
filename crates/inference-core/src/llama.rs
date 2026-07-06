@@ -157,9 +157,21 @@ impl LlamaBackend {
             .decode(&mut batch)
             .map_err(|e| LlmError::Llama(format!("decode prompt: {e}")))?;
 
+        // Order matches llama.cpp's default chain: penalties → top_k → top_p
+        // → min_p → temp → dist. `penalties` only fires when one of the
+        // penalty parameters is non-trivial (repeat=1.0 / presence=0 are
+        // no-ops, so this is safe to include unconditionally). `min_p` at
+        // 0.0 is also a no-op.
         let mut sampler = LlamaSampler::chain_simple([
-            LlamaSampler::top_k(40),
-            LlamaSampler::top_p(0.9, 1),
+            LlamaSampler::penalties(
+                64, // penalty_last_n: lookback window
+                req.repetition_penalty,
+                0.0, // frequency_penalty: not exposed yet
+                req.presence_penalty,
+            ),
+            LlamaSampler::top_k(req.top_k),
+            LlamaSampler::top_p(req.top_p, 1),
+            LlamaSampler::min_p(req.min_p, 1),
             LlamaSampler::temp(req.temperature),
             LlamaSampler::dist(0xC0FF_EE00_u32),
         ]);

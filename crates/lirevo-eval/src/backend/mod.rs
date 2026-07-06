@@ -14,6 +14,27 @@ pub struct GenerateReq {
     pub transcript: String,
     pub max_tokens: u32,
     pub temperature: f32,
+    pub top_p: f32,
+    pub top_k: i32,
+    pub min_p: f32,
+    pub presence_penalty: f32,
+    pub repetition_penalty: f32,
+}
+
+impl Default for GenerateReq {
+    fn default() -> Self {
+        Self {
+            system_prompt: String::new(),
+            transcript: String::new(),
+            max_tokens: 2048,
+            temperature: 0.7,
+            top_p: 0.9,
+            top_k: 40,
+            min_p: 0.0,
+            presence_penalty: 0.0,
+            repetition_penalty: 1.0,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

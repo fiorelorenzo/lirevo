@@ -56,6 +56,7 @@ pub async fn run(args: GenCorpusArgs) -> Result<()> {
                 transcript: prompt,
                 max_tokens: 2048,
                 temperature: 0.7,
+                ..GenerateReq::default()
             })
             .await
             .with_context(|| format!("oracle generate for cell ({profile_id}, {lang})"))?;
