@@ -79,6 +79,21 @@ export function findModel(id: string): SttModelEntry | undefined {
 /** Catalog id of the STT model. */
 export const PARAKEET_MODEL_ID = "parakeet-tdt-0.6b-v3";
 
+/** On-disk filename of the fixed STT GGUF (mirrors stt::catalog::STT_GGUF_FILENAME). */
+export const PARAKEET_FILENAME = "tdt-0.6b-v3-q4_k.gguf";
+
+/** Catalog id of the fixed cleanup LLM (mirrors the single llm entry in
+ * inference-core/data/model_catalog.json). */
+export const CLEANUP_MODEL_ID = "gemma-3-1b-it-q4";
+
+/** Display metadata for the fixed cleanup model. Kept in lockstep with the
+ * backend catalog by `assertCatalogParity()` (dev-only). */
+export const CLEANUP_MODEL = {
+  id: CLEANUP_MODEL_ID,
+  displayName: "Gemma 3 1B",
+  sizeBytes: 806058272,
+};
+
 /**
  * Resolve the STT model for a given language code. With a single-model
  * catalog, always returns Parakeet regardless of the language.
@@ -232,6 +247,29 @@ export async function assertCatalogParity(): Promise<void> {
         `[stt-catalog] '${fe.id}'.languages mismatch — frontend=${JSON.stringify(fe.languages)}, backend=${JSON.stringify(be.languages)}`,
       );
     }
+  }
+
+  // Guard the fixed cleanup model too (backend inference-core catalog).
+  let llmCatalog: { id: string; kind: string; displayName: string; sizeBytes: number }[];
+  try {
+    llmCatalog = await invoke("models_catalog");
+  } catch (e) {
+    console.debug("[catalog] models_catalog probe failed, skipping LLM parity:", e);
+    return;
+  }
+  const llms = llmCatalog.filter((c) => c.kind === "llm");
+  if (llms.length !== 1) {
+    throw new Error(`[catalog] expected exactly 1 shipped LLM, backend has ${llms.length}`);
+  }
+  const be = llms[0];
+  if (
+    be.id !== CLEANUP_MODEL.id ||
+    be.displayName !== CLEANUP_MODEL.displayName ||
+    be.sizeBytes !== CLEANUP_MODEL.sizeBytes
+  ) {
+    throw new Error(
+      `[catalog] fixed LLM drift — frontend=${JSON.stringify(CLEANUP_MODEL)}, backend=${JSON.stringify(be)}`,
+    );
   }
 }
 

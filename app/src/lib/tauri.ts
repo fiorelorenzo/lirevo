@@ -186,6 +186,7 @@ export const lda = {
   sttDownload: (id: string) => invoke<void>("stt_download", { id }),
   modelsCancelDownload: (id: string) => invoke<void>("models_cancel_download", { id }),
   modelsDelete: (id: string) => invoke<void>("models_delete", { id }),
+  reloadModels: () => invoke<void>("reload_models"),
   getModelState: () => invoke<ModelState>("get_model_state"),
   getActiveBackend: () => invoke<ActiveBackendInfo>("get_active_backend"),
   checkAccessibility: () => invoke<PermissionStatus>("check_accessibility"),
