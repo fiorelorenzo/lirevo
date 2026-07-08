@@ -147,6 +147,32 @@ pub fn models_dir(app: &tauri::AppHandle) -> std::io::Result<PathBuf> {
     Ok(dir)
 }
 
+/// The single blessed cleanup LLM. With the fixed catalog this is the one LLM
+/// entry (the `recommended` one if flagged, else the first). `None` only if the
+/// catalog ships no LLM at all.
+#[must_use]
+#[allow(dead_code)] // consumed starting Task 2 (load path wired to the fixed models)
+pub fn fixed_llm() -> Option<CatalogEntry> {
+    let llms: Vec<CatalogEntry> = catalog()
+        .into_iter()
+        .filter(|c| c.kind == ModelKind::Llm)
+        .collect();
+    llms.iter()
+        .find(|c| c.recommended)
+        .cloned()
+        .or_else(|| llms.into_iter().next())
+}
+
+/// Absolute on-disk path of the fixed cleanup GGUF inside the app models dir.
+/// `Ok(None)` when the catalog ships no LLM.
+#[allow(dead_code)] // consumed starting Task 2 (load path wired to the fixed models)
+pub fn fixed_llm_path(app: &tauri::AppHandle) -> std::io::Result<Option<PathBuf>> {
+    let Some(entry) = fixed_llm() else {
+        return Ok(None);
+    };
+    Ok(Some(models_dir(app)?.join(entry.filename)))
+}
+
 /// Delete a downloaded model file from the app's models directory.
 ///
 /// Lookup happens by catalog id (the canonical handle used by the UI). The
@@ -715,12 +741,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn catalog_has_3_stt_and_5_llm() {
+    fn catalog_has_0_stt_and_1_llm() {
         let c = catalog();
         let stt = c.iter().filter(|c| c.kind == ModelKind::Stt).count();
         let llm = c.iter().filter(|c| c.kind == ModelKind::Llm).count();
-        assert_eq!(stt, 3);
-        assert_eq!(llm, 5);
+        assert_eq!(stt, 0);
+        assert_eq!(llm, 1);
+    }
+
+    #[test]
+    fn fixed_llm_is_the_gemma_entry() {
+        let e = fixed_llm().expect("a fixed LLM must exist");
+        assert_eq!(e.kind, ModelKind::Llm);
+        assert_eq!(e.id, "gemma-3-1b-it-q4");
+        assert_eq!(e.filename, "gemma-3-1b-it-Q4_K_M.gguf");
+        assert!(e.recommended);
     }
 
     #[test]
