@@ -184,6 +184,10 @@ pub fn fixed_llm_path(app: &tauri::AppHandle) -> std::io::Result<Option<PathBuf>
 /// the resulting path to canonicalize back under the models directory.
 /// That blocks any (hypothetical) future bug where a catalog filename
 /// contains `..` traversal segments.
+// Uncalled since the `models_delete` Tauri command was removed (fixed
+// model catalog has no delete UI); kept as a documented follow-up cleanup
+// rather than deleted in the same change that drops its only caller.
+#[allow(dead_code)]
 pub fn delete_by_id(app: &tauri::AppHandle, id: &str) -> std::io::Result<()> {
     tracing::info!(id, "delete_by_id: start");
     let entry = find_by_id(id).ok_or_else(|| {

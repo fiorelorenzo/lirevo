@@ -413,7 +413,6 @@ pub fn run() {
             commands::models::models_download,
             commands::models::stt_download,
             commands::models::models_cancel_download,
-            commands::models::models_delete,
             commands::inference::transcribe,
             commands::inference::clean,
             commands::inference::get_model_state,
