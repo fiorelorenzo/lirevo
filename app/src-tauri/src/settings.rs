@@ -506,6 +506,30 @@ mod tests {
     }
 
     #[test]
+    fn deserializes_settings_json_containing_removed_model_selection_keys() {
+        // An old settings.json written before the fixed-model-catalog change
+        // still has the now-removed model-selection keys on disk (serde
+        // config doesn't rewrite files it hasn't loaded yet). `Settings` no
+        // longer declares these fields, so this locks in that serde's
+        // default "ignore unknown fields" behavior lets such a file
+        // deserialize cleanly — a future `#[serde(deny_unknown_fields)]`
+        // would silently break upgrades for every existing install.
+        let legacy = json!({
+            "sttModelId": "parakeet-tdt-0.6b-v3",
+            "whisperModelPath": "/Users/example/Library/Application Support/Lirevo/models/ggml-base.bin",
+            "llmModelPath": "/Users/example/Library/Application Support/Lirevo/models/old-llm.gguf",
+            "whisperCoreMLDisable": false,
+            "schemaVersion": 4,
+            "language": "it",
+            "llmCtxSize": 8192,
+        });
+        let s: Settings =
+            serde_json::from_value(legacy).expect("removed keys must not break deserialization");
+        assert_eq!(s.language, "it");
+        assert_eq!(s.llm_ctx_size, 8192);
+    }
+
+    #[test]
     fn env_affecting_diff_ignores_non_env() {
         let before = Settings::default();
         let mut after = before.clone();

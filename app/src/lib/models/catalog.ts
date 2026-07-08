@@ -87,7 +87,8 @@ export const PARAKEET_FILENAME = "tdt-0.6b-v3-q4_k.gguf";
 export const CLEANUP_MODEL_ID = "gemma-3-1b-it-q4";
 
 /** Display metadata for the fixed cleanup model. Kept in lockstep with the
- * backend catalog by `assertCatalogParity()` (dev-only). */
+ * backend catalog (`crates/inference-core/data/model_catalog.json`) by the
+ * `catalog-parity.test.ts` Vitest, not by a runtime check. */
 export const CLEANUP_MODEL = {
   id: CLEANUP_MODEL_ID,
   displayName: "Gemma 3 1B",
@@ -239,35 +240,11 @@ export async function assertCatalogParity(): Promise<void> {
       );
     }
   }
-
-  // Guard the fixed cleanup model too (backend inference-core catalog).
-  let llmCatalog: { id: string; kind: string; displayName: string; sizeBytes: number }[];
-  try {
-    llmCatalog = await invoke("models_catalog");
-  } catch (e) {
-    console.debug("[catalog] models_catalog probe failed, skipping LLM parity:", e);
-    return;
-  }
-  const llms = llmCatalog.filter((c) => c.kind === "llm");
-  if (llms.length !== 1) {
-    throw new Error(`[catalog] expected exactly 1 shipped LLM, backend has ${llms.length}`);
-  }
-  const be = llms[0];
-  if (
-    be.id !== CLEANUP_MODEL.id ||
-    be.displayName !== CLEANUP_MODEL.displayName ||
-    be.sizeBytes !== CLEANUP_MODEL.sizeBytes
-  ) {
-    throw new Error(
-      `[catalog] fixed LLM drift — frontend=${JSON.stringify(CLEANUP_MODEL)}, backend=${JSON.stringify(be)}`,
-    );
-  }
 }
 
 /**
- * Format a byte count like `600 MB` or `1.5 GB`. Mirrors the helper used
- * by the legacy `ModelCard` so the wizard and settings cards look
- * consistent.
+ * Format a byte count like `600 MB` or `1.5 GB`. Shared by the wizard and
+ * the settings status panel so their size labels stay consistent.
  */
 export function formatSize(bytes: number): string {
   return bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.round(bytes / 1e6)} MB`;
