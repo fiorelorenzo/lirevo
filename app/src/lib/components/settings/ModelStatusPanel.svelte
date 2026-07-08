@@ -63,7 +63,9 @@
       if (p.state === "complete") {
         await refresh();
         // Reload so a freshly (re)downloaded model gets picked up by the engine.
-        await lda.reloadModels().catch(() => {});
+        await lda
+          .reloadModels()
+          .catch((e) => console.warn("reloadModels after download failed", e));
       }
     });
   });

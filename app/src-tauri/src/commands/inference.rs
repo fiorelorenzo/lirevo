@@ -168,10 +168,11 @@ pub fn get_active_backend(state: State<'_, AppState>) -> Result<ActiveBackendInf
 /// token; the stale invocation skips its ModelState emission.
 ///
 /// STT is a single fixed model (id from [`stt::catalog::default_model_id`]) —
-/// there is no user selection to read. `ensure_stt` prefers the HF cache; on
-/// a cache miss it spawns a background download and returns `None` — we
-/// surface a `ModelState::Loading` until the next reload picks the cached
-/// weights up.
+/// there is no user selection to read. `ensure_stt` loads the GGUF from
+/// `models_dir` (see `stt::gguf_path`); on a cache miss it returns
+/// `Ok(None)` without spawning a download — we surface a
+/// `ModelState::Loading` until the file shows up (via the wizard or a
+/// Settings → Models → Repair download) and the next reload picks it up.
 pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
     let (engine, ctx_size, onboarding_complete, token) = {
         let mut inner = state.inner.lock().unwrap();
@@ -310,8 +311,9 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
 
     // Load-token guard: bail before touching settings/engine if a newer
     // reload started while we were loading. Must precede the auto-recover
-    // block below — otherwise a stale load could wipe a freshly-set good
-    // `llm_model_path` that the newer reload just persisted.
+    // block below — otherwise a stale load's failure could clear the
+    // engine's `llm_model_path` out from under the newer reload that's
+    // already in flight (or has already loaded successfully).
     {
         let inner = state.inner.lock().unwrap();
         if inner.current_load_token != token {
@@ -386,11 +388,11 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
     // `register_quit_safety_atexit` for the full reasoning. Called on
     // every load_models invocation (initial and settings-triggered
     // reloads) so the ordering invariant holds even when the user
-    // switches model selections mid-session.
-    //
-    // Skipped on the no-models-configured early-return above: if nothing
-    // is configured, no Metal context exists, no destructor is registered,
-    // and there is nothing to swallow on shutdown.
+    // switches model selections mid-session. Not reached when onboarding
+    // isn't complete yet (early-return near the top of this function, before
+    // any GPU backend is touched) or when a newer reload has superseded this
+    // one (the load-token guard above) — those are the only two early-return
+    // paths in this function.
     crate::register_quit_safety_atexit();
 
     // Warm-up policy is owned by the active energy profile, not a separate
