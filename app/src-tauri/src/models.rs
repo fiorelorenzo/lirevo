@@ -151,7 +151,6 @@ pub fn models_dir(app: &tauri::AppHandle) -> std::io::Result<PathBuf> {
 /// entry (the `recommended` one if flagged, else the first). `None` only if the
 /// catalog ships no LLM at all.
 #[must_use]
-#[allow(dead_code)] // consumed starting Task 2 (load path wired to the fixed models)
 pub fn fixed_llm() -> Option<CatalogEntry> {
     let llms: Vec<CatalogEntry> = catalog()
         .into_iter()
@@ -165,7 +164,6 @@ pub fn fixed_llm() -> Option<CatalogEntry> {
 
 /// Absolute on-disk path of the fixed cleanup GGUF inside the app models dir.
 /// `Ok(None)` when the catalog ships no LLM.
-#[allow(dead_code)] // consumed starting Task 2 (load path wired to the fixed models)
 pub fn fixed_llm_path(app: &tauri::AppHandle) -> std::io::Result<Option<PathBuf>> {
     let Some(entry) = fixed_llm() else {
         return Ok(None);
