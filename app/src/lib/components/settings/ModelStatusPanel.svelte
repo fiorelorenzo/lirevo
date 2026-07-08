@@ -72,7 +72,7 @@
 
 <section class="space-y-2">
   <h2 class="text-xs font-semibold tracking-wide uppercase text-muted-foreground mb-1">
-    {t("settings.models.stt_section")}
+    {t("settings.models.section")}
   </h2>
   {#each rows as row (row.name)}
     {@const active =

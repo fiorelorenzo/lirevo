@@ -72,22 +72,10 @@
         "cancel_test": "Stop microphone test"
       }
     },
-    "models": {
-      "title": "Choose your transcription model",
-      "body": "Pick the speech-to-text model that fits the languages you dictate in. You can change it any time from Settings.",
-      "stt_section": "Speech-to-text",
-      "llm_section": "Language model",
-      "use_existing": "Or use existing file",
-      "recommended_pill": "recommended",
-      "license_label": "License"
-    },
     "language": {
       "title": "Pick your dictation language",
       "body": "We'll set up the right on-device model for the language you dictate in. You can change it any time from Settings.",
-      "picker_label": "Dictation language",
-      "auto_label": "Auto-detect (recommended)",
-      "model_label": "Model",
-      "reset_notice": "Language reset because the new model doesn't support it."
+      "picker_label": "Dictation language"
     },
     "downloads": {
       "title": "Downloading your models",
@@ -117,18 +105,6 @@
       "hotkey_label": "Push-to-talk key",
       "smart_mic_routing": "Smart Microphone",
       "smart_mic_routing_helper": "When something is playing through Bluetooth headphones (e.g. AirPods), dictate with your backup mic so the audio stays in stereo."
-    },
-    "cleanup": {
-      "title": "Cleanup model (optional)",
-      "body": "Cleanup adds punctuation, capitalization, and tidies sentence flow. Dictation works without it — you can always add or change a cleanup model later from Settings.",
-      "skip_title": "Skip — speech-to-text only",
-      "skip_body": "No model loaded. Lirevo injects the raw transcript directly into the focused app.",
-      "skip_pill": "no download",
-      "downloading_pill": "downloading…",
-      "downloaded_pill": "ready",
-      "selected_pill": "selected",
-      "recommended_pill": "recommended",
-      "download_button": "Download →"
     },
     "background": {
       "title": "How should it run?",
@@ -206,31 +182,16 @@
       }
     },
     "models": {
-      "whisper_model": "Whisper model",
-      "llm_model": "Language model",
+      "section": "Models",
       "llm_ctx_size": "LLM context size (tokens)",
-      "whisper_coreml_disable": "Disable CoreML encoder",
       "advanced_section": "Advanced",
-      "stt_section": "Speech-to-text",
-      "stt_section_helper": "Switching to another model triggers a hot-swap — dictation pauses for a moment while the new weights load.",
-      "stats": "{{used}} used · {{installed}} of {{total}} catalog models installed",
       "installed_badge": "Installed",
-      "in_use_badge": "In use",
-      "switching_badge": "Switching…",
-      "switch_toast": "Reloading model…",
-      "use_button": "Use",
-      "delete_tooltip": "Uninstall this model",
-      "delete_aria": "Uninstall {{name}}",
-      "delete_blocked_tooltip": "Can't uninstall the model currently in use — switch to another first.",
-      "delete_blocked_aria": "Uninstall {{name}} (disabled — currently in use)",
-      "delete_confirm_title": "Uninstall {{name}}?",
-      "delete_confirm_body": "Removes the file ({{size}}) from disk. You can re-download it any time. If this model is currently selected, the path will be cleared and dictation will fall back to whatever's left.",
-      "delete_confirm_action": "Uninstall",
-      "delete_confirm_in_progress": "Uninstalling...",
-      "delete_confirm_cancel": "Cancel",
-      "uninstall_failed": "Uninstall {{name}}",
       "download_failed": "Download {{name}}",
-      "cancel_failed": "Cancel download for {{name}}",
+      "role_dictation": "Dictation",
+      "role_cleanup": "Cleanup",
+      "repair_button": "Re-download",
+      "download_button": "Download",
+      "repair_failed": "Re-download failed",
       "error": {
         "refresh": "Refresh models list"
       }
@@ -240,6 +201,8 @@
     },
     "about": {
       "version": "Version",
+      "model_stt": "Dictation model",
+      "model_llm": "Cleanup model",
       "check_updates": "Check for updates",
       "checking": "Checking...",
       "rerun_wizard": "Re-run setup wizard",
