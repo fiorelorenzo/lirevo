@@ -95,14 +95,6 @@ export const CLEANUP_MODEL = {
 };
 
 /**
- * Resolve the STT model for a given language code. With a single-model
- * catalog, always returns Parakeet regardless of the language.
- */
-export function modelForLanguage(_code: string): string {
-  return PARAKEET_MODEL_ID;
-}
-
-/**
  * ISO 639-1/2 display names for the wizard language picker. Kept inline:
  * the universe is the small union of Parakeet + curated Whisper, and a
  * runtime locale-display dependency would dwarf the strings themselves.
@@ -170,8 +162,7 @@ export function languagesForModel(id: string): string[] {
 
 /**
  * Languages offered in the wizard's language step: Parakeet's 25 European
- * languages, sorted by display name. Picking any of these resolves to
- * Parakeet via {@link modelForLanguage}.
+ * languages, sorted by display name.
  */
 export const WIZARD_LANGUAGES: WizardLanguage[] = PARAKEET_LANGUAGES.map((code) => ({
   code,

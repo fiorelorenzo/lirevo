@@ -41,11 +41,7 @@ describe("startSettingsSync", () => {
     expect(capturedCallback).not.toBeNull();
 
     const updatedSettings = {
-      sttModelId: "parakeet-tdt-0.6b-v2",
-      whisperModelPath: null,
-      llmModelPath: null,
       llmCtxSize: 4096,
-      whisperCoreMLDisable: false,
       hotkey: {
         modifiers: {},
         trigger: { modifierOnly: { modifier: "option", side: "right" } },
