@@ -15,6 +15,7 @@
   import { t } from "$lib/i18n";
   import { navigate } from "$lib/router";
   import { lda, type InputDeviceEntry } from "$lib/tauri";
+  import { STT_MODELS, CLEANUP_MODEL } from "$lib/models/catalog";
   import { Zap, Cpu } from "@lucide/svelte";
   import { toastInfo, toastError } from "$lib/stores/toasts";
   import { page } from "$app/state";
@@ -404,6 +405,12 @@
             {t("settings.about.version")}: {$settings.appVersion}
           </div>
           <div class="text-sm text-muted-foreground">macOS · arm64</div>
+          <div class="text-sm text-muted-foreground pt-1">
+            {t("settings.about.model_stt")}: {STT_MODELS[0].displayName}
+          </div>
+          <div class="text-sm text-muted-foreground">
+            {t("settings.about.model_llm")}: {CLEANUP_MODEL.displayName}
+          </div>
         </div>
 
         <div
