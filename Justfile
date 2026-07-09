@@ -99,7 +99,11 @@ dmg:
     # Apple creds.
     scripts/notarize-macos.sh app "$app"
     mkdir -p "$bundle/dmg"
-    dmg="$bundle/dmg/Lirevo_0.6.0_aarch64.dmg"
+    # Derive the version from the built .app (matches tauri.conf.json) instead
+    # of hardcoding it — otherwise the DMG filename drifts from the real app
+    # version on every release bump.
+    version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")"
+    dmg="$bundle/dmg/Lirevo_${version}_aarch64.dmg"
     rm -f "$dmg"
     staging="$(mktemp -d)"
     cp -R "$app" "$staging/"
