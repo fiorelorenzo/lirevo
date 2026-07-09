@@ -7,9 +7,8 @@
     type ActivationMode,
     type Os,
     type CaptureEvent,
-    type Modifier,
-    type Side,
   } from "$lib/hotkey";
+  import { initialCaptureState, stepCapture, type CaptureState } from "$lib/hotkey-capture";
   import { Button } from "$lib/components/ui/button";
   import { onDestroy } from "svelte";
   import type { UnlistenFn } from "@tauri-apps/api/event";
@@ -26,17 +25,9 @@
   let error = $state<string | null>(null);
   let liveChips = $state<string[]>([]);
   let unlisten: UnlistenFn | null = null;
-  let modOnlyTimer: ReturnType<typeof setTimeout> | null = null;
-  let pendingModOnly: { modifier: Modifier; side: Side } | null = null;
+  let capture: CaptureState = initialCaptureState();
 
   const chips = $derived(formatHotkey(spec, os));
-
-  function clearTimer() {
-    if (modOnlyTimer) {
-      clearTimeout(modOnlyTimer);
-      modOnlyTimer = null;
-    }
-  }
 
   function finalize(next: HotkeySpec) {
     const v = validateHotkey(next, os);
@@ -53,6 +44,7 @@
   async function start() {
     error = null;
     liveChips = [];
+    capture = initialCaptureState();
     capturing = true;
     unlisten = await lda.onHotkeyCapture(handleCapture);
     await lda.startHotkeyCapture();
@@ -60,8 +52,7 @@
 
   async function stop() {
     capturing = false;
-    clearTimer();
-    pendingModOnly = null;
+    capture = initialCaptureState();
     if (unlisten) {
       unlisten();
       unlisten = null;
@@ -70,6 +61,7 @@
   }
 
   function handleCapture(e: CaptureEvent) {
+    // Live preview of the chord currently held.
     if (e.baseKey) {
       liveChips = formatHotkey({ modifiers: e.modifiers, trigger: { key: e.baseKey } }, os);
     } else {
@@ -77,29 +69,11 @@
         (c) => c !== "",
       );
     }
-    if (e.baseKey) {
-      finalize({ modifiers: e.modifiers, trigger: { key: e.baseKey } });
-      return;
-    }
-    if (e.mouse != null) {
-      finalize({ modifiers: {}, trigger: { mouse: e.mouse } });
-      return;
-    }
-    if (e.modOnly) {
-      pendingModOnly = e.modOnly;
-      if (!modOnlyTimer) {
-        modOnlyTimer = setTimeout(() => {
-          modOnlyTimer = null;
-          if (pendingModOnly)
-            finalize({ modifiers: {}, trigger: { modifierOnly: pendingModOnly } });
-        }, 200);
-      }
-    } else if (pendingModOnly) {
-      clearTimer();
-      const picked = pendingModOnly;
-      pendingModOnly = null;
-      finalize({ modifiers: {}, trigger: { modifierOnly: picked } });
-    }
+    // Commit only once every key is released, so multi-key combos can build up
+    // instead of the first key winning instantly.
+    const r = stepCapture(capture, e);
+    capture = r.state;
+    if (r.commit) finalize(r.commit);
   }
 
   function onKeydown(ev: KeyboardEvent) {
