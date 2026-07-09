@@ -1,12 +1,10 @@
 <script lang="ts">
-  import { onMount } from "svelte";
   import { Button } from "$lib/components/ui/button";
   import { Progress } from "$lib/components/ui/progress";
   import { Check, Loader2, AlertCircle, Mic, Sparkles } from "@lucide/svelte";
-  import { settings, updateSettings } from "$lib/stores/settings.svelte";
-  import { wizardDownloadSelection } from "$lib/stores/wizardDownloads";
+  import { PARAKEET_MODEL_ID, CLEANUP_MODEL_ID } from "$lib/models/catalog";
   import { progressFor } from "$lib/stores/downloads";
-  import { lda, type LocalModel, type DownloadProgress } from "$lib/tauri";
+  import { lda, type DownloadProgress } from "$lib/tauri";
   import { withErrorToast } from "$lib/stores/toasts";
   import { t } from "$lib/i18n";
   import { defaultStepState, type WizardStepState } from "./step-state";
@@ -17,29 +15,13 @@
   }
   let { onnext, nextState = $bindable(defaultStepState()) }: Props = $props();
 
-  let local = $state<LocalModel[]>([]);
-
-  // STT id comes from settings (Language step persisted it); LLM id from the
-  // sibling handoff store. Both are resolved before this step mounts.
-  let sttId = $derived($settings?.sttModelId ?? null);
-  let llmId = $derived($wizardDownloadSelection.llmId);
+  let sttId = PARAKEET_MODEL_ID;
+  let llmId = CLEANUP_MODEL_ID;
 
   // Reactive progress streams for each id, sourced from the global downloads
   // store's single `download:progress` listener (no second listener here).
-  let sttProgress = $derived(sttId ? progressFor(sttId) : null);
-  let llmProgress = $derived(llmId ? progressFor(llmId) : null);
-
-  async function refreshLocal() {
-    try {
-      local = await lda.modelsListLocal();
-    } catch {
-      // Non-fatal — the path persist below simply no-ops until it succeeds.
-    }
-  }
-
-  onMount(async () => {
-    await refreshLocal();
-  });
+  let sttProgress = $derived(progressFor(sttId));
+  let llmProgress = $derived(progressFor(llmId));
 
   function isComplete(p: DownloadProgress | null | undefined): boolean {
     return p?.state === "complete";
@@ -58,36 +40,16 @@
     return (p.bytesReceived / Math.max(1, p.bytesTotal)) * 100;
   }
 
-  // When the LLM finishes, persist its local path so the engine knows which
-  // weights to load — mirrors what the old Cleanup step did on `complete`.
-  let llmPathPersisted = $state(false);
-  $effect(() => {
-    const p = $llmProgress;
-    if (!llmId || llmPathPersisted) return;
-    if (p?.state === "complete") {
-      llmPathPersisted = true;
-      void (async () => {
-        await refreshLocal();
-        const match = local.find((l) => l.id === llmId);
-        if (match) await updateSettings({ llmModelPath: match.path });
-      })();
-    }
-  });
-
   async function retrySTT() {
-    if (!sttId) return;
     await withErrorToast(t("wizard.downloads.error"), () => lda.sttDownload(sttId));
   }
   async function retryLLM() {
-    if (!llmId) return;
     await withErrorToast(t("wizard.downloads.error"), () => lda.modelsDownload(llmId));
   }
 
-  // Both downloads must reach `complete` before the user can continue. The
-  // LLM card is treated as already-done when no LLM was selected (recommended
-  // id unavailable), so the wizard never wedges.
+  // Both downloads must reach `complete` before the user can continue.
   let sttDone = $derived(isComplete($sttProgress));
-  let llmDone = $derived(!llmId || isComplete($llmProgress));
+  let llmDone = $derived(isComplete($llmProgress));
   let bothDone = $derived(sttDone && llmDone);
 
   $effect(() => {
@@ -178,9 +140,7 @@
 
   <div class="space-y-3 animate-in fade-in duration-500 delay-200">
     {@render card(t("wizard.downloads.dictation_label"), Mic, $sttProgress, retrySTT)}
-    {#if llmId}
-      {@render card(t("wizard.downloads.cleanup_label"), Sparkles, $llmProgress, retryLLM)}
-    {/if}
+    {@render card(t("wizard.downloads.cleanup_label"), Sparkles, $llmProgress, retryLLM)}
   </div>
 
   {#if !bothDone}

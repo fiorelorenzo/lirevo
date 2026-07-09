@@ -41,6 +41,7 @@
     "@tauri-apps/cli": "^2",
     "@testing-library/jest-dom": "^6",
     "@testing-library/svelte": "^5",
+    "@types/node": "^22",
     "bits-ui": "^2.18.1",
     "eslint": "^10.6.0",
     "eslint-config-prettier": "^10.1.8",

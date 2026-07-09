@@ -125,8 +125,11 @@ mod tests {
     fn embedded_catalog_parses() {
         let c = load_embedded();
         assert_eq!(c.schema_version, CURRENT_SCHEMA_VERSION);
-        assert!(!c.stt.is_empty(), "expected ≥1 STT entry");
-        assert!(!c.llm.is_empty(), "expected ≥1 LLM entry");
+        assert!(
+            c.stt.is_empty(),
+            "STT catalog is now empty (Parakeet lives in the app's stt::catalog)"
+        );
+        assert_eq!(c.llm.len(), 1, "exactly one shipped cleanup LLM");
     }
 
     #[test]

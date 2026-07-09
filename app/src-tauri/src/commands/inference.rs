@@ -167,30 +167,26 @@ pub fn get_active_backend(state: State<'_, AppState>) -> Result<ActiveBackendInf
 /// Cancellation: a newer load (e.g. user changes settings) increments the
 /// token; the stale invocation skips its ModelState emission.
 ///
-/// STT: the catalog id comes from `settings.stt_model_id`, falling back to
-/// [`stt::catalog::default_model_id`]. `ensure_stt` prefers the HF cache; on
-/// a cache miss it spawns a background download and returns `None` — we
-/// surface a `ModelState::Loading` until the next reload picks the cached
-/// weights up.
+/// STT is a single fixed model (id from [`stt::catalog::default_model_id`]) —
+/// there is no user selection to read. `ensure_stt` loads the GGUF from
+/// `models_dir` (see `stt::gguf_path`); on a cache miss it returns
+/// `Ok(None)` without spawning a download — we surface a
+/// `ModelState::Loading` until the file shows up (via the wizard or a
+/// Settings → Models → Repair download) and the next reload picks it up.
 pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
-    let (engine, stt_model_id, llm_path, ctx_size, onboarding_complete, token) = {
+    let (engine, ctx_size, onboarding_complete, token) = {
         let mut inner = state.inner.lock().unwrap();
         inner.current_load_token += 1;
         let token = inner.current_load_token;
-        let stt_model_id = inner
-            .settings
-            .stt_model_id
-            .clone()
-            .unwrap_or_else(|| stt::catalog::default_model_id().to_string());
         (
             inner.engine.clone(),
-            stt_model_id,
-            inner.settings.llm_model_path.clone(),
             inner.settings.llm_ctx_size,
             inner.settings.onboarding_complete,
             token,
         )
     };
+    // STT is a single fixed model; there is no user selection to read.
+    let stt_model_id = stt::catalog::default_model_id().to_string();
 
     // During onboarding the wizard owns model download + selection: it triggers
     // both downloads explicitly and shows real progress. Skip the eager
@@ -215,35 +211,19 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
     let manifest_url = crate::engine::backend_manifest_url();
     crate::engine::BackendManager::ensure_fetched_backends(app, manifest_url).await;
 
-    // Runtime existence check: settings migration clears stale paths at
-    // startup, but the file can disappear mid-session (model manager remove,
-    // user deleted the .gguf manually). Treating a missing file as "not
-    // configured" lets the dictation pipeline keep running in STT-only mode
-    // instead of bubbling a confusing load error to the UI.
-    let effective_llm_path = llm_path.and_then(|p| {
-        if p.exists() {
-            Some(p)
-        } else {
-            tracing::warn!(
-                path = %p.display(),
-                "configured LLM path is missing on disk; treating as not configured"
-            );
-            None
-        }
-    });
+    // Cleanup runs only when the fixed model file is present on disk. There is
+    // no persisted path any more: we derive it from the shipped catalog and
+    // gate on existence. A missing file means graceful STT-only mode until the
+    // user re-downloads it (Settings → Models → Repair) or onboarding fetches it.
+    let effective_llm_path = crate::models::effective_llm_path(app);
 
     // Push the latest settings into the engine so its lazy/lifecycle paths see
     // the right config (the catalog default for STT, the existence-checked LLM
     // path).
-    let stt_id_for_engine = if stt_model_id.is_empty() {
-        None
-    } else {
-        Some(stt_model_id.clone())
-    };
     let new_cfg = crate::engine::EngineConfig {
         llm_model_path: effective_llm_path.clone(),
         llm_ctx_size: ctx_size,
-        stt_model_id: stt_id_for_engine,
+        stt_model_id: Some(stt_model_id.clone()),
     };
 
     // Settings-change reload: `ensure_llm` / `ensure_stt` short-circuit when a
@@ -253,10 +233,10 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
     // and unload any affected slot so the `ensure_*` calls below reload fresh.
     //
     // At startup this is a no-op: the slots are Unloaded (so `unload_*` does
-    // nothing) and `ensure_*` performs the initial load. The configs can differ
-    // even at startup (AppState::new uses the raw settings path, here we
-    // existence-check it and fall STT back to the catalog default), but an
-    // unload against an already-Unloaded slot is harmless.
+    // nothing) and `ensure_*` performs the initial load. `AppState::new`
+    // resolves the same fixed-path-plus-existence-check config, so the two
+    // rarely differ — but an unload against an already-Unloaded slot is
+    // harmless if the on-disk file changed between the two checks.
     let old_cfg = engine.current_config();
     let llm_changed = old_cfg.llm_model_path != new_cfg.llm_model_path
         || old_cfg.llm_ctx_size != new_cfg.llm_ctx_size;
@@ -273,17 +253,6 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
             .await;
     }
 
-    if effective_llm_path.is_none() && stt_model_id.is_empty() {
-        let inner = state.inner.lock().unwrap();
-        if inner.current_load_token == token {
-            drop(inner);
-            state.set_model_state(app, ModelState::Idle);
-        } else {
-            tracing::info!("stale load skipped (token mismatch)");
-        }
-        return;
-    }
-
     {
         let inner = state.inner.lock().unwrap();
         if inner.current_load_token == token {
@@ -291,7 +260,7 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
             state.set_model_state(
                 app,
                 ModelState::Loading {
-                    stt: !stt_model_id.is_empty(),
+                    stt: true,
                     llama: effective_llm_path.is_some(),
                 },
             );
@@ -299,22 +268,17 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
     }
 
     // Drive eager loads through the engine. `ensure_stt` returns Ok(None) when
-    // the weights are still downloading; `ensure_llm` returns Ok(None) when no
-    // path is configured (graceful STT-only mode).
+    // the weights are still downloading; `ensure_llm` returns Ok(None) when the
+    // fixed model file is absent (graceful STT-only mode).
     //
     // Eager-vs-lazy deviation (deliberate): the lifecycle design preloads the
-    // LLM only when the profile is Balanced/Performance and on AC. Here we call
-    // `ensure_llm` unconditionally at startup because we need a definitive
-    // Ready/Error `ModelState` for the UI up front, and because eagerly loading
-    // is the only way to detect a broken LLM path (corrupt GGUF, unsupported
-    // arch) so the auto-recover block below can clear it. The energy policy is
-    // still honored after this first load: `lifecycle_loop` idle-unloads the
-    // LLM once the active profile's `llm_idle_unload` window elapses.
-    let stt_outcome = if stt_model_id.is_empty() {
-        Ok(None)
-    } else {
-        engine.ensure_stt().await
-    };
+    // LLM only under Balanced/Performance on AC. We call `ensure_llm` here
+    // unconditionally (when the file exists) because the UI needs a definitive
+    // Ready/Error ModelState up front, and because eagerly loading is the only
+    // way to detect a broken GGUF so the auto-recover block below can react.
+    // The energy policy still applies afterward: `lifecycle_loop` idle-unloads
+    // the LLM once the active profile's window elapses.
+    let stt_outcome = engine.ensure_stt().await;
     let llama_outcome = if effective_llm_path.is_some() {
         engine.ensure_llm().await
     } else {
@@ -327,13 +291,11 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
     match stt_outcome {
         Ok(Some(_)) => stt_ready = true,
         Ok(None) => {
-            if !stt_model_id.is_empty() {
-                tracing::info!(
-                    model = %stt_model_id,
-                    "STT weights downloading in background; will be ready after the next reload"
-                );
-                stt_downloading = true;
-            }
+            tracing::info!(
+                model = %stt_model_id,
+                "STT weights downloading in background; will be ready after the next reload"
+            );
+            stt_downloading = true;
         }
         Err(e) => {
             tracing::warn!(%e, "STT load failed");
@@ -354,8 +316,9 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
 
     // Load-token guard: bail before touching settings/engine if a newer
     // reload started while we were loading. Must precede the auto-recover
-    // block below — otherwise a stale load could wipe a freshly-set good
-    // `llm_model_path` that the newer reload just persisted.
+    // block below — otherwise a stale load's failure could clear the
+    // engine's `llm_model_path` out from under the newer reload that's
+    // already in flight (or has already loaded successfully).
     {
         let inner = state.inner.lock().unwrap();
         if inner.current_load_token != token {
@@ -364,40 +327,25 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
         }
     }
 
-    // Auto-recover from an unloadable LLM: if the cleanup model failed to
-    // load (corrupted GGUF, unsupported architecture, missing file, etc.),
-    // clear the stale path so the dictation pipeline drops cleanly into
-    // STT-only mode and the user gets a clear "pick a different model"
-    // signal instead of an infinite "Cleanup loading…" pill.
+    // Auto-recover from an unloadable cleanup model (corrupt GGUF, unsupported
+    // arch): drop the engine's LLM path so the pipeline falls cleanly into
+    // STT-only mode and the next reload (after a Repair re-download) can retry.
+    // There is no persisted selection to clear any more — the fixed path is
+    // recomputed from disk on every load.
     if llama_err.is_some() {
-        let mut inner = state.inner.lock().unwrap();
-        if inner.settings.llm_model_path.is_some() {
-            tracing::warn!("clearing settings.llm_model_path after load failure");
-            inner.settings.llm_model_path = None;
-            if let Err(persist_err) = inner.settings.persist(app) {
-                tracing::warn!(?persist_err, "failed to persist cleared llm_model_path");
-            }
-            // Keep the engine config in sync so a later lazy ensure_llm does
-            // not re-attempt the broken path.
-            let cfg = crate::engine::EngineConfig {
-                llm_model_path: None,
-                llm_ctx_size: ctx_size,
-                stt_model_id: if stt_model_id.is_empty() {
-                    None
-                } else {
-                    Some(stt_model_id.clone())
-                },
-            };
-            drop(inner);
-            engine.update_config(cfg);
-            let _ = app.emit(
-                "toast",
-                crate::commands::toast(
-                    "warn",
-                    "Cleanup model couldn't load; cleared selection. Pick a supported model in Settings.",
-                ),
-            );
-        }
+        let cfg = crate::engine::EngineConfig {
+            llm_model_path: None,
+            llm_ctx_size: ctx_size,
+            stt_model_id: Some(stt_model_id.clone()),
+        };
+        engine.update_config(cfg);
+        let _ = app.emit(
+            "toast",
+            crate::commands::toast(
+                "warn",
+                "Cleanup model couldn't load. Re-download it in Settings → Models.",
+            ),
+        );
     }
 
     let next = if !stt_ready && !llama_ready {
@@ -445,11 +393,11 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
     // `register_quit_safety_atexit` for the full reasoning. Called on
     // every load_models invocation (initial and settings-triggered
     // reloads) so the ordering invariant holds even when the user
-    // switches model selections mid-session.
-    //
-    // Skipped on the no-models-configured early-return above: if nothing
-    // is configured, no Metal context exists, no destructor is registered,
-    // and there is nothing to swallow on shutdown.
+    // switches model selections mid-session. Not reached when onboarding
+    // isn't complete yet (early-return near the top of this function, before
+    // any GPU backend is touched) or when a newer reload has superseded this
+    // one (the load-token guard above) — those are the only two early-return
+    // paths in this function.
     crate::register_quit_safety_atexit();
 
     // Warm-up policy is owned by the active energy profile, not a separate
@@ -466,6 +414,15 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
             warm_up(&engine_for_warmup).await;
         });
     }
+}
+
+/// Explicit re-load of both fixed models. Used after a Repair re-download in
+/// Settings → Models, where there is no settings change to piggy-back a reload
+/// on (model selection no longer lives in settings).
+#[tauri::command]
+pub async fn reload_models(app: AppHandle, state: State<'_, AppState>) -> Result<(), AppError> {
+    load_models(&app, state).await;
+    Ok(())
 }
 
 /// One-shot dummy inference per loaded backend to force GPU kernel

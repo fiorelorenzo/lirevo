@@ -1,6 +1,5 @@
 use os_integration::{ActivationMode, HotkeySpec, Modifier, ModifierFlags, Side, Trigger};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 use tauri_plugin_store::StoreExt;
 
 use crate::error::AppError;
@@ -8,24 +7,12 @@ use crate::error::AppError;
 /// Bump when introducing a new one-shot migration in [`Settings::migrate`].
 /// Existing `settings.json` files written before the bump carry a lower
 /// `schema_version` (or none at all → 0) and the migration runs once.
-const SCHEMA_VERSION: u32 = 4;
+const SCHEMA_VERSION: u32 = 5;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
-    /// M4: catalog id of the STT model to load. `None` falls back to
-    /// [`crate::stt::catalog::default_model_id`]. Replaces the pre-M4
-    /// `whisper_model_path` field, which is kept in the struct for
-    /// backward compatibility with older `settings.json` files but is
-    /// no longer read by the loader.
-    pub stt_model_id: Option<String>,
-    /// Legacy: ggml whisper model path. Pre-M4 loader used this; M4
-    /// loader uses [`Settings::stt_model_id`] instead. Retained so
-    /// older settings files deserialize cleanly.
-    pub whisper_model_path: Option<PathBuf>,
-    pub llm_model_path: Option<PathBuf>,
     pub llm_ctx_size: u32,
-    pub whisper_coreml_disable: bool,
 
     pub hotkey: HotkeySpec,
     #[serde(default)]
@@ -81,11 +68,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            stt_model_id: None,
-            whisper_model_path: None,
-            llm_model_path: None,
             llm_ctx_size: 4096,
-            whisper_coreml_disable: false,
             hotkey: HotkeySpec {
                 modifiers: ModifierFlags::default(),
                 trigger: Trigger::ModifierOnly {
@@ -180,26 +163,7 @@ impl Settings {
             defaults
         };
         let mut migrated = s;
-        let mut dirty = migrated.migrate();
-        // Clear stale model paths that point to files which no longer exist on
-        // disk. Otherwise the UI shows a picker with a path to nothing and
-        // load_models surfaces a confusing "all configured models failed to
-        // load" — happens when the user deletes a model from the data folder
-        // or switches between dev / release builds whose models dirs differ.
-        if let Some(p) = &migrated.whisper_model_path {
-            if !p.exists() {
-                tracing::warn!(path = %p.display(), "whisper_model_path missing on disk — clearing");
-                migrated.whisper_model_path = None;
-                dirty = true;
-            }
-        }
-        if let Some(p) = &migrated.llm_model_path {
-            if !p.exists() {
-                tracing::warn!(path = %p.display(), "llm_model_path missing on disk — clearing");
-                migrated.llm_model_path = None;
-                dirty = true;
-            }
-        }
+        let dirty = migrated.migrate();
         if dirty {
             migrated.persist(app)?;
         }
@@ -253,11 +217,7 @@ impl Settings {
     }
 
     pub fn env_affecting_diff(before: &Self, after: &Self) -> bool {
-        before.stt_model_id != after.stt_model_id
-            || before.whisper_model_path != after.whisper_model_path
-            || before.llm_model_path != after.llm_model_path
-            || before.llm_ctx_size != after.llm_ctx_size
-            || before.whisper_coreml_disable != after.whisper_coreml_disable
+        before.llm_ctx_size != after.llm_ctx_size
     }
 
     /// One-shot upgrades for settings.json files written by older versions of
@@ -280,19 +240,6 @@ impl Settings {
                     self.language = derived;
                     dirty = true;
                 }
-            }
-        }
-        if self.schema_version < 3 {
-            // M4: introduce `stt_model_id`. We deliberately leave it `None`
-            // for users with a pre-M4 `whisper_model_path` configured — the
-            // wizard's new model picker (see M4 plan Phase 4) is the right
-            // place to ask which STT model they want, rather than
-            // silently mapping their old ggml path to a different model.
-            // `None` means "use the catalog default" at load time.
-            if self.stt_model_id.is_none() {
-                tracing::info!(
-                    "M4 migration: stt_model_id left unset; loader will use the catalog default"
-                );
             }
         }
         if self.schema_version < 4 {
@@ -383,10 +330,7 @@ mod tests {
         // new fields. Serde defaults must populate them so the user doesn't
         // lose the history behavior on upgrade.
         let legacy = json!({
-            "whisperModelPath": null,
-            "llmModelPath": null,
             "llmCtxSize": 4096,
-            "whisperCoreMLDisable": false,
             "legacyHotkey": "right-option",
             "language": "en",
             "inputDeviceName": null,
@@ -442,10 +386,10 @@ mod tests {
     }
 
     #[test]
-    fn env_affecting_diff_detects_path_change() {
+    fn env_affecting_diff_detects_ctx_change() {
         let before = Settings::default();
         let mut after = before.clone();
-        after.whisper_model_path = Some("/new/path.bin".into());
+        after.llm_ctx_size = 8192;
         assert!(Settings::env_affecting_diff(&before, &after));
     }
 
@@ -559,6 +503,30 @@ mod tests {
             }
         );
         assert!(s.legacy_hotkey.is_none());
+    }
+
+    #[test]
+    fn deserializes_settings_json_containing_removed_model_selection_keys() {
+        // An old settings.json written before the fixed-model-catalog change
+        // still has the now-removed model-selection keys on disk (serde
+        // config doesn't rewrite files it hasn't loaded yet). `Settings` no
+        // longer declares these fields, so this locks in that serde's
+        // default "ignore unknown fields" behavior lets such a file
+        // deserialize cleanly — a future `#[serde(deny_unknown_fields)]`
+        // would silently break upgrades for every existing install.
+        let legacy = json!({
+            "sttModelId": "parakeet-tdt-0.6b-v3",
+            "whisperModelPath": "/Users/example/Library/Application Support/Lirevo/models/ggml-base.bin",
+            "llmModelPath": "/Users/example/Library/Application Support/Lirevo/models/old-llm.gguf",
+            "whisperCoreMLDisable": false,
+            "schemaVersion": 4,
+            "language": "it",
+            "llmCtxSize": 8192,
+        });
+        let s: Settings =
+            serde_json::from_value(legacy).expect("removed keys must not break deserialization");
+        assert_eq!(s.language, "it");
+        assert_eq!(s.llm_ctx_size, 8192);
     }
 
     #[test]

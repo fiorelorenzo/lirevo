@@ -7,104 +7,8 @@
     "profilesPath": "crates/lirevo-eval/data/profiles/v1.toml",
     "tsUnix": 1779306388
   },
-  "stt": [
-    {
-      "id": "ggml-large-v3-turbo",
-      "displayName": "Whisper large-v3-turbo",
-      "description": "Best balance · CoreML supported",
-      "sizeBytes": 1624555275,
-      "filename": "ggml-large-v3-turbo.bin",
-      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
-      "sha256": "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69",
-      "coremlEncoder": {
-        "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-encoder.mlmodelc.zip",
-        "filename": "ggml-large-v3-turbo-encoder.mlmodelc.zip",
-        "sha256": "84bedfe895bd7b5de6e8e89a0803dfc5addf8c0c5bc4c937451716bf7cf7988a"
-      }
-    },
-    {
-      "id": "ggml-distil-large-v3",
-      "displayName": "Whisper distil-large-v3",
-      "description": "Faster, similar quality (~1.5 GB, multilingual)",
-      "sizeBytes": 1519521155,
-      "filename": "ggml-distil-large-v3.bin",
-      "url": "https://huggingface.co/distil-whisper/distil-large-v3-ggml/resolve/main/ggml-distil-large-v3.bin",
-      "sha256": "2883a11b90fb10ed592d826edeaee7d2929bf1ab985109fe9e1e7b4d2b69a298"
-    },
-    {
-      "id": "ggml-small-en",
-      "displayName": "Whisper small.en",
-      "description": "English only, very fast (~490 MB)",
-      "sizeBytes": 487614201,
-      "filename": "ggml-small.en.bin",
-      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin",
-      "sha256": "c6138d6d58ecc8322097e0f987c32f1be8bb0a18532a3f88f734d1bbf9c41e5d"
-    }
-  ],
+  "stt": [],
   "llm": [
-    {
-      "id": "qwen3-4b-instruct-2507-q4",
-      "displayName": "Qwen3 4B",
-      "description": "Highest quality and broadest language support. Uses the most memory.",
-      "sizeBytes": 2497280448,
-      "filename": "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
-      "url": "https://huggingface.co/lmstudio-community/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
-      "sha256": "8cdb57cbb880d313736a9bc4e3d3d2485f145b5e19cf33783746e753e82641fc",
-      "scores": {
-        "quality": 100,
-        "latency": 0,
-        "ram": 0,
-        "compositeEqual": 33,
-        "compositeWeighted": 50,
-        "rawChrfMean": 0.7321224069824683,
-        "rawWarmP50Ms": 751,
-        "rawPeakRssKb": 3052944,
-        "nCells": 60
-      },
-      "recommended": false
-    },
-    {
-      "id": "llama-3.2-3b-instruct-q4",
-      "displayName": "Llama 3.2 3B",
-      "description": "Meta's model. Strong quality with moderate memory use.",
-      "sizeBytes": 2019377440,
-      "filename": "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
-      "url": "https://huggingface.co/lmstudio-community/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf",
-      "sha256": "e4f1a04d927b09ec18eb2f233d85ecd760fc2d35cec97e37f8604d3632210d9a",
-      "scores": {
-        "quality": 61,
-        "latency": 24,
-        "ram": 24,
-        "compositeEqual": 36,
-        "compositeWeighted": 43,
-        "rawChrfMean": 0.5308339703529805,
-        "rawWarmP50Ms": 574,
-        "rawPeakRssKb": 2417840,
-        "nCells": 60
-      },
-      "recommended": false
-    },
-    {
-      "id": "qwen3-1.7b-q4",
-      "displayName": "Qwen3 1.7B",
-      "description": "Lighter and faster, while keeping high quality.",
-      "sizeBytes": 1107409472,
-      "filename": "Qwen3-1.7B-Q4_K_M.gguf",
-      "url": "https://huggingface.co/lmstudio-community/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf",
-      "sha256": "b139949c5bd74937ad8ed8c8cf3d9ffb1e99c866c823204dc42c0d91fa181897",
-      "scores": {
-        "quality": 90,
-        "latency": 39,
-        "ram": 55,
-        "compositeEqual": 61,
-        "compositeWeighted": 68,
-        "rawChrfMean": 0.6821560330576274,
-        "rawWarmP50Ms": 471,
-        "rawPeakRssKb": 1613520,
-        "nCells": 60
-      },
-      "recommended": false
-    },
     {
       "id": "gemma-3-1b-it-q4",
       "displayName": "Gemma 3 1B",
@@ -125,27 +29,6 @@
         "nCells": 60
       },
       "recommended": true
-    },
-    {
-      "id": "gemma-3-270m-it-q4",
-      "displayName": "Gemma 3 270M",
-      "description": "Lightest option for low-memory machines. More basic quality.",
-      "sizeBytes": 253115424,
-      "filename": "gemma-3-270m-it-Q4_K_M.gguf",
-      "url": "https://huggingface.co/unsloth/gemma-3-270m-it-GGUF/resolve/main/gemma-3-270m-it-Q4_K_M.gguf",
-      "sha256": "b1baabd6b729e4041822220d3e648e00d99cac5df86b10dffb77bcccf0688e39",
-      "scores": {
-        "quality": 0,
-        "latency": 100,
-        "ram": 100,
-        "compositeEqual": 66,
-        "compositeWeighted": 50,
-        "rawChrfMean": 0.2220852478516694,
-        "rawWarmP50Ms": 24,
-        "rawPeakRssKb": 415728,
-        "nCells": 60
-      },
-      "recommended": false
     }
   ]
 }

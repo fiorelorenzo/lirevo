@@ -1,13 +1,16 @@
 <script lang="ts">
-  import { onMount } from "svelte";
   import * as Select from "$lib/components/ui/select";
   import { Languages } from "@lucide/svelte";
-  import { WIZARD_LANGUAGES, languageLabel, modelForLanguage } from "$lib/models/catalog";
+  import {
+    WIZARD_LANGUAGES,
+    languageLabel,
+    PARAKEET_MODEL_ID,
+    CLEANUP_MODEL_ID,
+  } from "$lib/models/catalog";
   import { settings, updateSettings } from "$lib/stores/settings.svelte";
-  import { wizardDownloadSelection, markDownloadStarted } from "$lib/stores/wizardDownloads";
-  import { lda, type CatalogEntry } from "$lib/tauri";
+  import { markDownloadStarted } from "$lib/stores/wizardDownloads";
+  import { lda } from "$lib/tauri";
   import { t } from "$lib/i18n";
-  import { withErrorToast } from "$lib/stores/toasts";
   import { defaultStepState, type WizardStepState } from "./step-state";
 
   interface Props {
@@ -15,23 +18,6 @@
     nextState?: WizardStepState;
   }
   let { onnext, nextState = $bindable(defaultStepState()) }: Props = $props();
-
-  // Backend LLM catalog (same source the Settings → Models tab + the old
-  // Cleanup step used) so the recommended cleanup model stays in lockstep
-  // with the catalog rather than being hardcoded here.
-  let catalog = $state<CatalogEntry[]>([]);
-  let recommendedLlmId = $derived.by(() => {
-    const llms = catalog
-      .filter((c) => c.kind === "llm")
-      .toSorted((a, b) => {
-        if (a.recommended !== b.recommended) return a.recommended ? -1 : 1;
-        const sa = a.scores?.compositeWeighted ?? -1;
-        const sb = b.scores?.compositeWeighted ?? -1;
-        if (sa !== sb) return sb - sa;
-        return b.sizeBytes - a.sizeBytes;
-      });
-    return llms.find((c) => c.recommended)?.id ?? llms[0]?.id ?? null;
-  });
 
   // Pre-selection priority: an already-chosen dictation language, then the
   // UI language, then English — but only if the candidate is actually in
@@ -59,13 +45,6 @@
     }
   });
 
-  onMount(async () => {
-    const result = await withErrorToast(t("settings.models.error.refresh"), () =>
-      lda.modelsCatalog(),
-    );
-    if (result !== null) catalog = result;
-  });
-
   function onSelectChange(v: string | undefined) {
     if (v) {
       selected = v;
@@ -74,18 +53,13 @@
   }
 
   async function continueNext() {
-    const sttId = modelForLanguage(selected);
-    const llmId = recommendedLlmId;
+    await updateSettings({ language: selected });
 
-    await updateSettings({ language: selected, sttModelId: sttId });
-    wizardDownloadSelection.set({ sttId, llmId });
-
-    // Fire-and-forget each download once; progress arrives via download:progress
-    // events the Downloads step watches. markDownloadStarted stops Back -> Next
-    // from re-triggering an in-flight download (which would reset the bars and
-    // start a competing fetch). Errors are retried from the Downloads step.
-    if (markDownloadStarted(sttId)) void lda.sttDownload(sttId);
-    if (llmId && markDownloadStarted(llmId)) void lda.modelsDownload(llmId);
+    // Fire-and-forget each fixed download once; progress arrives via
+    // download:progress events the Downloads step watches. markDownloadStarted
+    // stops Back→Next from re-triggering an in-flight download.
+    if (markDownloadStarted(PARAKEET_MODEL_ID)) void lda.sttDownload(PARAKEET_MODEL_ID);
+    if (markDownloadStarted(CLEANUP_MODEL_ID)) void lda.modelsDownload(CLEANUP_MODEL_ID);
 
     onnext();
   }

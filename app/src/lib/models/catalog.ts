@@ -79,13 +79,21 @@ export function findModel(id: string): SttModelEntry | undefined {
 /** Catalog id of the STT model. */
 export const PARAKEET_MODEL_ID = "parakeet-tdt-0.6b-v3";
 
-/**
- * Resolve the STT model for a given language code. With a single-model
- * catalog, always returns Parakeet regardless of the language.
- */
-export function modelForLanguage(_code: string): string {
-  return PARAKEET_MODEL_ID;
-}
+/** On-disk filename of the fixed STT GGUF (mirrors stt::catalog::STT_GGUF_FILENAME). */
+export const PARAKEET_FILENAME = "tdt-0.6b-v3-q4_k.gguf";
+
+/** Catalog id of the fixed cleanup LLM (mirrors the single llm entry in
+ * inference-core/data/model_catalog.json). */
+export const CLEANUP_MODEL_ID = "gemma-3-1b-it-q4";
+
+/** Display metadata for the fixed cleanup model. Kept in lockstep with the
+ * backend catalog (`crates/inference-core/data/model_catalog.json`) by the
+ * `catalog-parity.test.ts` Vitest, not by a runtime check. */
+export const CLEANUP_MODEL = {
+  id: CLEANUP_MODEL_ID,
+  displayName: "Gemma 3 1B",
+  sizeBytes: 806058272,
+};
 
 /**
  * ISO 639-1/2 display names for the wizard language picker. Kept inline:
@@ -155,8 +163,7 @@ export function languagesForModel(id: string): string[] {
 
 /**
  * Languages offered in the wizard's language step: Parakeet's 25 European
- * languages, sorted by display name. Picking any of these resolves to
- * Parakeet via {@link modelForLanguage}.
+ * languages, sorted by display name.
  */
 export const WIZARD_LANGUAGES: WizardLanguage[] = PARAKEET_LANGUAGES.map((code) => ({
   code,
@@ -236,9 +243,8 @@ export async function assertCatalogParity(): Promise<void> {
 }
 
 /**
- * Format a byte count like `600 MB` or `1.5 GB`. Mirrors the helper used
- * by the legacy `ModelCard` so the wizard and settings cards look
- * consistent.
+ * Format a byte count like `600 MB` or `1.5 GB`. Shared by the wizard and
+ * the settings status panel so their size labels stay consistent.
  */
 export function formatSize(bytes: number): string {
   return bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.round(bytes / 1e6)} MB`;
