@@ -85,12 +85,9 @@
     <div class="w-full p-4 bg-surface border border-border rounded-lg">
       <div class="flex items-start gap-4">
         <div class="flex-1 min-w-0">
-          <div class="flex items-baseline gap-2 flex-wrap">
-            <span class="text-xs uppercase tracking-wide text-muted-foreground">{row.role}</span>
-            <span class="font-medium">{row.name}</span>
-            <span class="text-xs text-muted-foreground tabular-nums">
-              {formatSize(row.state.sizeBytes ?? row.sizeBytes)}
-            </span>
+          <div class="font-medium">{row.role}</div>
+          <div class="mt-0.5 text-xs text-muted-foreground tabular-nums truncate">
+            {row.name} · {formatSize(row.state.sizeBytes ?? row.sizeBytes)}
           </div>
           {#if active && row.progress}
             <div class="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
