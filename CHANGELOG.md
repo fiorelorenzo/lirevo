@@ -4,6 +4,36 @@ All notable changes to this project are documented in this file. The format foll
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-07-09 — v0.7: fixed model catalog (no user model choice), release-gated hotkey capture
+
+### Changed
+- **Single fixed STT + cleanup model; no user model choice.** Lirevo now ships
+  exactly one dictation model (Parakeet TDT v3) and one cleanup model
+  (Gemma 3 1B). The shipped catalog was trimmed to 1+1, the model-selection
+  settings were removed, STT always resolves to the catalog default, and the
+  cleanup model is gated on its file being present on disk (a new
+  `reload_models` command replaces the old persist-path→settings-diff→reload
+  trigger). Settings schema → v5; existing `settings.json` files deserialize
+  cleanly, dropping the removed keys on next save.
+- **Settings → Models is now a status / maintenance panel** rather than a
+  chooser: each fixed model shows its install state plus a Re-download / Repair
+  action. No model switching, uninstall, catalog list, or custom-file picker.
+- **Model names surfaced in Settings → About** (dictation + cleanup); the setup
+  wizard and Home keep role labels ("Dictation model" / "Cleanup model").
+
+### Fixed
+- **Hotkey capture waits for every key to be released before saving.** Recording
+  a push-to-talk shortcut committed on the first key pressed (and a 200 ms timer
+  committed a lone modifier), which made multi-key combos like ⌘⇧D impossible.
+  Capture now accumulates the richest chord held during the press and commits
+  only on full release.
+
+### Removed
+- The in-app model chooser and the `ModelCard` / `FilePicker` / `SkeletonRow`
+  components, the `models_delete` command, and the model-selection settings
+  fields (`sttModelId`, `whisperModelPath`, `llmModelPath`,
+  `whisperCoreMLDisable`).
+
 ## [0.6.0] - 2026-06-11 — v0.6: STT switch to parakeet-cpp, dynamic GPU backends, energy profiles, resource-aware Engine, history, native menu-bar posture, signed/notarized release pipeline
 
 ### Added
