@@ -93,10 +93,7 @@ impl AppState {
         // signals start flowing (see lib.rs setup wiring).
         let engine = crate::engine::Engine::new(
             crate::engine::EngineConfig {
-                llm_model_path: crate::models::fixed_llm_path(app)
-                    .ok()
-                    .flatten()
-                    .filter(|p| p.exists()),
+                llm_model_path: crate::models::effective_llm_path(app),
                 llm_ctx_size: settings.llm_ctx_size,
                 stt_model_id: Some(crate::stt::catalog::default_model_id().to_string()),
             },

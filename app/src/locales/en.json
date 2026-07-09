@@ -186,7 +186,6 @@
       "llm_ctx_size": "LLM context size (tokens)",
       "advanced_section": "Advanced",
       "installed_badge": "Installed",
-      "download_failed": "Download {{name}}",
       "role_dictation": "Dictation",
       "role_cleanup": "Cleanup",
       "repair_button": "Re-download",

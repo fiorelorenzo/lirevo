@@ -215,10 +215,7 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
     // no persisted path any more: we derive it from the shipped catalog and
     // gate on existence. A missing file means graceful STT-only mode until the
     // user re-downloads it (Settings → Models → Repair) or onboarding fetches it.
-    let effective_llm_path = crate::models::fixed_llm_path(app)
-        .ok()
-        .flatten()
-        .filter(|p| p.exists());
+    let effective_llm_path = crate::models::effective_llm_path(app);
 
     // Push the latest settings into the engine so its lazy/lifecycle paths see
     // the right config (the catalog default for STT, the existence-checked LLM
@@ -273,6 +270,14 @@ pub async fn load_models(app: &AppHandle, state: State<'_, AppState>) {
     // Drive eager loads through the engine. `ensure_stt` returns Ok(None) when
     // the weights are still downloading; `ensure_llm` returns Ok(None) when the
     // fixed model file is absent (graceful STT-only mode).
+    //
+    // Eager-vs-lazy deviation (deliberate): the lifecycle design preloads the
+    // LLM only under Balanced/Performance on AC. We call `ensure_llm` here
+    // unconditionally (when the file exists) because the UI needs a definitive
+    // Ready/Error ModelState up front, and because eagerly loading is the only
+    // way to detect a broken GGUF so the auto-recover block below can react.
+    // The energy policy still applies afterward: `lifecycle_loop` idle-unloads
+    // the LLM once the active profile's window elapses.
     let stt_outcome = engine.ensure_stt().await;
     let llama_outcome = if effective_llm_path.is_some() {
         engine.ensure_llm().await
