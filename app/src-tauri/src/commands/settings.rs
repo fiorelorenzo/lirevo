@@ -25,12 +25,11 @@ pub async fn update_settings(
 
     // Side effects (no lock held).
     //
-    // Skip the reload path during onboarding: the wizard owns model download +
-    // selection and shows its own progress, so its settings writes (sttModelId
-    // on the language step, llmModelPath when the cleanup download finishes)
-    // must not flash a "Reloading models" toast or kick `load_models` (which
-    // early-returns until onboarding completes anyway). `complete_wizard` does
-    // the first real load once onboarding is done.
+    // Skip the reload path during onboarding: the wizard owns model download
+    // and shows its own progress, so its only settings write (`language`, on
+    // the language step) must not flash a "Reloading models" toast or kick
+    // `load_models` (which early-returns until onboarding completes anyway).
+    // `complete_wizard` does the first real load once onboarding is done.
     if Settings::env_affecting_diff(&before, &after) && after.onboarding_complete {
         state.set_model_state(
             &app,

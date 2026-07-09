@@ -6,15 +6,7 @@ export type PermissionStatus = "granted" | "denied" | "not_determined";
 export type Route = "home" | "settings" | "wizard";
 
 export interface Settings {
-  /** M4: catalog id of the STT model to load. `null` falls back to the
-   * backend's `default_model_id()`. Replaces the pre-M4 `whisperModelPath`
-   * for STT selection; the legacy field is kept for backwards-compatible
-   * deserialization but is no longer read by the loader. */
-  sttModelId: string | null;
-  whisperModelPath: string | null;
-  llmModelPath: string | null;
   llmCtxSize: number;
-  whisperCoreMLDisable: boolean;
   hotkey: HotkeySpec;
   activationMode: ActivationMode;
   language: string;
@@ -185,7 +177,7 @@ export const lda = {
   modelsDownload: (id: string) => invoke<void>("models_download", { id }),
   sttDownload: (id: string) => invoke<void>("stt_download", { id }),
   modelsCancelDownload: (id: string) => invoke<void>("models_cancel_download", { id }),
-  modelsDelete: (id: string) => invoke<void>("models_delete", { id }),
+  reloadModels: () => invoke<void>("reload_models"),
   getModelState: () => invoke<ModelState>("get_model_state"),
   getActiveBackend: () => invoke<ActiveBackendInfo>("get_active_backend"),
   checkAccessibility: () => invoke<PermissionStatus>("check_accessibility"),

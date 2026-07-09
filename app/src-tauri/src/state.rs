@@ -77,7 +77,12 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(settings: Settings, db: Arc<crate::db::Db>, models_dir: std::path::PathBuf) -> Self {
+    pub fn new(
+        app: &AppHandle,
+        settings: Settings,
+        db: Arc<crate::db::Db>,
+        models_dir: std::path::PathBuf,
+    ) -> Self {
         let injector = Injector::new();
         let (model_state_tx, _) = watch::channel(ModelState::Idle);
         let (recording_state_tx, _) = watch::channel(false);
@@ -88,9 +93,9 @@ impl AppState {
         // signals start flowing (see lib.rs setup wiring).
         let engine = crate::engine::Engine::new(
             crate::engine::EngineConfig {
-                llm_model_path: settings.llm_model_path.clone(),
+                llm_model_path: crate::models::effective_llm_path(app),
                 llm_ctx_size: settings.llm_ctx_size,
-                stt_model_id: settings.stt_model_id.clone(),
+                stt_model_id: Some(crate::stt::catalog::default_model_id().to_string()),
             },
             inference_core::profile::ProfileName::Balanced,
             models_dir,

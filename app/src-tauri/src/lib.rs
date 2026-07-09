@@ -129,7 +129,7 @@ pub fn run() {
             let db = std::sync::Arc::new(crate::db::Db::open_or_memory(&data_dir.join("data.db")));
             let models_dir = crate::models::models_dir(app.handle())
                 .map_err(|e| Box::<dyn std::error::Error>::from(e.to_string()))?;
-            let app_state = AppState::new(settings, db, models_dir);
+            let app_state = AppState::new(app.handle(), settings, db, models_dir);
             app.manage(app_state);
 
             crate::models::init_active_downloads();
@@ -413,11 +413,11 @@ pub fn run() {
             commands::models::models_download,
             commands::models::stt_download,
             commands::models::models_cancel_download,
-            commands::models::models_delete,
             commands::inference::transcribe,
             commands::inference::clean,
             commands::inference::get_model_state,
             commands::inference::get_active_backend,
+            commands::inference::reload_models,
             commands::dictation::manual_dictate,
             commands::dictation::test_mic,
             commands::dictation::cancel_test_mic,

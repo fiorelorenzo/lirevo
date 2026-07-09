@@ -147,85 +147,44 @@ pub fn models_dir(app: &tauri::AppHandle) -> std::io::Result<PathBuf> {
     Ok(dir)
 }
 
-/// Delete a downloaded model file from the app's models directory.
-///
-/// Lookup happens by catalog id (the canonical handle used by the UI). The
-/// CoreML encoder sibling (for Whisper models that ship one) is removed
-/// alongside the main file. Currently-loaded backends keep their existing
-/// mmap mapping alive until they're dropped, so this never crashes a
-/// live dictation; the next `load_models` call will surface a missing-file
-/// error if the user picks the same path again.
-///
-/// Path safety: we resolve to `models_dir().join(filename)` and require
-/// the resulting path to canonicalize back under the models directory.
-/// That blocks any (hypothetical) future bug where a catalog filename
-/// contains `..` traversal segments.
-pub fn delete_by_id(app: &tauri::AppHandle, id: &str) -> std::io::Result<()> {
-    tracing::info!(id, "delete_by_id: start");
-    let entry = find_by_id(id).ok_or_else(|| {
-        std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            format!("unknown model id: {id}"),
-        )
-    })?;
-    let dir = models_dir(app)?;
-    let dir_canon = std::fs::canonicalize(&dir)?;
+/// The single blessed cleanup LLM. With the fixed catalog this is the one LLM
+/// entry (the `recommended` one if flagged, else the first). `None` only if the
+/// catalog ships no LLM at all.
+#[must_use]
+pub fn fixed_llm() -> Option<CatalogEntry> {
+    let llms: Vec<CatalogEntry> = catalog()
+        .into_iter()
+        .filter(|c| c.kind == ModelKind::Llm)
+        .collect();
+    llms.iter()
+        .find(|c| c.recommended)
+        .cloned()
+        .or_else(|| llms.into_iter().next())
+}
 
-    let main_path = dir.join(&entry.filename);
-    tracing::info!(id, path = %main_path.display(), "delete_by_id: resolved main path");
-    // We do NOT silently skip when canonicalize fails: the UI only shows the
-    // trash icon for `installed` models, so a missing file here is a desync
-    // between `list_local` and `delete_by_id`. Surface it as a real error so
-    // we don't tell the user "deleted!" while leaving the state untouched.
-    let canon = std::fs::canonicalize(&main_path).map_err(|e| {
-        std::io::Error::new(
-            e.kind(),
-            format!(
-                "model file not at expected path {} ({})",
-                main_path.display(),
-                e
-            ),
-        )
-    })?;
-    if !canon.starts_with(&dir_canon) {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::PermissionDenied,
-            format!(
-                "delete target {} escaped models directory {}",
-                canon.display(),
-                dir_canon.display()
-            ),
-        ));
-    }
-    std::fs::remove_file(&canon)?;
-    tracing::info!(id, path = %canon.display(), "delete_by_id: main file removed");
+/// Absolute on-disk path of the fixed cleanup GGUF inside the app models dir.
+/// `Ok(None)` when the catalog ships no LLM.
+pub fn fixed_llm_path(app: &tauri::AppHandle) -> std::io::Result<Option<PathBuf>> {
+    let Some(entry) = fixed_llm() else {
+        return Ok(None);
+    };
+    Ok(Some(models_dir(app)?.join(entry.filename)))
+}
 
-    // CoreML encoder companion (Whisper only). Stored as an unpacked
-    // .mlmodelc DIRECTORY, not the zip — the zip is removed at the end of
-    // download_and_extract_coreml. The directory name strips the `.zip`
-    // suffix from the catalog filename: foo.mlmodelc.zip → foo.mlmodelc.
-    //
-    // Missing CoreML directory is OK: many Whisper variants ship without
-    // one, and the user can manually clear it without the file. Only the
-    // existence-checked path is removed.
-    if let Some(zip_name) = entry.coreml_encoder_filename.as_deref() {
-        let mlmodelc_name = zip_name.trim_end_matches(".zip");
-        let coreml_path = dir.join(mlmodelc_name);
-        if let Ok(canon) = std::fs::canonicalize(&coreml_path) {
-            if !canon.starts_with(&dir_canon) {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::PermissionDenied,
-                    "coreml delete target escaped models directory",
-                ));
-            }
-            if canon.is_dir() {
-                std::fs::remove_dir_all(&canon)?;
-                tracing::info!(id, path = %canon.display(), "delete_by_id: coreml encoder removed");
-            }
+/// The fixed cleanup GGUF path when it exists on disk, else `None`. The only
+/// error source is resolving the models dir; we log it and degrade to STT-only
+/// mode rather than propagating. Used by the load path + startup engine config
+/// so cleanup loads iff the file is present.
+#[must_use]
+pub fn effective_llm_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    match fixed_llm_path(app) {
+        Ok(Some(p)) if p.exists() => Some(p),
+        Ok(_) => None,
+        Err(e) => {
+            tracing::warn!(error = %e, "could not resolve models dir for cleanup model path");
+            None
         }
     }
-
-    Ok(())
 }
 
 pub fn list_local(app: &tauri::AppHandle) -> std::io::Result<Vec<LocalModel>> {
@@ -715,12 +674,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn catalog_has_3_stt_and_5_llm() {
+    fn catalog_has_0_stt_and_1_llm() {
         let c = catalog();
         let stt = c.iter().filter(|c| c.kind == ModelKind::Stt).count();
         let llm = c.iter().filter(|c| c.kind == ModelKind::Llm).count();
-        assert_eq!(stt, 3);
-        assert_eq!(llm, 5);
+        assert_eq!(stt, 0);
+        assert_eq!(llm, 1);
+    }
+
+    #[test]
+    fn fixed_llm_is_the_gemma_entry() {
+        let e = fixed_llm().expect("a fixed LLM must exist");
+        assert_eq!(e.kind, ModelKind::Llm);
+        assert_eq!(e.id, "gemma-3-1b-it-q4");
+        assert_eq!(e.filename, "gemma-3-1b-it-Q4_K_M.gguf");
+        assert!(e.recommended);
     }
 
     #[test]

@@ -2,28 +2,24 @@
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
-  import { Separator } from "$lib/components/ui/separator";
   import * as Select from "$lib/components/ui/select";
   import { Switch } from "$lib/components/ui/switch";
   import { Slider } from "$lib/components/ui/slider";
-  import FilePicker from "$lib/components/FilePicker.svelte";
   import HotkeyRecorder from "$lib/components/HotkeyRecorder.svelte";
   import MicTest from "$lib/components/MicTest.svelte";
-  import ModelCard from "$lib/components/ModelCard.svelte";
-  import SkeletonRow from "$lib/components/SkeletonRow.svelte";
+  import ModelStatusPanel from "$lib/components/settings/ModelStatusPanel.svelte";
   import { settings, updateSettings } from "$lib/stores/settings.svelte";
   import { profile, setProfileMode } from "$lib/stores/profile";
   import { backend, type BackendState } from "$lib/stores/backend.svelte";
   import type { ProfileName } from "$lib/tauri";
   import { t } from "$lib/i18n";
   import { navigate } from "$lib/router";
-  import { lda, type CatalogEntry, type InputDeviceEntry, type LocalModel } from "$lib/tauri";
-  import { STT_MODELS, defaultModelId, formatSize as fmtSttSize } from "$lib/models/catalog";
-  import { Check, Sparkles, Zap, Cpu } from "@lucide/svelte";
-  import { toastInfo, toastError, withErrorToast } from "$lib/stores/toasts";
-  import type { UnlistenFn } from "@tauri-apps/api/event";
+  import { lda, type InputDeviceEntry } from "$lib/tauri";
+  import { STT_MODELS, CLEANUP_MODEL } from "$lib/models/catalog";
+  import { Zap, Cpu } from "@lucide/svelte";
+  import { toastInfo, toastError } from "$lib/stores/toasts";
   import { page } from "$app/state";
-  import { onDestroy, onMount } from "svelte";
+  import { onMount } from "svelte";
 
   type Tab = "general" | "models" | "hotkey" | "about";
   const TABS: Tab[] = ["general", "models", "hotkey", "about"];
@@ -80,22 +76,6 @@
 
   let devices = $state<InputDeviceEntry[]>([]);
 
-  // Model-tab state: catalog + locally installed models + download events.
-  let catalog = $state<CatalogEntry[]>([]);
-  let local = $state<LocalModel[]>([]);
-  let modelsLoaded = $state(false);
-  let unlistenDownload: UnlistenFn | null = null;
-
-  async function refreshModels() {
-    const result = await withErrorToast(t("settings.models.error.refresh"), () =>
-      Promise.all([lda.modelsCatalog(), lda.modelsListLocal()]),
-    );
-    if (result !== null) {
-      [catalog, local] = result;
-    }
-    modelsLoaded = true;
-  }
-
   onMount(async () => {
     // Only enumerate input devices if mic permission was already granted.
     // On macOS 14+ Core Audio HAL surfaces the TCC prompt the moment we
@@ -109,83 +89,7 @@
         // not fatal — keep dropdown empty
       }
     }
-
-    await refreshModels();
-    unlistenDownload = await lda.onDownloadProgress(async (p) => {
-      if (p.state === "complete") {
-        await refreshModels();
-        const entry = catalog.find((c) => c.id === p.id);
-        const localMatch = local.find((l) => l.id === p.id);
-        if (entry && localMatch) {
-          const patch =
-            entry.kind === "stt"
-              ? { whisperModelPath: localMatch.path }
-              : { llmModelPath: localMatch.path };
-          await updateSettings(patch);
-        }
-      }
-    });
   });
-
-  onDestroy(() => {
-    unlistenDownload?.();
-  });
-
-  function installed(id: string): boolean {
-    return local.some((l) => l.id === id);
-  }
-
-  function selectedFor(kind: "stt" | "llm"): string | null {
-    if (!$settings) return null;
-    return kind === "stt" ? $settings.whisperModelPath : $settings.llmModelPath;
-  }
-
-  function selectModel(entry: CatalogEntry) {
-    const match = local.find((l) => l.id === entry.id);
-    if (!match) return;
-    const patch =
-      entry.kind === "stt" ? { whisperModelPath: match.path } : { llmModelPath: match.path };
-    void updateSettings(patch);
-  }
-
-  function fmtSize(bytes: number): string {
-    return bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.round(bytes / 1e6)} MB`;
-  }
-
-  let usedBytes = $derived(local.reduce((s, l) => s + l.sizeBytes, 0));
-  let installedCount = $derived(local.filter((l) => l.inCatalog).length);
-  // M4: STT moved to the audiopipe-backed catalog (see $lib/models/catalog).
-  // The legacy `KINDS` loop now only renders the LLM half; STT has its own
-  // dedicated section above it.
-  const KINDS: ("stt" | "llm")[] = ["llm"];
-
-  // M4 STT section state.
-  // Active = whatever `sttModelId` currently resolves to. When the field
-  // is null the backend falls back to defaultModelId() — mirror that here
-  // so the "In use" badge always lands somewhere.
-  let activeSttId = $derived($settings?.sttModelId ?? defaultModelId());
-  // Track which model we're currently hot-swapping to, so the user gets
-  // immediate feedback ("Switching…") between the click and the next
-  // model-state event landing.
-  let switchingTo = $state<string | null>(null);
-
-  async function useSttModel(id: string) {
-    if (id === activeSttId || switchingTo === id) return;
-    switchingTo = id;
-    toastInfo(t("settings.models.switch_toast"));
-    const result = await updateSettings({ sttModelId: id });
-    if (result === null) {
-      // updateSettings already toasted the error; clear the spinner.
-      switchingTo = null;
-      return;
-    }
-    // The backend reloads asynchronously; the model-state listener (held
-    // by app code elsewhere) will surface progress. Clearing the local
-    // spinner state once the settings round-trip lands is good enough —
-    // the "In use" badge below derives from activeSttId, which already
-    // updated when updateSettings resolved.
-    switchingTo = null;
-  }
 
   async function checkUpdates() {
     checkingUpdates = true;
@@ -449,173 +353,31 @@
       </div>
     {:else if $settings && activeTab === "models"}
       <div class="space-y-8 max-w-2xl">
-        {#if modelsLoaded}
+        <ModelStatusPanel />
+
+        <section>
+          <h2 class="text-xs font-semibold tracking-wide uppercase text-muted-foreground mb-3">
+            {t("settings.models.advanced_section")}
+          </h2>
           <div
-            class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-muted/50 text-xs text-muted-foreground"
+            class="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden"
           >
-            {t("settings.models.stats", {
-              used: fmtSize(usedBytes),
-              installed: installedCount,
-              total: catalog.length,
-            })}
-          </div>
-
-          <!-- M4 STT section: hot-swappable audiopipe models. Source of truth
-               is $lib/models/catalog; the legacy catalog (`local`,
-               `installed`) only governs LLM rows now. -->
-          <section>
-            <h2 class="text-xs font-semibold tracking-wide uppercase text-muted-foreground mb-1">
-              {t("settings.models.stt_section")}
-            </h2>
-            <p class="text-xs text-muted-foreground mb-3">
-              {t("settings.models.stt_section_helper")}
-            </p>
-            <div class="space-y-2">
-              {#each STT_MODELS as entry (entry.id)}
-                {@const isActive = entry.id === activeSttId}
-                {@const isSwitching = switchingTo === entry.id}
-                <div
-                  class={[
-                    "w-full p-4 bg-surface border-2 rounded-lg transition-colors duration-150",
-                    isActive ? "border-primary ring-2 ring-primary/30" : "border-border",
-                  ].join(" ")}
-                >
-                  <div class="flex items-start gap-4">
-                    <div class="flex-1 min-w-0">
-                      <div class="flex items-baseline gap-2 flex-wrap">
-                        <span class="font-medium">{entry.displayName}</span>
-                        <span class="text-xs text-muted-foreground tabular-nums">
-                          {fmtSttSize(entry.sizeBytes)}
-                        </span>
-                        {#if entry.default}
-                          <span
-                            class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[11px] font-medium leading-none"
-                          >
-                            <Sparkles class="h-3 w-3" />
-                            {t("wizard.models.recommended_pill")}
-                          </span>
-                        {/if}
-                      </div>
-                      <p class="text-sm text-muted-foreground mt-1">{entry.summary}</p>
-                      <div
-                        class="mt-2 inline-flex items-center gap-1.5 text-[11px] text-muted-foreground"
-                      >
-                        <span
-                          class="px-1.5 py-0.5 rounded border border-border/60 font-mono leading-none"
-                        >
-                          {entry.license}
-                        </span>
-                      </div>
-                    </div>
-                    <div class="shrink-0 flex items-center gap-2">
-                      {#if isActive}
-                        <span
-                          class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium"
-                        >
-                          <Check class="h-3 w-3" />
-                          {t("settings.models.in_use_badge")}
-                        </span>
-                      {:else if isSwitching}
-                        <span
-                          class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-muted text-muted-foreground text-xs font-medium"
-                        >
-                          {t("settings.models.switching_badge")}
-                        </span>
-                      {:else}
-                        <Button variant="outline" size="sm" onclick={() => useSttModel(entry.id)}>
-                          {t("settings.models.use_button")}
-                        </Button>
-                      {/if}
-                    </div>
-                  </div>
-                </div>
-              {/each}
-            </div>
-            <Separator class="mt-6" />
-          </section>
-
-          {#each KINDS as kind, i (kind)}
-            <section>
-              <h2 class="text-xs font-semibold tracking-wide uppercase text-muted-foreground mb-3">
-                {kind === "stt" ? t("wizard.models.stt_section") : t("wizard.models.llm_section")}
-              </h2>
-
-              <div class="space-y-2">
-                {#each catalog
-                  .filter((c) => c.kind === kind)
-                  .toSorted((a, b) => {
-                    if (a.recommended !== b.recommended) return a.recommended ? -1 : 1;
-                    const sa = a.scores?.compositeWeighted ?? -1;
-                    const sb = b.scores?.compositeWeighted ?? -1;
-                    if (sa !== sb) return sb - sa;
-                    return b.sizeBytes - a.sizeBytes;
-                  }) as entry (entry.id)}
-                  <ModelCard
-                    {entry}
-                    installed={installed(entry.id)}
-                    selected={selectedFor(kind) === local.find((l) => l.id === entry.id)?.path}
-                    onselect={() => selectModel(entry)}
-                    ondelete={refreshModels}
-                  />
-                {/each}
-              </div>
-
-              <div class="text-xs uppercase tracking-wide text-muted-foreground mt-4 mb-2">
-                {t("wizard.models.use_existing")}
-              </div>
-              <FilePicker
-                value={selectedFor(kind)}
-                filters={kind === "stt"
-                  ? [{ name: "Whisper ggml", extensions: ["bin"] }]
-                  : [{ name: "GGUF", extensions: ["gguf"] }]}
-                onpick={(p) =>
-                  updateSettings(kind === "stt" ? { whisperModelPath: p } : { llmModelPath: p })}
+            <div class="p-4 flex items-center justify-between gap-4">
+              <Label>{t("settings.models.llm_ctx_size")}</Label>
+              <Input
+                type="number"
+                class="w-32"
+                value={String($settings.llmCtxSize)}
+                onchange={(e) => {
+                  const n = Number((e.currentTarget as HTMLInputElement).value);
+                  if (!Number.isNaN(n) && n >= 512 && n <= 32768) {
+                    updateSettings({ llmCtxSize: n });
+                  }
+                }}
               />
-
-              {#if i < KINDS.length - 1}
-                <Separator class="mt-6" />
-              {/if}
-            </section>
-          {/each}
-
-          <section>
-            <h2 class="text-xs font-semibold tracking-wide uppercase text-muted-foreground mb-3">
-              {t("settings.models.advanced_section")}
-            </h2>
-            <div
-              class="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden"
-            >
-              <div class="p-4 flex items-center justify-between gap-4">
-                <Label>{t("settings.models.whisper_coreml_disable")}</Label>
-                <Switch
-                  checked={$settings.whisperCoreMLDisable}
-                  onCheckedChange={(v) => updateSettings({ whisperCoreMLDisable: v })}
-                />
-              </div>
-              <div class="p-4 flex items-center justify-between gap-4">
-                <Label>{t("settings.models.llm_ctx_size")}</Label>
-                <Input
-                  type="number"
-                  class="w-32"
-                  value={String($settings.llmCtxSize)}
-                  onchange={(e) => {
-                    const n = Number((e.currentTarget as HTMLInputElement).value);
-                    if (!Number.isNaN(n) && n >= 512 && n <= 32768) {
-                      updateSettings({ llmCtxSize: n });
-                    }
-                  }}
-                />
-              </div>
             </div>
-          </section>
-        {:else}
-          <div class="space-y-3">
-            <SkeletonRow class="h-4 w-32" />
-            <SkeletonRow class="h-16 w-full" />
-            <SkeletonRow class="h-16 w-full" />
-            <SkeletonRow class="h-16 w-full" />
           </div>
-        {/if}
+        </section>
       </div>
     {:else if $settings && activeTab === "hotkey"}
       <div class="space-y-3 max-w-lg">
@@ -643,6 +405,12 @@
             {t("settings.about.version")}: {$settings.appVersion}
           </div>
           <div class="text-sm text-muted-foreground">macOS · arm64</div>
+          <div class="text-sm text-muted-foreground pt-1">
+            {t("settings.about.model_stt")}: {STT_MODELS[0].displayName}
+          </div>
+          <div class="text-sm text-muted-foreground">
+            {t("settings.about.model_llm")}: {CLEANUP_MODEL.displayName}
+          </div>
         </div>
 
         <div
