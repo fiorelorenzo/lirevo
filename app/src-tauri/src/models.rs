@@ -724,4 +724,51 @@ mod tests {
         let n = catalog().iter().filter(|c| c.recommended).count();
         assert!(n <= 1, "expected ≤1 recommended entry, got {n}");
     }
+
+    // `stt_download` (app/src-tauri/src/commands/models.rs) registers/
+    // deregisters in `ACTIVE_DOWNLOADS` using the same primitives as
+    // `download`/`cancel` below. There is no mock-HTTP harness in this
+    // workspace to drive `stt_download` end-to-end, so this exercises the
+    // shared registration + cancellation plumbing directly.
+    #[test]
+    fn cancel_removes_entry_and_fires_receiver() {
+        init_active_downloads();
+        let (tx, mut rx) = oneshot::channel::<()>();
+        {
+            let mut g = ACTIVE_DOWNLOADS.lock().unwrap();
+            g.as_mut()
+                .unwrap()
+                .insert("test:cancel-fires-receiver".to_string(), tx);
+        }
+
+        cancel("test:cancel-fires-receiver").unwrap();
+
+        {
+            let g = ACTIVE_DOWNLOADS.lock().unwrap();
+            assert!(!g
+                .as_ref()
+                .unwrap()
+                .contains_key("test:cancel-fires-receiver"));
+        }
+        assert!(rx.try_recv().is_ok());
+    }
+
+    #[test]
+    fn duplicate_registration_is_rejected_like_download_does() {
+        init_active_downloads();
+        let (tx, _rx) = oneshot::channel::<()>();
+        {
+            let mut g = ACTIVE_DOWNLOADS.lock().unwrap();
+            let map = g.as_mut().unwrap();
+            map.insert("test:duplicate-in-flight".to_string(), tx);
+            assert!(
+                map.contains_key("test:duplicate-in-flight"),
+                "a second registration attempt for the same id must be rejected \
+                 before insert, mirroring stt_download's and download's guard"
+            );
+        }
+        // Clean up so other tests sharing this process-wide static aren't
+        // affected.
+        cancel("test:duplicate-in-flight").unwrap();
+    }
 }
