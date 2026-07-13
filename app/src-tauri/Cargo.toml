@@ -76,6 +76,12 @@ llama-cpp-sys-2 = { version = "0.1.146", features = ["dynamic-backends"] }
 [target.'cfg(target_os = "windows")'.dependencies]
 parakeet-cpp = { git = "https://github.com/fiorelorenzo/parakeet-cpp", rev = "27ce3bec9bcca1aa90110e2770c937df2c83d9eb" }
 
+# statvfs for the pre-flight disk-space check (models.rs); Windows has no
+# equivalent wired up yet (not functional end-to-end regardless, see
+# AGENTS.md "Platform support status") so the check is a no-op there.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [features]
 default = []
 # In-process STT mock. Pulls in `stt::mock::MockModel` and lets the loader

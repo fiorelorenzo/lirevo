@@ -147,6 +147,88 @@ pub fn models_dir(app: &tauri::AppHandle) -> std::io::Result<PathBuf> {
     Ok(dir)
 }
 
+/// Extra headroom required on top of a download's advertised size, to absorb
+/// filesystem block rounding and leave the volume from filling to zero.
+const DOWNLOAD_SAFETY_MARGIN_BYTES: u64 = 256 * 1024 * 1024;
+
+/// Free bytes available on the volume backing `path`, via POSIX `statvfs`.
+/// `None` on non-Unix targets (Windows isn't functional yet, see AGENTS.md
+/// "Platform support status") or if the syscall fails — callers treat `None`
+/// as "unknown" and skip the pre-flight check rather than blocking a download
+/// on an unreliable signal.
+#[cfg(unix)]
+fn free_space_bytes(path: &std::path::Path) -> Option<u64> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    let c_path = CString::new(path.as_os_str().as_bytes()).ok()?;
+    let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+    // SAFETY: `c_path` is a valid NUL-terminated C string for the lifetime of
+    // the call, and `stat` is a valid out-pointer sized for `libc::statvfs`.
+    let rc = unsafe { libc::statvfs(c_path.as_ptr(), std::ptr::addr_of_mut!(stat)) };
+    if rc != 0 {
+        return None;
+    }
+    Some((stat.f_bavail as u64).saturating_mul(stat.f_frsize as u64))
+}
+
+#[cfg(not(unix))]
+fn free_space_bytes(_path: &std::path::Path) -> Option<u64> {
+    None
+}
+
+fn format_bytes(bytes: u64) -> String {
+    const GB: f64 = 1024.0 * 1024.0 * 1024.0;
+    const MB: f64 = 1024.0 * 1024.0;
+    let b = bytes as f64;
+    if b >= GB {
+        format!("{:.1} GB", b / GB)
+    } else {
+        format!("{:.0} MB", b / MB)
+    }
+}
+
+fn disk_space_error_message(required: u64, available: u64) -> String {
+    format!(
+        "Not enough disk space — need {}, have {} free",
+        format_bytes(required),
+        format_bytes(available)
+    )
+}
+
+/// Compares `available` (`None` = unknown, e.g. non-Unix targets or a failed
+/// syscall) against `required` bytes. Pure so it's testable without a real
+/// filesystem or `AppHandle`.
+fn evaluate_disk_space(available: Option<u64>, required: u64) -> Result<(), String> {
+    match available {
+        Some(avail) if avail < required => Err(disk_space_error_message(required, avail)),
+        _ => Ok(()),
+    }
+}
+
+/// Pre-flight disk space check: fails fast (before any network I/O) if the
+/// volume backing the models dir doesn't have room for `needed_bytes` plus a
+/// safety margin. `LIREVO_DEV_FAKE_FREE_BYTES` (debug builds only) overrides
+/// the real free-space reading so the low-space UI path can be exercised
+/// without actually filling a disk.
+pub(crate) fn check_disk_space(
+    app: &tauri::AppHandle,
+    needed_bytes: u64,
+) -> Result<(), String> {
+    let dir = models_dir(app).map_err(|e| e.to_string())?;
+    let required = needed_bytes.saturating_add(DOWNLOAD_SAFETY_MARGIN_BYTES);
+
+    #[cfg(debug_assertions)]
+    let available = std::env::var("LIREVO_DEV_FAKE_FREE_BYTES")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .or_else(|| free_space_bytes(&dir));
+    #[cfg(not(debug_assertions))]
+    let available = free_space_bytes(&dir);
+
+    evaluate_disk_space(available, required)
+}
+
 /// The single blessed cleanup LLM. With the fixed catalog this is the one LLM
 /// entry (the `recommended` one if flagged, else the first). `None` only if the
 /// catalog ships no LLM at all.
@@ -294,6 +376,20 @@ pub async fn download(app: tauri::AppHandle, id: String) -> Result<(), crate::Ap
 
     let entry =
         find_by_id(&id).ok_or_else(|| AppError::Download(format!("unknown model id: {id}")))?;
+
+    if let Err(msg) = check_disk_space(&app, entry.size_bytes) {
+        let _ = app.emit(
+            "download:progress",
+            DownloadProgress {
+                id: id.clone(),
+                state: DownloadProgressState::Error,
+                bytes_received: 0,
+                bytes_total: entry.size_bytes,
+                error_message: Some(msg.clone()),
+            },
+        );
+        return Err(AppError::Download(msg));
+    }
 
     let (cancel_tx, mut cancel_rx) = oneshot::channel::<()>();
     {
@@ -723,5 +819,48 @@ mod tests {
     fn at_most_one_recommended_llm() {
         let n = catalog().iter().filter(|c| c.recommended).count();
         assert!(n <= 1, "expected ≤1 recommended entry, got {n}");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn free_space_bytes_returns_a_plausible_positive_number() {
+        let dir = std::env::temp_dir();
+        let free = free_space_bytes(&dir).expect("statvfs should succeed on a real path");
+        // Any mounted, non-full volume has at least a few MB free — this just
+        // guards against the syscall returning garbage (e.g. 0 or a huge
+        // bogus value from a botched block-size multiplication).
+        assert!(free > 0, "expected positive free space, got {free}");
+    }
+
+    #[test]
+    fn evaluate_disk_space_ok_when_enough_free() {
+        assert!(evaluate_disk_space(Some(10_000), 5_000).is_ok());
+    }
+
+    #[test]
+    fn evaluate_disk_space_errors_when_not_enough_free() {
+        let err = evaluate_disk_space(Some(100), 5_000).unwrap_err();
+        assert!(err.contains("Not enough disk space"), "{err}");
+    }
+
+    #[test]
+    fn evaluate_disk_space_skips_check_when_available_unknown() {
+        // `None` models an unresolvable free-space reading (non-Unix target
+        // or a failed syscall) — we don't want an unreliable signal to block
+        // downloads outright.
+        assert!(evaluate_disk_space(None, u64::MAX).is_ok());
+    }
+
+    #[test]
+    fn format_bytes_uses_mb_below_one_gb_and_gb_above() {
+        assert_eq!(format_bytes(500 * 1024 * 1024), "500 MB");
+        assert_eq!(format_bytes(2 * 1024 * 1024 * 1024), "2.0 GB");
+    }
+
+    #[test]
+    fn disk_space_error_message_reports_required_and_available() {
+        let msg = disk_space_error_message(2 * 1024 * 1024 * 1024, 500 * 1024 * 1024);
+        assert!(msg.contains("2.0 GB"), "{msg}");
+        assert!(msg.contains("500 MB"), "{msg}");
     }
 }
