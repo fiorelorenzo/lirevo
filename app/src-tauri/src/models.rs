@@ -211,10 +211,7 @@ fn evaluate_disk_space(available: Option<u64>, required: u64) -> Result<(), Stri
 /// safety margin. `LIREVO_DEV_FAKE_FREE_BYTES` (debug builds only) overrides
 /// the real free-space reading so the low-space UI path can be exercised
 /// without actually filling a disk.
-pub(crate) fn check_disk_space(
-    app: &tauri::AppHandle,
-    needed_bytes: u64,
-) -> Result<(), String> {
+pub(crate) fn check_disk_space(app: &tauri::AppHandle, needed_bytes: u64) -> Result<(), String> {
     let dir = models_dir(app).map_err(|e| e.to_string())?;
     let required = needed_bytes.saturating_add(DOWNLOAD_SAFETY_MARGIN_BYTES);
 
