@@ -17,10 +17,7 @@ use crate::state::SttSlot;
 /// built with, so the lifecycle layer can detect a profile-driven change.
 pub enum LlmSlot {
     Unloaded,
-    // `since` is reserved for stuck-loading detection (not yet read by the
-    // lifecycle loop); kept so a future watchdog can time out a wedged load.
     Loading {
-        #[allow(dead_code)]
         since: Instant,
     },
     Loaded {
@@ -35,10 +32,7 @@ pub enum LlmSlot {
 /// lock during a dictation.
 pub enum SttSlotState {
     Unloaded,
-    // `since` is reserved for stuck-loading detection (not yet read by the
-    // lifecycle loop); kept so a future watchdog can time out a wedged load.
     Loading {
-        #[allow(dead_code)]
         since: Instant,
     },
     Loaded {
@@ -51,7 +45,11 @@ pub enum SttSlotState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SlotSnapshot {
     Unloaded,
-    Loading,
+    /// Loading since this instant, so the decision layer can detect a
+    /// wedged load past the watchdog timeout.
+    Loading {
+        since: Instant,
+    },
     /// Loaded since this `last_use`. `loaded_n_threads` is `None` for the STT
     /// slot (threads are not a tunable for the GGUF STT backend).
     Loaded {
@@ -64,7 +62,7 @@ impl LlmSlot {
     pub fn snapshot(&self) -> SlotSnapshot {
         match self {
             LlmSlot::Unloaded => SlotSnapshot::Unloaded,
-            LlmSlot::Loading { .. } => SlotSnapshot::Loading,
+            LlmSlot::Loading { since } => SlotSnapshot::Loading { since: *since },
             LlmSlot::Loaded {
                 last_use,
                 loaded_n_threads,
@@ -81,7 +79,7 @@ impl SttSlotState {
     pub fn snapshot(&self) -> SlotSnapshot {
         match self {
             SttSlotState::Unloaded => SlotSnapshot::Unloaded,
-            SttSlotState::Loading { .. } => SlotSnapshot::Loading,
+            SttSlotState::Loading { since } => SlotSnapshot::Loading { since: *since },
             SttSlotState::Loaded { last_use, .. } => SlotSnapshot::Loaded {
                 last_use: *last_use,
                 loaded_n_threads: None,
