@@ -32,13 +32,8 @@ pub enum LlmSlot {
 /// lock during a dictation.
 pub enum SttSlotState {
     Unloaded,
-    Loading {
-        since: Instant,
-    },
-    Loaded {
-        slot: SttSlot,
-        last_use: Instant,
-    },
+    Loading { since: Instant },
+    Loaded { slot: SttSlot, last_use: Instant },
 }
 
 /// A clock/handle-free view of a slot for the pure decision layer.
