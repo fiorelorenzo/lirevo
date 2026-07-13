@@ -126,6 +126,26 @@ pub async fn stt_download(app: AppHandle, id: String) -> Result<(), AppError> {
         tokio::fs::rename(&tmp, &dest)
             .await
             .map_err(|e| format!("rename: {e}"))?;
+
+        let expected = crate::stt::catalog::model_metadata(&id).map(|m| m.sha256);
+        if let Some(expected) = expected {
+            let _ = app.emit(
+                "download:progress",
+                DownloadProgress {
+                    id: id.clone(),
+                    state: DownloadProgressState::Verifying,
+                    bytes_received: received,
+                    bytes_total: total,
+                    error_message: None,
+                },
+            );
+            crate::models::verify_and_cleanup(&dest, expected)
+                .await
+                .map_err(|e| match e {
+                    crate::models::DownloadError::Failed(msg) => msg,
+                    crate::models::DownloadError::Cancelled => "cancelled".to_string(),
+                })?;
+        }
         Ok::<(), String>(())
     };
 

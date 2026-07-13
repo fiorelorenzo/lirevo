@@ -252,7 +252,10 @@ pub(crate) enum DownloadError {
 /// reload should also catch a tampered file. Buffer size is 64 KiB —
 /// large enough to amortize syscalls without ballooning memory on 2 GB
 /// models.
-async fn verify_sha256(path: &std::path::Path, expected: &str) -> Result<(), DownloadError> {
+pub(crate) async fn verify_sha256(
+    path: &std::path::Path,
+    expected: &str,
+) -> Result<(), DownloadError> {
     use sha2::{Digest, Sha256};
     use std::fmt::Write as _;
 
@@ -286,6 +289,20 @@ async fn verify_sha256(path: &std::path::Path, expected: &str) -> Result<(), Dow
             "SHA-256 mismatch — expected {expected}, got {actual}"
         )))
     }
+}
+
+/// Verify a just-downloaded file against its expected SHA-256, deleting it on
+/// mismatch so a retry starts from scratch. Shared by the LLM (`download_inner`)
+/// and STT (`commands::models::stt_download`) download paths.
+pub(crate) async fn verify_and_cleanup(
+    path: &std::path::Path,
+    expected: &str,
+) -> Result<(), DownloadError> {
+    if let Err(e) = verify_sha256(path, expected).await {
+        let _ = tokio::fs::remove_file(path).await;
+        return Err(e);
+    }
+    Ok(())
 }
 
 pub async fn download(app: tauri::AppHandle, id: String) -> Result<(), crate::AppError> {
@@ -459,11 +476,7 @@ async fn download_inner(
                 error_message: None,
             },
         );
-        if let Err(e) = verify_sha256(&dest, expected).await {
-            // Remove the corrupted file so a retry starts from scratch.
-            let _ = tokio::fs::remove_file(&dest).await;
-            return Err(e);
-        }
+        verify_and_cleanup(&dest, expected).await?;
     }
 
     // Whisper CoreML companion (separate zip download + unzip).
@@ -723,5 +736,43 @@ mod tests {
     fn at_most_one_recommended_llm() {
         let n = catalog().iter().filter(|c| c.recommended).count();
         assert!(n <= 1, "expected ≤1 recommended entry, got {n}");
+    }
+
+    #[tokio::test]
+    async fn verify_and_cleanup_rejects_and_deletes_corrupted_file() {
+        let dir = std::env::temp_dir().join(format!("lirevo-sha256-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("corrupted.gguf");
+        std::fs::write(&path, b"not the real model bytes").unwrap();
+
+        let wrong_expected = "0".repeat(64);
+        let result = verify_and_cleanup(&path, &wrong_expected).await;
+
+        assert!(matches!(result, Err(DownloadError::Failed(_))));
+        assert!(!path.exists(), "corrupted file should be deleted");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn verify_and_cleanup_accepts_matching_digest() {
+        use sha2::{Digest, Sha256};
+
+        let dir =
+            std::env::temp_dir().join(format!("lirevo-sha256-test-ok-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("good.gguf");
+        let content = b"totally real model bytes";
+        std::fs::write(&path, content).unwrap();
+
+        let digest = Sha256::digest(content);
+        let expected: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+
+        let result = verify_and_cleanup(&path, &expected).await;
+
+        assert!(result.is_ok());
+        assert!(path.exists(), "verified file should be kept");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
