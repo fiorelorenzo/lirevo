@@ -17,7 +17,8 @@
   import { lda, type InputDeviceEntry } from "$lib/tauri";
   import { STT_MODELS, CLEANUP_MODEL } from "$lib/models/catalog";
   import { Zap, Cpu } from "@lucide/svelte";
-  import { toastInfo, toastError } from "$lib/stores/toasts";
+  import { toastError } from "$lib/stores/toasts";
+  import { open } from "@tauri-apps/plugin-shell";
   import { page } from "$app/state";
   import { onMount } from "svelte";
 
@@ -30,7 +31,6 @@
 
   const initialTab = page.url.searchParams.get("tab");
   let activeTab: Tab = $state(isTab(initialTab) ? initialTab : "general");
-  let checkingUpdates = $state(false);
 
   const LANGUAGE_OPTIONS = [
     { value: "auto", label: t("settings.general.language_auto") },
@@ -91,17 +91,17 @@
     }
   });
 
+  // There is no real updater yet (XPLAT-2): rather than call the
+  // always-`{ available: false }` stub and risk claiming "you are on the
+  // latest version" when no check actually happened, this opens the GitHub
+  // Releases page so the user can compare versions themselves.
+  const RELEASES_URL = "https://github.com/fiorelorenzo/lirevo/releases/latest";
+
   async function checkUpdates() {
-    checkingUpdates = true;
     try {
-      const info = await lda.checkForUpdates();
-      toastInfo(
-        info.available ? `Update available: ${info.version}` : "You are on the latest version.",
-      );
+      await open(RELEASES_URL);
     } catch (e) {
-      toastError(`Update check failed: ${e}`);
-    } finally {
-      checkingUpdates = false;
+      toastError(`${t("settings.about.check_updates_error")}: ${e}`);
     }
   }
 </script>
@@ -486,8 +486,8 @@
         </div>
 
         <div class="flex flex-wrap gap-3">
-          <Button variant="outline" onclick={checkUpdates} disabled={checkingUpdates}>
-            {checkingUpdates ? t("settings.about.checking") : t("settings.about.check_updates")}
+          <Button variant="outline" onclick={checkUpdates}>
+            {t("settings.about.check_updates")}
           </Button>
           <Button variant="outline" onclick={() => navigate("wizard")}>
             {t("settings.about.rerun_wizard")}
