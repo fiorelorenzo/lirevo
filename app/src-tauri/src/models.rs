@@ -169,7 +169,7 @@ fn free_space_bytes(path: &std::path::Path) -> Option<u64> {
     if rc != 0 {
         return None;
     }
-    Some((stat.f_bavail as u64).saturating_mul(stat.f_frsize as u64))
+    Some((stat.f_bavail as u64).saturating_mul(stat.f_frsize))
 }
 
 #[cfg(not(unix))]
