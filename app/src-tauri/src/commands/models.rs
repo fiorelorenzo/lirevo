@@ -40,6 +40,8 @@ pub async fn models_download(
 /// backing the LLM path (`crate::models::download_inner`) — and registers in
 /// `ACTIVE_DOWNLOADS` the same way so `models_cancel_download` can interrupt
 /// it mid-transfer (checked once per chunk via `cancel_rx.try_recv()`).
+/// `download_file` itself removes the `.partial` tmp file on every error
+/// path (TRUST-4), so this command doesn't need its own cleanup.
 #[tauri::command]
 pub async fn stt_download(app: AppHandle, id: String) -> Result<(), AppError> {
     use crate::models::{
@@ -56,10 +58,6 @@ pub async fn stt_download(app: AppHandle, id: String) -> Result<(), AppError> {
     let dest = models_dir(&app)
         .map_err(|e| AppError::Fs(e.to_string()))?
         .join(crate::stt::STT_GGUF_FILENAME);
-    let tmp = dest.with_extension(format!(
-        "{}.partial",
-        dest.extension().and_then(|e| e.to_str()).unwrap_or("")
-    ));
 
     tracing::info!(id = %id, %url, "stt_download: starting");
 
@@ -149,7 +147,6 @@ pub async fn stt_download(app: AppHandle, id: String) -> Result<(), AppError> {
         }
         Err(DownloadError::Failed(msg)) => {
             tracing::error!(id = %id, error = %msg, "stt_download: failed");
-            let _ = tokio::fs::remove_file(&tmp).await;
             let _ = app.emit(
                 "download:progress",
                 DownloadProgress {

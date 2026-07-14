@@ -316,6 +316,69 @@ pub fn init_active_downloads() {
     }
 }
 
+/// Removes any `.partial` temp files found directly under `dir` — orphaned
+/// by a download that never finished (crash, force-quit, power loss). Pure
+/// over a directory path so it's testable without an `AppHandle`; the
+/// startup call site is `sweep_orphaned_partials_at_startup`. Returns the
+/// number of files removed.
+fn sweep_orphaned_partials(dir: &std::path::Path) -> usize {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) => {
+            tracing::warn!(
+                dir = %dir.display(),
+                error = %e,
+                "could not read models dir for orphaned .partial sweep",
+            );
+            return 0;
+        }
+    };
+
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("partial") {
+            continue;
+        }
+        match std::fs::remove_file(&path) {
+            Ok(()) => {
+                removed += 1;
+                tracing::warn!(
+                    path = %path.display(),
+                    "removed orphaned .partial file left over from a previous session",
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    path = %path.display(),
+                    error = %e,
+                    "failed to remove orphaned .partial file",
+                );
+            }
+        }
+    }
+    removed
+}
+
+/// Startup sweep: called once during app init (alongside
+/// `init_active_downloads`, before any download can start) to clean up
+/// `.partial` files left behind by a crash or force-quit on a prior run.
+/// Since this only runs before any download begins, it can never race an
+/// in-flight download's own tmp file.
+pub fn sweep_orphaned_partials_at_startup(app: &tauri::AppHandle) {
+    match models_dir(app) {
+        Ok(dir) => {
+            sweep_orphaned_partials(&dir);
+        }
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                "could not resolve models dir for startup .partial sweep",
+            );
+        }
+    }
+}
+
 use futures_util::StreamExt;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -487,10 +550,12 @@ pub async fn download(app: tauri::AppHandle, id: String) -> Result<(), crate::Ap
 /// The CoreML companion zip (`download_and_extract_coreml`) has its own
 /// extract step afterwards, so it stays a separate routine.
 ///
-/// On cancellation the `.partial` file is removed before returning; on any
-/// other failure the `.partial` file is left in place for the caller to
-/// decide whether to clean it up (callers currently differ here — see
-/// TRUST-4).
+/// Every error path — cancellation, HTTP failure, stream error, write error,
+/// flush error, or rename error — removes the `.partial` tmp file before
+/// returning, so a failed download never leaves an orphan behind (TRUST-4).
+/// Once the tmp file has been renamed into `dest`, a later failure (e.g. SHA
+/// mismatch) has nothing left at `tmp` to remove — `verify_and_cleanup`
+/// already deletes `dest` itself in that case.
 pub(crate) async fn download_file(
     app: &tauri::AppHandle,
     url: &str,
@@ -500,11 +565,42 @@ pub(crate) async fn download_file(
     expected_sha256: Option<&str>,
     cancel_rx: &mut oneshot::Receiver<()>,
 ) -> Result<(), DownloadError> {
-    use tauri::Emitter;
     let tmp = dest.with_extension(format!(
         "{}.partial",
         dest.extension().and_then(|e| e.to_str()).unwrap_or("")
     ));
+
+    let result = download_file_inner(
+        app,
+        url,
+        dest,
+        &tmp,
+        id,
+        expected_total,
+        expected_sha256,
+        cancel_rx,
+    )
+    .await;
+
+    if let Err(DownloadError::Failed(_)) = &result {
+        let _ = tokio::fs::remove_file(&tmp).await;
+    }
+
+    result
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn download_file_inner(
+    app: &tauri::AppHandle,
+    url: &str,
+    dest: &std::path::Path,
+    tmp: &std::path::Path,
+    id: &str,
+    expected_total: u64,
+    expected_sha256: Option<&str>,
+    cancel_rx: &mut oneshot::Receiver<()>,
+) -> Result<(), DownloadError> {
+    use tauri::Emitter;
 
     let client = reqwest::Client::new();
     let resp = client
@@ -969,6 +1065,60 @@ mod tests {
         assert!(!path.exists(), "corrupted file should be deleted");
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sweep_orphaned_partials_removes_only_partial_files() {
+        let dir =
+            std::env::temp_dir().join(format!("lirevo-sweep-partials-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let orphan1 = dir.join("gemma-3-1b-it-Q4_K_M.gguf.partial");
+        let orphan2 = dir.join("parakeet-tdt-0.6b-v3.bin.partial");
+        let legit_gguf = dir.join("gemma-3-1b-it-Q4_K_M.gguf");
+        let legit_bin = dir.join("parakeet-tdt-0.6b-v3.bin");
+        for f in [&orphan1, &orphan2, &legit_gguf, &legit_bin] {
+            std::fs::write(f, b"data").unwrap();
+        }
+
+        let removed = sweep_orphaned_partials(&dir);
+
+        assert_eq!(removed, 2);
+        assert!(
+            !orphan1.exists(),
+            "orphaned .partial file should be removed"
+        );
+        assert!(
+            !orphan2.exists(),
+            "orphaned .partial file should be removed"
+        );
+        assert!(legit_gguf.exists(), "legitimate .gguf file must be kept");
+        assert!(legit_bin.exists(), "legitimate .bin file must be kept");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sweep_orphaned_partials_is_noop_on_empty_dir() {
+        let dir = std::env::temp_dir().join(format!(
+            "lirevo-sweep-partials-empty-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        assert_eq!(sweep_orphaned_partials(&dir), 0);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sweep_orphaned_partials_handles_missing_dir_gracefully() {
+        let dir = std::env::temp_dir().join(format!(
+            "lirevo-sweep-partials-missing-test-{}",
+            std::process::id()
+        ));
+        // Deliberately not created — the sweep must not panic.
+        assert_eq!(sweep_orphaned_partials(&dir), 0);
     }
 
     #[tokio::test]

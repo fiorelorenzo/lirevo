@@ -133,6 +133,9 @@ pub fn run() {
             app.manage(app_state);
 
             crate::models::init_active_downloads();
+            // Sweep stale .partial files from a crash/force-quit on a prior
+            // run, before any download this session can create one (TRUST-4).
+            crate::models::sweep_orphaned_partials_at_startup(app.handle());
 
             // Install tray.
             if let Err(e) = tray::install(app.handle()) {
