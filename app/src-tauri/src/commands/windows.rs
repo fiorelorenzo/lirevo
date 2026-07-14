@@ -37,6 +37,12 @@ pub async fn complete_wizard(
     // have failed silently if the permission was revoked or not-yet-given.
     if let Err(e) = crate::hotkey::reinstall(&app, hotkey, activation_mode) {
         tracing::warn!(?e, "hotkey reinstall after wizard failed");
+        if matches!(e, AppError::HotkeyBusy) {
+            let _ = app.emit(
+                "toast",
+                crate::commands::toast("warn", "Can't change hotkey while recording"),
+            );
+        }
     }
     use tauri::Manager;
     // Onboarding is done and the wizard downloaded both models, so eager-load

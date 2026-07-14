@@ -331,7 +331,10 @@ pub(crate) enum DownloadError {
 /// reload should also catch a tampered file. Buffer size is 64 KiB —
 /// large enough to amortize syscalls without ballooning memory on 2 GB
 /// models.
-async fn verify_sha256(path: &std::path::Path, expected: &str) -> Result<(), DownloadError> {
+pub(crate) async fn verify_sha256(
+    path: &std::path::Path,
+    expected: &str,
+) -> Result<(), DownloadError> {
     use sha2::{Digest, Sha256};
     use std::fmt::Write as _;
 
@@ -365,6 +368,20 @@ async fn verify_sha256(path: &std::path::Path, expected: &str) -> Result<(), Dow
             "SHA-256 mismatch — expected {expected}, got {actual}"
         )))
     }
+}
+
+/// Verify a just-downloaded file against its expected SHA-256, deleting it on
+/// mismatch so a retry starts from scratch. Shared by the LLM (`download_inner`)
+/// and STT (`commands::models::stt_download`) download paths.
+pub(crate) async fn verify_and_cleanup(
+    path: &std::path::Path,
+    expected: &str,
+) -> Result<(), DownloadError> {
+    if let Err(e) = verify_sha256(path, expected).await {
+        let _ = tokio::fs::remove_file(path).await;
+        return Err(e);
+    }
+    Ok(())
 }
 
 pub async fn download(app: tauri::AppHandle, id: String) -> Result<(), crate::AppError> {
@@ -552,11 +569,7 @@ async fn download_inner(
                 error_message: None,
             },
         );
-        if let Err(e) = verify_sha256(&dest, expected).await {
-            // Remove the corrupted file so a retry starts from scratch.
-            let _ = tokio::fs::remove_file(&dest).await;
-            return Err(e);
-        }
+        verify_and_cleanup(&dest, expected).await?;
     }
 
     // Whisper CoreML companion (separate zip download + unzip).
@@ -859,5 +872,90 @@ mod tests {
         let msg = disk_space_error_message(2 * 1024 * 1024 * 1024, 500 * 1024 * 1024);
         assert!(msg.contains("2.0 GB"), "{msg}");
         assert!(msg.contains("500 MB"), "{msg}");
+    }
+
+    // `stt_download` (app/src-tauri/src/commands/models.rs) registers/
+    // deregisters in `ACTIVE_DOWNLOADS` using the same primitives as
+    // `download`/`cancel` below. There is no mock-HTTP harness in this
+    // workspace to drive `stt_download` end-to-end, so this exercises the
+    // shared registration + cancellation plumbing directly.
+    #[test]
+    fn cancel_removes_entry_and_fires_receiver() {
+        init_active_downloads();
+        let (tx, mut rx) = oneshot::channel::<()>();
+        {
+            let mut g = ACTIVE_DOWNLOADS.lock().unwrap();
+            g.as_mut()
+                .unwrap()
+                .insert("test:cancel-fires-receiver".to_string(), tx);
+        }
+
+        cancel("test:cancel-fires-receiver").unwrap();
+
+        {
+            let g = ACTIVE_DOWNLOADS.lock().unwrap();
+            assert!(!g
+                .as_ref()
+                .unwrap()
+                .contains_key("test:cancel-fires-receiver"));
+        }
+        assert!(rx.try_recv().is_ok());
+    }
+
+    #[test]
+    fn duplicate_registration_is_rejected_like_download_does() {
+        init_active_downloads();
+        let (tx, _rx) = oneshot::channel::<()>();
+        {
+            let mut g = ACTIVE_DOWNLOADS.lock().unwrap();
+            let map = g.as_mut().unwrap();
+            map.insert("test:duplicate-in-flight".to_string(), tx);
+            assert!(
+                map.contains_key("test:duplicate-in-flight"),
+                "a second registration attempt for the same id must be rejected \
+                 before insert, mirroring stt_download's and download's guard"
+            );
+        }
+        // Clean up so other tests sharing this process-wide static aren't
+        // affected.
+        cancel("test:duplicate-in-flight").unwrap();
+    }
+
+    #[tokio::test]
+    async fn verify_and_cleanup_rejects_and_deletes_corrupted_file() {
+        let dir = std::env::temp_dir().join(format!("lirevo-sha256-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("corrupted.gguf");
+        std::fs::write(&path, b"not the real model bytes").unwrap();
+
+        let wrong_expected = "0".repeat(64);
+        let result = verify_and_cleanup(&path, &wrong_expected).await;
+
+        assert!(matches!(result, Err(DownloadError::Failed(_))));
+        assert!(!path.exists(), "corrupted file should be deleted");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn verify_and_cleanup_accepts_matching_digest() {
+        use sha2::{Digest, Sha256};
+
+        let dir =
+            std::env::temp_dir().join(format!("lirevo-sha256-test-ok-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("good.gguf");
+        let content = b"totally real model bytes";
+        std::fs::write(&path, content).unwrap();
+
+        let digest = Sha256::digest(content);
+        let expected: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+
+        let result = verify_and_cleanup(&path, &expected).await;
+
+        assert!(result.is_ok());
+        assert!(path.exists(), "verified file should be kept");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

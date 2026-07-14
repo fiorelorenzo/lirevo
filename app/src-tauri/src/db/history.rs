@@ -8,6 +8,13 @@ pub const CLEANUP_APPLIED: &str = "applied";
 pub const CLEANUP_SKIPPED: &str = "skipped";
 pub const CLEANUP_FAILED: &str = "failed";
 
+/// Terminal pipeline failures at a stage earlier than cleanup. There is no
+/// dedicated "stage" column: `cleanup_status` already doubles as the row's
+/// overall outcome, so these reuse it rather than add a migration for a
+/// second status column.
+pub const STT_FAILED: &str = "stt_failed";
+pub const INJECT_FAILED: &str = "inject_failed";
+
 /// Insert payload (every column except `id`).
 #[derive(Debug, Clone)]
 pub struct NewDictation {
@@ -80,7 +87,7 @@ pub struct Dictation {
 
 const PREVIEW_CHARS: usize = 120;
 
-fn preview_of(text: &str) -> String {
+pub(crate) fn preview_of(text: &str) -> String {
     let mut s: String = text.chars().take(PREVIEW_CHARS).collect();
     if text.chars().count() > PREVIEW_CHARS {
         s.push('…');
@@ -277,5 +284,56 @@ mod tests {
         }
         let page = list(&db, 2, 2).unwrap();
         assert_eq!(page.len(), 2);
+    }
+
+    /// STT/inject failure rows have no cleaned transcript yet (NOT NULL
+    /// columns fall back to empty strings) but must still round-trip and
+    /// surface the failed stage via `cleanup_status`.
+    #[test]
+    fn insert_get_stage_failure_rows() {
+        let db = Db::memory().unwrap();
+
+        let stt_failed = NewDictation {
+            created_at: 1,
+            language: Some("en".into()),
+            stt_model: "parakeet-tdt-0.6b-v3".into(),
+            audio_ms: Some(1500),
+            raw_text: String::new(),
+            stt_ms: 42,
+            llm_model: None,
+            cleaned_text: String::new(),
+            clean_ms: None,
+            cleanup_status: STT_FAILED.into(),
+            cleanup_error: Some("STT model not loaded".into()),
+            inject_method: "none".into(),
+            inject_ms: None,
+            total_ms: 42,
+            target_app: None,
+            target_bundle: None,
+            input_device: None,
+            smart_routing_enabled: false,
+            smart_routing_applied: false,
+        };
+        let stt_id = insert(&db, &stt_failed).unwrap();
+        let got = get(&db, stt_id).unwrap().unwrap();
+        assert_eq!(got.cleanup_status, STT_FAILED);
+        assert_eq!(got.cleanup_error.as_deref(), Some("STT model not loaded"));
+        assert_eq!(got.raw_text, "");
+        assert_eq!(got.inject_method, "none");
+
+        let mut inject_failed = sample(2, "cleaned text", false);
+        inject_failed.cleanup_status = INJECT_FAILED.into();
+        inject_failed.cleanup_error = Some("inject failed: no focused element".into());
+        inject_failed.inject_method = "failed".into();
+        inject_failed.inject_ms = None;
+        let inject_id = insert(&db, &inject_failed).unwrap();
+        let got = get(&db, inject_id).unwrap().unwrap();
+        assert_eq!(got.cleanup_status, INJECT_FAILED);
+        assert_eq!(got.cleaned_text, "cleaned text");
+        assert_eq!(got.inject_ms, None);
+
+        // Both stage-failure rows still show up in the plain list query.
+        let list = list(&db, 10, 0).unwrap();
+        assert_eq!(list.len(), 2);
     }
 }
