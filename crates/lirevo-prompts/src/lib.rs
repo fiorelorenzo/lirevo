@@ -24,6 +24,31 @@ pub fn build_clean_system_prompt(language: &str) -> String {
     format!("{CLEAN_SYSTEM_PROMPT_BODY}\n\n{lang_instruction}")
 }
 
+/// Build the cleanup system prompt with an optional few-shot examples section.
+///
+/// Thin wrapper around [`build_clean_system_prompt`]: when `examples` is
+/// empty, the output is byte-identical to `build_clean_system_prompt(language)`
+/// — the zero-regression guarantee existing callers depend on. When
+/// non-empty, each `(raw, final)` pair is appended as a clearly-delimited
+/// "Examples of this user's preferred style" section, formatted raw → final.
+#[must_use]
+pub fn build_clean_system_prompt_with_examples(
+    language: &str,
+    examples: &[(String, String)],
+) -> String {
+    let base = build_clean_system_prompt(language);
+    if examples.is_empty() {
+        return base;
+    }
+
+    let mut examples_section = String::from("\n\nExamples of this user's preferred style:");
+    for (raw, final_text) in examples {
+        examples_section.push_str(&format!("\n\nRaw: {raw}\nFinal: {final_text}"));
+    }
+
+    base + &examples_section
+}
+
 /// English name for a dictation language code, or `None` for `auto`, empty, or
 /// an unrecognized code (the prompt then falls back to a language-agnostic
 /// "keep the same language" instruction).
@@ -67,5 +92,40 @@ mod tests {
     fn unknown_code_falls_back_to_same_language() {
         let p = build_clean_system_prompt("");
         assert!(p.contains("same language as the transcript"));
+    }
+
+    #[test]
+    fn empty_examples_matches_base_prompt() {
+        for language in ["en", "auto", ""] {
+            assert_eq!(
+                build_clean_system_prompt_with_examples(language, &[]),
+                build_clean_system_prompt(language)
+            );
+        }
+    }
+
+    #[test]
+    fn with_examples_appends_pairs() {
+        let examples = [
+            (
+                "um so i think uh we should go".to_string(),
+                "I think we should go.".to_string(),
+            ),
+            (
+                "its like really good i mean great".to_string(),
+                "It's really good — I mean great.".to_string(),
+            ),
+        ];
+        let p = build_clean_system_prompt_with_examples("en", &examples);
+
+        // Base prompt (body + language instruction) is still fully present.
+        assert!(p.contains(CLEAN_SYSTEM_PROMPT_BODY));
+        assert!(p.contains("Write the cleaned text in English"));
+
+        // Both examples' raw and final text are present.
+        for (raw, final_text) in &examples {
+            assert!(p.contains(raw));
+            assert!(p.contains(final_text));
+        }
     }
 }
