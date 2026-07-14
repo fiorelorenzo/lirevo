@@ -222,7 +222,8 @@
       "backend_cpu_hint": "GPU acceleration is unavailable on this machine.",
       "backend_gpu_hint": "Hardware-accelerated",
       "backend_stt": "Speech",
-      "backend_llm": "Cleanup"
+      "backend_llm": "Cleanup",
+      "style_examples_active": "{{count}} style examples active for {{app}}"
     }
   },
   "home": {

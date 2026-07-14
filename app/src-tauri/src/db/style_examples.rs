@@ -148,6 +148,18 @@ pub fn top_k(
     })
 }
 
+/// Count of pinned examples scoped to `target_bundle`, for the Settings ->
+/// About "N style examples active" indicator.
+pub fn count_pinned_for_bundle(db: &Db, target_bundle: &str) -> rusqlite::Result<i64> {
+    db.with_conn(|c| {
+        c.query_row(
+            "SELECT COUNT(*) FROM style_examples WHERE target_bundle = ?1 AND pinned = 1",
+            params![target_bundle],
+            |r| r.get(0),
+        )
+    })
+}
+
 /// Records that an example was actually used in a cleanup prompt: bumps
 /// `use_count` and refreshes `last_used_at` so future `top_k` ranking reflects
 /// real usage. `now` is the caller-supplied current timestamp (Unix seconds),
@@ -265,6 +277,31 @@ mod tests {
         assert_eq!(capped.len(), 2, "k caps the result count");
         assert_eq!(capped[0].id, pinned_id);
         assert_eq!(capped[1].id, unpinned_recent_id);
+    }
+
+    #[test]
+    fn count_pinned_for_bundle_counts_only_pinned_rows_in_scope() {
+        let db = Db::memory().unwrap();
+
+        let mut pinned_a = sample("com.apple.mail", 1);
+        pinned_a.pinned = true;
+        insert(&db, &pinned_a).unwrap();
+
+        let mut pinned_b = sample("com.apple.mail", 2);
+        pinned_b.pinned = true;
+        insert(&db, &pinned_b).unwrap();
+
+        // Unpinned in the same app must not count.
+        insert(&db, &sample("com.apple.mail", 3)).unwrap();
+
+        // Pinned in a different app must not count.
+        let mut other_app_pinned = sample("com.other.app", 4);
+        other_app_pinned.pinned = true;
+        insert(&db, &other_app_pinned).unwrap();
+
+        assert_eq!(count_pinned_for_bundle(&db, "com.apple.mail").unwrap(), 2);
+        assert_eq!(count_pinned_for_bundle(&db, "com.other.app").unwrap(), 1);
+        assert_eq!(count_pinned_for_bundle(&db, "com.unknown.app").unwrap(), 0);
     }
 
     #[test]

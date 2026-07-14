@@ -3,6 +3,42 @@ use tauri::State;
 use crate::db::{history, style_examples, Db};
 use crate::{AppError, AppState};
 
+/// Wire type for [`style_examples_active_count`]: the pinned-example count
+/// for the frontmost app, plus its display name so the Settings -> About
+/// indicator can render "N style examples active for {app}" without a second
+/// round trip to resolve the app name.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StyleExamplesActiveCount {
+    pub count: i64,
+    pub app_name: Option<String>,
+}
+
+/// Read-only indicator for Settings -> About: how many pinned style examples
+/// are active for the frontmost app. Resolves "current app" the same way the
+/// dictation pipeline does (`os_integration::frontmost_app()`) rather than
+/// trusting a bundle id from the frontend, which has no other way to know it.
+#[tauri::command]
+pub fn style_examples_active_count(
+    state: State<'_, AppState>,
+) -> Result<StyleExamplesActiveCount, AppError> {
+    let Some(app) = os_integration::frontmost_app() else {
+        return Ok(StyleExamplesActiveCount {
+            count: 0,
+            app_name: None,
+        });
+    };
+    let count = match &app.bundle_id {
+        Some(bundle) => style_examples::count_pinned_for_bundle(state.db(), bundle)
+            .map_err(|e| AppError::Internal(e.to_string()))?,
+        None => 0,
+    };
+    Ok(StyleExamplesActiveCount {
+        count,
+        app_name: app.name,
+    })
+}
+
 /// Persists a dictation's raw/cleaned pair as a manually pinned style
 /// example, scoped to the dictation's own `target_bundle`. This is the sole
 /// MVP capture path for `style_examples` — nothing implicit.
