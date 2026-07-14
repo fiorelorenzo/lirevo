@@ -16,8 +16,11 @@
 #
 # The local SQLite history DB (`data.db`) is intentionally PRESERVED — a
 # permissions/first-run reset shouldn't cost you your dictation history.
-# Only settings + tauri-plugin-store JSON, logs, and (with `--models`)
-# the model files are removed.
+# This also covers the `style_examples` table (references `dictations` in
+# the same DB file): it is preserved right alongside history rows, not
+# wiped separately — a permissions reset shouldn't cost you your learned
+# writing style either. Only settings + tauri-plugin-store JSON, logs, and
+# (with `--models`) the model files are removed.
 #
 # Intended for local dev iteration on first-run / permissions flows.
 # Does NOT touch source code, build caches, or the system installation
@@ -50,7 +53,8 @@ Usage: scripts/reset.sh [--models]
 
 Resets app runtime state so the next launch shows the setup wizard.
 Covers both the release (Lirevo / ai.lirevo.app) and debug
-(Lirevo (Dev) / ai.lirevo.app.dev) builds. The history DB is preserved.
+(Lirevo (Dev) / ai.lirevo.app.dev) builds. The history DB is preserved,
+including style_examples.
 
 Options:
   -m, --models    Also delete the downloaded model files (multi-GB).
@@ -99,13 +103,14 @@ for bid in "${BUNDLE_IDS[@]}"; do
 done
 
 # Per variant: wipe settings + tauri-plugin-store JSON, logs, and (optional)
-# model files. The history DB (data.db*) is left untouched on purpose.
+# model files. The history DB (data.db*) — dictations and style_examples
+# alike — is left untouched on purpose.
 for name in "${APP_NAMES[@]}"; do
   data_dir="$SUPPORT_BASE/$name"
   logs_dir="$LOGS_BASE/$name"
 
   if [[ -d "$data_dir" ]]; then
-    echo "→ clearing settings/store JSON in $data_dir (history db kept)"
+    echo "→ clearing settings/store JSON in $data_dir (history + style examples db kept)"
     find "$data_dir" -maxdepth 1 -name '*.json' -type f -print -delete 2>/dev/null || true
     if "$wipe_models" && [[ -d "$data_dir/models" ]]; then
       echo "→ removing $data_dir/models"
