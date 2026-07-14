@@ -24,6 +24,12 @@ pub use hotkey_spec::{
     ModOnly, Modifier, ModifierFlags, Side, Trigger,
 };
 
+/// Recipient-level context key allowlist + hashing (platform-neutral, pure
+/// logic — see module docs). Compiled on every target so it stays
+/// unit-testable off macOS.
+mod recipient;
+pub use recipient::RecipientContext;
+
 #[cfg(target_os = "macos")]
 mod frontmost;
 #[cfg(target_os = "macos")]
@@ -108,6 +114,36 @@ pub fn frontmost_app() -> Option<FrontmostApp> {
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
+        None
+    }
+}
+
+/// Resolves a recipient-level context key from the frontmost window's title,
+/// for a small hard-coded bundle-id allowlist (Messages first — see
+/// `recipient::is_allowlisted`). `bundle_id` should be the value just
+/// obtained from [`frontmost_app`]'s `FrontmostApp::bundle_id`.
+///
+/// Returns `None` — silently, never an error — for any bundle id outside the
+/// allowlist, or on any platform without Accessibility (AX) support; callers
+/// must fall back to app-level (`target_bundle`) scoping in that case. Only
+/// implemented on macOS today: Wayland/Linux and Windows have no equivalent
+/// AX window-title API wired up, so they always return `None`.
+///
+/// `human_readable_label` mirrors the user's opt-in setting (off by
+/// default): when `true`, the returned context's `label` carries the raw
+/// window title; otherwise only the hashed `context_key` is populated.
+#[must_use]
+pub fn recipient_context_key(
+    bundle_id: &str,
+    human_readable_label: bool,
+) -> Option<RecipientContext> {
+    #[cfg(target_os = "macos")]
+    {
+        frontmost::recipient_context_key(bundle_id, human_readable_label)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (bundle_id, human_readable_label);
         None
     }
 }
