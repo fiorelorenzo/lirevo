@@ -14,7 +14,8 @@
   import type { ProfileName } from "$lib/tauri";
   import { t } from "$lib/i18n";
   import { navigate } from "$lib/router";
-  import { lda, type InputDeviceEntry } from "$lib/tauri";
+  import { lda, type InputDeviceEntry, type StyleExamplesActiveCount } from "$lib/tauri";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { STT_MODELS, CLEANUP_MODEL } from "$lib/models/catalog";
   import { Zap, Cpu } from "@lucide/svelte";
   import { toastError } from "$lib/stores/toasts";
@@ -75,6 +76,35 @@
   });
 
   let devices = $state<InputDeviceEntry[]>([]);
+
+  // Settings -> About "N style examples active" indicator: read-only, scoped
+  // to the frontmost app the same way the pipeline resolves it. Refreshed on
+  // mount and whenever the settings window regains focus (e.g. after
+  // switching apps), mirroring `permissionsState`'s focus-refresh pattern.
+  let styleExamplesActive = $state<StyleExamplesActiveCount | null>(null);
+  let showStyleExamplesActive = $derived(
+    ($settings?.styleLearningEnabled ?? false) && (styleExamplesActive?.count ?? 0) > 0,
+  );
+
+  async function refreshStyleExamplesActive() {
+    try {
+      styleExamplesActive = await lda.styleExamplesActiveCount();
+    } catch {
+      // not fatal — indicator just stays hidden
+    }
+  }
+
+  onMount(() => {
+    void refreshStyleExamplesActive();
+    let unfocus: (() => void) | null = null;
+    void getCurrentWindow()
+      .listen("tauri://focus", () => void refreshStyleExamplesActive())
+      .then((u) => {
+        unfocus = u;
+      })
+      .catch(() => {});
+    return () => unfocus?.();
+  });
 
   onMount(async () => {
     // Only enumerate input devices if mic permission was already granted.
@@ -423,6 +453,14 @@
           <div class="text-sm text-muted-foreground">
             {t("settings.about.model_llm")}: {CLEANUP_MODEL.displayName}
           </div>
+          {#if showStyleExamplesActive}
+            <div class="text-sm text-muted-foreground pt-1">
+              {t("settings.about.style_examples_active", {
+                count: styleExamplesActive?.count ?? 0,
+                app: styleExamplesActive?.appName ?? "",
+              })}
+            </div>
+          {/if}
         </div>
 
         <div

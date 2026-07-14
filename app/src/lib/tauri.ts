@@ -113,6 +113,11 @@ export interface ActiveBackendInfo {
   llmIsGpu: boolean;
 }
 
+export interface StyleExamplesActiveCount {
+  count: number;
+  appName: string | null;
+}
+
 export interface TestMicResult {
   peak: number;
   sampleCount: number;
@@ -212,6 +217,7 @@ export const lda = {
   historyDelete: (id: number) => invoke<void>("history_delete", { id }),
   historyClear: () => invoke<void>("history_clear"),
   styleExamplePin: (dictationId: number) => invoke<void>("style_example_pin", { dictationId }),
+  styleExamplesActiveCount: () => invoke<StyleExamplesActiveCount>("style_examples_active_count"),
 
   profileGet: () => invoke<ProfileStatus>("profile_get"),
   profileSetMode: (mode: string) => invoke<void>("profile_set_mode", { mode }),
