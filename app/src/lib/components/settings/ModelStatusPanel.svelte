@@ -1,12 +1,12 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import { Button } from "$lib/components/ui/button";
-  import { Check, Download, RotateCw } from "@lucide/svelte";
+  import { Check, Download, RotateCw, ShieldCheck } from "@lucide/svelte";
   import { t } from "$lib/i18n";
-  import { lda, type LocalModel } from "$lib/tauri";
+  import { lda, type IntegrityStatus, type LocalModel } from "$lib/tauri";
   import type { UnlistenFn } from "@tauri-apps/api/event";
   import { progressFor } from "$lib/stores/downloads";
-  import { withErrorToast } from "$lib/stores/toasts";
+  import { withErrorToast, toastSuccess, toastError } from "$lib/stores/toasts";
   import {
     STT_MODELS,
     CLEANUP_MODEL,
@@ -19,6 +19,7 @@
 
   let local = $state<LocalModel[]>([]);
   let unlisten: UnlistenFn | null = null;
+  let verifyingId = $state<string | null>(null);
 
   const stt = STT_MODELS[0];
 
@@ -31,6 +32,7 @@
 
   const rows = $derived([
     {
+      id: PARAKEET_MODEL_ID,
       role: t("settings.models.role_dictation"),
       name: stt.displayName,
       sizeBytes: stt.sizeBytes,
@@ -39,6 +41,7 @@
       repair: () => lda.sttDownload(PARAKEET_MODEL_ID),
     },
     {
+      id: CLEANUP_MODEL_ID,
       role: t("settings.models.role_cleanup"),
       name: CLEANUP_MODEL.displayName,
       sizeBytes: CLEANUP_MODEL.sizeBytes,
@@ -55,6 +58,30 @@
 
   async function repair(row: (typeof rows)[number]) {
     await withErrorToast(t("settings.models.repair_failed"), row.repair);
+  }
+
+  function integrityStatusLabel(status: IntegrityStatus): string {
+    switch (status) {
+      case "ok":
+        return t("settings.models.verify_ok");
+      case "size_mismatch":
+        return t("settings.models.verify_size_mismatch");
+      case "hash_mismatch":
+        return t("settings.models.verify_hash_mismatch");
+      case "missing":
+        return t("settings.models.verify_missing");
+    }
+  }
+
+  async function verify(row: (typeof rows)[number]) {
+    verifyingId = row.id;
+    const status = await withErrorToast(t("settings.models.verify_action_label"), () =>
+      lda.modelsVerifyIntegrity(row.id),
+    );
+    verifyingId = null;
+    if (status === null) return;
+    if (status === "ok") toastSuccess(integrityStatusLabel(status));
+    else toastError(integrityStatusLabel(status));
   }
 
   onMount(async () => {
@@ -108,6 +135,17 @@
               <Check class="h-3 w-3" />
               {t("settings.models.installed_badge")}
             </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={verifyingId === row.id}
+              onclick={() => verify(row)}
+            >
+              <ShieldCheck class="h-3.5 w-3.5 mr-1" />
+              {verifyingId === row.id
+                ? t("settings.models.verifying")
+                : t("settings.models.verify_button")}
+            </Button>
             <Button variant="outline" size="sm" onclick={() => repair(row)}>
               <RotateCw class="h-3.5 w-3.5 mr-1" />
               {t("settings.models.repair_button")}

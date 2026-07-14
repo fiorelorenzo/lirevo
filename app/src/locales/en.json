@@ -191,6 +191,13 @@
       "repair_button": "Re-download",
       "download_button": "Download",
       "repair_failed": "Re-download failed",
+      "verify_button": "Verify",
+      "verifying": "Verifying…",
+      "verify_action_label": "Verify",
+      "verify_ok": "Model verified — file matches the expected checksum.",
+      "verify_size_mismatch": "Model file size doesn't match — re-download it.",
+      "verify_hash_mismatch": "Model file is corrupted — re-download it.",
+      "verify_missing": "Model file isn't installed.",
       "error": {
         "refresh": "Refresh models list"
       }

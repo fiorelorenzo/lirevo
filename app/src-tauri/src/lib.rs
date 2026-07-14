@@ -133,6 +133,11 @@ pub fn run() {
             app.manage(app_state);
 
             crate::models::init_active_downloads();
+            // Cheap size-only self-check of whatever's already on disk —
+            // full SHA-256 re-hashing a ~1-2 GB GGUF on every launch would
+            // be too slow to run unconditionally. See `models_verify_integrity`
+            // for the full on-demand check from Settings > Models.
+            crate::models::startup_integrity_check(app.handle());
 
             // Install tray.
             if let Err(e) = tray::install(app.handle()) {
@@ -413,6 +418,7 @@ pub fn run() {
             commands::models::models_download,
             commands::models::stt_download,
             commands::models::models_cancel_download,
+            commands::models::models_verify_integrity,
             commands::inference::transcribe,
             commands::inference::clean,
             commands::inference::get_model_state,
