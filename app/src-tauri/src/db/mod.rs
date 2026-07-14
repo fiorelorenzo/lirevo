@@ -13,6 +13,7 @@ fn migrations() -> Migrations<'static> {
     Migrations::new(vec![
         M::up(include_str!("migrations/001_dictations.sql")),
         M::up(include_str!("migrations/002_smart_routing.sql")),
+        M::up(include_str!("migrations/003_style_examples.sql")),
     ])
 }
 
@@ -136,5 +137,69 @@ mod tests {
                 "missing column {expected}"
             );
         }
+    }
+
+    #[test]
+    fn migration_003_creates_style_examples_table() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrations().to_latest(&mut conn).unwrap();
+        let cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(style_examples)")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        for expected in [
+            "id",
+            "dictation_id",
+            "context_key",
+            "target_bundle",
+            "raw_text",
+            "final_text",
+            "edit_distance_ratio",
+            "source",
+            "pinned",
+            "use_count",
+            "last_used_at",
+            "created_at",
+        ] {
+            assert!(
+                cols.iter().any(|c| c == expected),
+                "missing column {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn style_example_dictation_id_nulled_on_parent_delete() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+        migrations().to_latest(&mut conn).unwrap();
+
+        conn.execute(
+            "INSERT INTO dictations (id, created_at, stt_model, raw_text, stt_ms, cleaned_text, cleanup_status, inject_method, total_ms) \
+             VALUES (1, 0, 'stt', 'raw', 0, 'cleaned', 'ok', 'paste', 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO style_examples (dictation_id, target_bundle, raw_text, final_text, source, created_at) \
+             VALUES (1, 'com.example.app', 'raw', 'final', 'manual_pin', 0)",
+            [],
+        )
+        .unwrap();
+
+        conn.execute("DELETE FROM dictations WHERE id = 1", [])
+            .unwrap();
+
+        let dictation_id: Option<i64> = conn
+            .query_row(
+                "SELECT dictation_id FROM style_examples WHERE id = 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(dictation_id, None);
     }
 }
