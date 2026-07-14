@@ -181,8 +181,7 @@ export const lda = {
   modelsDownload: (id: string) => invoke<void>("models_download", { id }),
   sttDownload: (id: string) => invoke<void>("stt_download", { id }),
   modelsCancelDownload: (id: string) => invoke<void>("models_cancel_download", { id }),
-  modelsVerifyIntegrity: (id: string) =>
-    invoke<IntegrityStatus>("models_verify_integrity", { id }),
+  modelsVerifyIntegrity: (id: string) => invoke<IntegrityStatus>("models_verify_integrity", { id }),
   reloadModels: () => invoke<void>("reload_models"),
   getModelState: () => invoke<ModelState>("get_model_state"),
   getActiveBackend: () => invoke<ActiveBackendInfo>("get_active_backend"),

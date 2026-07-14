@@ -133,6 +133,9 @@ pub fn run() {
             app.manage(app_state);
 
             crate::models::init_active_downloads();
+            // Sweep stale .partial files from a crash/force-quit on a prior
+            // run, before any download this session can create one (TRUST-4).
+            crate::models::sweep_orphaned_partials_at_startup(app.handle());
             // Cheap size-only self-check of whatever's already on disk —
             // full SHA-256 re-hashing a ~1-2 GB GGUF on every launch would
             // be too slow to run unconditionally. See `models_verify_integrity`
