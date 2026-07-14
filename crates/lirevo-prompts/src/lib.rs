@@ -94,12 +94,17 @@ mod tests {
         assert!(p.contains("same language as the transcript"));
     }
 
+    /// Zero-regression guarantee: with no examples, the with-examples prompt
+    /// must be byte-identical (not just "contains") to the base prompt for
+    /// every language code the app supports, plus the `auto` / unknown
+    /// fallbacks — this is the safety net existing callers depend on.
     #[test]
-    fn empty_examples_matches_base_prompt() {
-        for language in ["en", "auto", ""] {
+    fn zero_examples_is_byte_identical_to_base_prompt() {
+        for language in ["en", "it", "fr", "de", "es", "auto", ""] {
             assert_eq!(
                 build_clean_system_prompt_with_examples(language, &[]),
-                build_clean_system_prompt(language)
+                build_clean_system_prompt(language),
+                "language code {language:?} must produce an unchanged prompt with zero examples"
             );
         }
     }

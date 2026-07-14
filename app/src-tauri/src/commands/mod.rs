@@ -7,6 +7,7 @@ pub mod models;
 pub mod permissions;
 pub mod profile;
 pub mod settings;
+pub mod style;
 pub mod updater;
 pub mod windows;
 

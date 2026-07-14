@@ -448,6 +448,7 @@ pub fn run() {
             commands::history::history_get,
             commands::history::history_delete,
             commands::history::history_clear,
+            commands::style::style_example_pin,
             commands::profile::profile_get,
             commands::profile::profile_set_mode,
             commands::hotkey::start_hotkey_capture,
