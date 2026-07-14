@@ -74,6 +74,10 @@ export interface LocalModel {
   inCatalog: boolean;
 }
 
+/** Result of `models_verify_integrity` — full size + SHA-256 re-check of an
+ *  installed model, driven from the Settings > Models "Verify" action. */
+export type IntegrityStatus = "ok" | "size_mismatch" | "hash_mismatch" | "missing";
+
 export interface DownloadProgress {
   id: string;
   state: "queued" | "downloading" | "verifying" | "complete" | "error" | "cancelled";
@@ -177,6 +181,7 @@ export const lda = {
   modelsDownload: (id: string) => invoke<void>("models_download", { id }),
   sttDownload: (id: string) => invoke<void>("stt_download", { id }),
   modelsCancelDownload: (id: string) => invoke<void>("models_cancel_download", { id }),
+  modelsVerifyIntegrity: (id: string) => invoke<IntegrityStatus>("models_verify_integrity", { id }),
   reloadModels: () => invoke<void>("reload_models"),
   getModelState: () => invoke<ModelState>("get_model_state"),
   getActiveBackend: () => invoke<ActiveBackendInfo>("get_active_backend"),

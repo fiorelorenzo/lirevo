@@ -1,4 +1,4 @@
-use crate::models::{catalog, list_local, CatalogEntry, LocalModel};
+use crate::models::{catalog, list_local, CatalogEntry, IntegrityStatus, LocalModel};
 use crate::stt::catalog as stt_catalog;
 use crate::{AppError, AppState};
 use tauri::{AppHandle, State};
@@ -165,4 +165,17 @@ pub async fn stt_download(app: AppHandle, id: String) -> Result<(), AppError> {
 #[tauri::command]
 pub fn models_cancel_download(id: String) -> Result<(), AppError> {
     crate::models::cancel(&id)
+}
+
+/// On-demand full integrity re-check (size + SHA-256) for an installed
+/// model, backing the "Verify" action in Settings > Models. The cheap
+/// size-only sweep at startup (`crate::models::startup_integrity_check`)
+/// only logs/toasts on mismatch; this command is the one that hashes the
+/// whole file and returns a status the frontend can render pass/fail for.
+#[tauri::command]
+pub async fn models_verify_integrity(
+    app: AppHandle,
+    id: String,
+) -> Result<IntegrityStatus, AppError> {
+    Ok(crate::models::verify_installed(&app, &id).await)
 }

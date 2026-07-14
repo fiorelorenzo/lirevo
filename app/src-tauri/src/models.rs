@@ -266,6 +266,143 @@ pub fn effective_llm_path(app: &tauri::AppHandle) -> Option<PathBuf> {
     }
 }
 
+/// Result of an installed-model integrity check (`verify_installed` /
+/// `check_size_only`). `Missing` covers both "not downloaded yet" and
+/// "unknown catalog id" — neither is actionable differently by callers.
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum IntegrityStatus {
+    Ok,
+    SizeMismatch,
+    HashMismatch,
+    Missing,
+}
+
+/// Where a catalog id's on-disk file is expected to live, and what it should
+/// look like. Resolves against both the LLM catalog (`inference-core`'s
+/// `IcCatalog`) and the fixed STT catalog (`crate::stt::catalog`) — the two
+/// are disjoint since #42's fixed-model-catalog change moved STT out of the
+/// JSON catalog entirely (see `catalog_has_0_stt_and_1_llm` above).
+struct ExpectedModel {
+    path: PathBuf,
+    size_bytes: u64,
+    sha256: Option<String>,
+}
+
+fn expected_model(app: &tauri::AppHandle, id: &str) -> Option<ExpectedModel> {
+    let dir = models_dir(app).ok()?;
+    if let Some(entry) = find_by_id(id) {
+        return Some(ExpectedModel {
+            path: dir.join(&entry.filename),
+            size_bytes: entry.size_bytes,
+            sha256: entry.sha256,
+        });
+    }
+    let meta = crate::stt::catalog::model_metadata(id)?;
+    Some(ExpectedModel {
+        path: dir.join(crate::stt::STT_GGUF_FILENAME),
+        size_bytes: meta.size_bytes,
+        sha256: Some(meta.sha256.to_string()),
+    })
+}
+
+/// Core integrity logic, decoupled from `AppHandle`/catalog lookups so it's
+/// unit-testable against a plain fixture path. Size mismatch short-circuits
+/// before touching file contents; a full SHA-256 rehash (via `verify_sha256`)
+/// only runs when the size already matches and an expected digest exists.
+async fn check_integrity(
+    path: &std::path::Path,
+    expected_size: u64,
+    expected_sha256: Option<&str>,
+) -> IntegrityStatus {
+    let Ok(meta) = tokio::fs::metadata(path).await else {
+        return IntegrityStatus::Missing;
+    };
+    if meta.len() != expected_size {
+        return IntegrityStatus::SizeMismatch;
+    }
+    let Some(expected) = expected_sha256 else {
+        return IntegrityStatus::Ok;
+    };
+    match verify_sha256(path, expected).await {
+        Ok(()) => IntegrityStatus::Ok,
+        Err(_) => IntegrityStatus::HashMismatch,
+    }
+}
+
+/// Full integrity re-check for an installed model: cheap size check first,
+/// then (only if the size already matches) a full SHA-256 rehash. This is
+/// the on-demand check backing the Settings > Models "Verify" action
+/// (`commands::models::models_verify_integrity`) — too slow over a ~1-2 GB
+/// GGUF to run unconditionally at startup, see `check_size_only` for that.
+pub async fn verify_installed(app: &tauri::AppHandle, id: &str) -> IntegrityStatus {
+    let Some(expected) = expected_model(app, id) else {
+        return IntegrityStatus::Missing;
+    };
+    check_integrity(
+        &expected.path,
+        expected.size_bytes,
+        expected.sha256.as_deref(),
+    )
+    .await
+}
+
+/// Cheap, synchronous size-only integrity check — reads file metadata, never
+/// file contents. Safe to run unconditionally at startup for every model in
+/// the fixed catalog (`startup_integrity_check`).
+#[must_use]
+pub fn check_size_only(app: &tauri::AppHandle, id: &str) -> IntegrityStatus {
+    let Some(expected) = expected_model(app, id) else {
+        return IntegrityStatus::Missing;
+    };
+    match std::fs::metadata(&expected.path) {
+        Ok(meta) if meta.len() == expected.size_bytes => IntegrityStatus::Ok,
+        Ok(_) => IntegrityStatus::SizeMismatch,
+        Err(_) => IntegrityStatus::Missing,
+    }
+}
+
+/// Every id the app's fixed catalog can install: the single STT model plus
+/// the single blessed cleanup LLM (see #42's fixed-model-catalog change —
+/// there is no user choice, so this is a fixed pair, not a full catalog
+/// scan).
+fn fixed_catalog_ids() -> Vec<String> {
+    let mut ids = vec![crate::stt::catalog::default_model_id().to_string()];
+    if let Some(llm) = fixed_llm() {
+        ids.push(llm.id);
+    }
+    ids
+}
+
+/// Startup integrity sweep: a size-only check (see `check_size_only`) of
+/// every model in the fixed catalog, logging and best-effort toasting on a
+/// mismatch. A model that isn't downloaded yet resolves to `Missing`, which
+/// is not surfaced — most users won't have both models before onboarding
+/// completes, and that's expected, not corruption.
+pub fn startup_integrity_check(app: &tauri::AppHandle) {
+    use tauri::Emitter;
+
+    for id in fixed_catalog_ids() {
+        if check_size_only(app, &id) == IntegrityStatus::SizeMismatch {
+            tracing::warn!(
+                id = %id,
+                "installed model failed startup size check — possible corruption; \
+                 re-download from Settings > Models"
+            );
+            let _ = app.emit(
+                "toast",
+                crate::commands::toast(
+                    "warn",
+                    format!(
+                        "Installed model '{id}' looks corrupted (unexpected file size). \
+                         Re-download it from Settings > Models."
+                    ),
+                ),
+            );
+        }
+    }
+}
+
 pub fn list_local(app: &tauri::AppHandle) -> std::io::Result<Vec<LocalModel>> {
     let dir = models_dir(app)?;
     let mut out = Vec::new();
@@ -1119,6 +1256,99 @@ mod tests {
         ));
         // Deliberately not created — the sweep must not panic.
         assert_eq!(sweep_orphaned_partials(&dir), 0);
+    }
+
+    #[tokio::test]
+    async fn check_integrity_reports_missing_for_absent_file() {
+        let path = std::env::temp_dir().join(format!(
+            "lirevo-integrity-missing-{}-{}",
+            std::process::id(),
+            "does-not-exist"
+        ));
+        let status = check_integrity(&path, 100, None).await;
+        assert_eq!(status, IntegrityStatus::Missing);
+    }
+
+    #[tokio::test]
+    async fn check_integrity_reports_size_mismatch_for_truncated_file() {
+        let dir =
+            std::env::temp_dir().join(format!("lirevo-integrity-size-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("truncated.gguf");
+        std::fs::write(&path, b"short").unwrap();
+
+        // Expected size (100) doesn't match the 5-byte fixture — should be
+        // caught before any hashing happens, regardless of the expected hash.
+        let status = check_integrity(&path, 100, Some(&"0".repeat(64))).await;
+        assert_eq!(status, IntegrityStatus::SizeMismatch);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn check_integrity_reports_hash_mismatch_for_corrupted_same_size_file() {
+        use sha2::{Digest, Sha256};
+
+        let dir =
+            std::env::temp_dir().join(format!("lirevo-integrity-hash-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let original = b"totally real model bytes";
+        let expected_digest = Sha256::digest(original);
+        let expected: String = expected_digest.iter().map(|b| format!("{b:02x}")).collect();
+
+        // Same length as `original` (25 bytes) but different content — a
+        // corrupted-in-place file, not a truncated one.
+        let corrupted = b"totally FAKE model bytes";
+        assert_eq!(original.len(), corrupted.len());
+        let path = dir.join("corrupted-same-size.gguf");
+        std::fs::write(&path, corrupted).unwrap();
+
+        let status = check_integrity(&path, original.len() as u64, Some(&expected)).await;
+        assert_eq!(status, IntegrityStatus::HashMismatch);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn check_integrity_ok_when_size_and_hash_match() {
+        use sha2::{Digest, Sha256};
+
+        let dir = std::env::temp_dir().join(format!("lirevo-integrity-ok-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let content = b"totally real model bytes";
+        let path = dir.join("good.gguf");
+        std::fs::write(&path, content).unwrap();
+
+        let digest = Sha256::digest(content);
+        let expected: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+
+        let status = check_integrity(&path, content.len() as u64, Some(&expected)).await;
+        assert_eq!(status, IntegrityStatus::Ok);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn check_integrity_ok_when_size_matches_and_no_hash_expected() {
+        let dir =
+            std::env::temp_dir().join(format!("lirevo-integrity-nohash-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("no-hash.gguf");
+        std::fs::write(&path, b"whatever").unwrap();
+
+        let status = check_integrity(&path, 8, None).await;
+        assert_eq!(status, IntegrityStatus::Ok);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn fixed_catalog_ids_includes_stt_and_blessed_llm() {
+        let ids = fixed_catalog_ids();
+        assert!(ids.contains(&crate::stt::catalog::default_model_id().to_string()));
+        let llm = fixed_llm().expect("a fixed LLM must exist");
+        assert!(ids.contains(&llm.id));
     }
 
     #[tokio::test]
