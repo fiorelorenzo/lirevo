@@ -6,9 +6,25 @@ use crate::{AppError, AppState};
 /// Persists a dictation's raw/cleaned pair as a manually pinned style
 /// example, scoped to the dictation's own `target_bundle`. This is the sole
 /// MVP capture path for `style_examples` — nothing implicit.
+///
+/// The frontend already hides the pin action when `style_learning_enabled` is
+/// off, but a Tauri command is an IPC surface reachable independently of the
+/// UI that gates it, so the setting is re-checked here too.
 #[tauri::command]
 pub fn style_example_pin(state: State<'_, AppState>, dictation_id: i64) -> Result<(), AppError> {
+    let style_learning_enabled = state.inner.lock().unwrap().settings.style_learning_enabled;
+    reject_if_style_learning_disabled(style_learning_enabled)?;
     pin_dictation_as_style_example(state.db(), dictation_id)
+}
+
+/// Reject the pin command while style learning is disabled. Split into a
+/// pure function (mirroring `hotkey::reject_if_recording`) so the gating
+/// logic is unit-testable without a live `AppState`.
+fn reject_if_style_learning_disabled(style_learning_enabled: bool) -> Result<(), AppError> {
+    if !style_learning_enabled {
+        return Err(AppError::Internal("style learning is disabled".into()));
+    }
+    Ok(())
 }
 
 fn pin_dictation_as_style_example(db: &Db, dictation_id: i64) -> Result<(), AppError> {
@@ -107,5 +123,18 @@ mod tests {
         let db = Db::memory().unwrap();
         let err = pin_dictation_as_style_example(&db, 999).unwrap_err();
         assert!(matches!(err, AppError::Internal(_)));
+    }
+
+    #[test]
+    fn rejects_pin_when_style_learning_disabled() {
+        assert!(matches!(
+            reject_if_style_learning_disabled(false),
+            Err(AppError::Internal(_))
+        ));
+    }
+
+    #[test]
+    fn allows_pin_when_style_learning_enabled() {
+        assert!(reject_if_style_learning_disabled(true).is_ok());
     }
 }
