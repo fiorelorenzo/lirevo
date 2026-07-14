@@ -63,6 +63,23 @@ pub async fn stt_download(app: AppHandle, id: String) -> Result<(), AppError> {
         dest.extension().and_then(|e| e.to_str()).unwrap_or("")
     ));
 
+    tracing::info!(id = %id, %url, "stt_download: starting");
+
+    if let Err(msg) = crate::models::check_disk_space(&app, known_total) {
+        tracing::error!(id = %id, error = %msg, "stt_download: insufficient disk space");
+        let _ = app.emit(
+            "download:progress",
+            DownloadProgress {
+                id: id.clone(),
+                state: DownloadProgressState::Error,
+                bytes_received: 0,
+                bytes_total: known_total,
+                error_message: Some(msg.clone()),
+            },
+        );
+        return Err(AppError::Download(msg));
+    }
+
     let (cancel_tx, mut cancel_rx) = oneshot::channel::<()>();
     {
         let mut g = ACTIVE_DOWNLOADS.lock().unwrap();
@@ -72,8 +89,6 @@ pub async fn stt_download(app: AppHandle, id: String) -> Result<(), AppError> {
         }
         map.insert(id.clone(), cancel_tx);
     }
-
-    tracing::info!(id = %id, %url, "stt_download: starting");
 
     let _ = app.emit(
         "download:progress",

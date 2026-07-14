@@ -2745,6 +2745,7 @@ dependencies = [
  "futures-util",
  "hound",
  "inference-core",
+ "libc",
  "lirevo-prompts",
  "llama-cpp-sys-2",
  "num_cpus",
