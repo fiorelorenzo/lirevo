@@ -8,7 +8,7 @@
 //! On Hotkey Up:   stop the Recorder, encode the captured samples to WAV, and
 //! hand the bytes off to the (currently empty) pipeline body.
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use once_cell::sync::Lazy;
 use tauri::{AppHandle, Emitter, Manager};
@@ -361,6 +361,89 @@ impl Drop for OverlayPhaseGuard {
     }
 }
 
+/// Current wall-clock time in epoch milliseconds, for `NewDictation::created_at`.
+fn now_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// Best-effort history insert shared by the failure-path call sites below:
+/// runs the insert on a blocking task and, on success, emits `dictation:saved`
+/// so History updates live — same as the success-path insert further down,
+/// which stays independent to avoid coupling the two paths.
+fn spawn_failure_history_insert(
+    app: &AppHandle,
+    db_arc: Arc<crate::db::Db>,
+    entry: crate::db::history::NewDictation,
+) {
+    let app2 = app.clone();
+    tokio::task::spawn_blocking(move || match crate::db::history::insert(&db_arc, &entry) {
+        Ok(id) => {
+            let summary = crate::db::history::DictationSummary {
+                id,
+                created_at: entry.created_at,
+                preview: crate::db::history::preview_of(&entry.cleaned_text),
+                stt_model: entry.stt_model.clone(),
+                llm_model: entry.llm_model.clone(),
+                target_app: entry.target_app.clone(),
+                total_ms: entry.total_ms,
+                cleanup_status: entry.cleanup_status.clone(),
+            };
+            let _ = app2.emit("dictation:saved", &summary);
+        }
+        Err(e) => {
+            tracing::warn!(?e, "failed to save dictation history (non-fatal)");
+        }
+    });
+}
+
+/// Records a terminal STT-stage failure (model not loaded, or the transcribe
+/// call itself errored) as a history row, mirroring the success-path fields
+/// where available and falling back to empty/`None` for the transcript and
+/// inject columns that never ran. No-op when `record_history` is off.
+#[allow(clippy::too_many_arguments)]
+fn record_stt_failure(
+    app: &AppHandle,
+    db_arc: Arc<crate::db::Db>,
+    record_history: bool,
+    error: String,
+    t0: std::time::Instant,
+    language: &str,
+    stt_model: &str,
+    llm_model: Option<String>,
+    audio_ms: i64,
+    recording_meta: Option<&crate::state::RecordingMeta>,
+) {
+    if !record_history {
+        return;
+    }
+    let elapsed_ms = t0.elapsed().as_millis() as i64;
+    let entry = crate::db::history::NewDictation {
+        created_at: now_millis(),
+        language: Some(language.to_string()),
+        stt_model: stt_model.to_string(),
+        audio_ms: Some(audio_ms),
+        raw_text: String::new(),
+        stt_ms: elapsed_ms,
+        llm_model,
+        cleaned_text: String::new(),
+        clean_ms: None,
+        cleanup_status: crate::db::history::STT_FAILED.to_string(),
+        cleanup_error: Some(error),
+        inject_method: "none".to_string(),
+        inject_ms: None,
+        total_ms: elapsed_ms,
+        target_app: None,
+        target_bundle: None,
+        input_device: recording_meta.map(|m| m.input_device.clone()),
+        smart_routing_enabled: recording_meta.is_some_and(|m| m.smart_routing_enabled),
+        smart_routing_applied: recording_meta.is_some_and(|m| m.smart_routing_applied),
+    };
+    spawn_failure_history_insert(app, db_arc, entry);
+}
+
 /// Full STT → cleanup → inject pipeline.
 ///
 /// Stages:
@@ -403,6 +486,23 @@ async fn run_pipeline(
     // the Arc so it can move into the history-insert task at the end.
     let db_arc = state.db.clone();
 
+    // Model ids for the history row, derived from the engine's live config.
+    // Computed up front (rather than after a successful transcription) so
+    // STT-failure history rows below can still record real ids. `stt_model`
+    // falls back to the default catalog id when unset (matching
+    // `ensure_stt`); `llm_model` is the LLM file's basename, or `None` in
+    // STT-only mode.
+    let cfg = engine.current_config();
+    let stt_model = cfg
+        .stt_model_id
+        .clone()
+        .unwrap_or_else(|| crate::stt::catalog::default_model_id().to_string());
+    let llm_model: Option<String> = cfg.llm_model_path.as_ref().and_then(|p| {
+        p.file_stem()
+            .and_then(|s| s.to_str())
+            .map(std::string::ToString::to_string)
+    });
+
     // Lazy-load the STT slot for the one-shot fallback path. The streaming
     // worker (if any) already holds its own clone.
     let stt_slot = match engine.ensure_stt().await {
@@ -411,6 +511,18 @@ async fn run_pipeline(
             let _ = app.emit(
                 "toast",
                 crate::commands::toast("warn", "Transcription model not loaded"),
+            );
+            record_stt_failure(
+                &app,
+                db_arc.clone(),
+                record_history,
+                "Transcription model not loaded".to_string(),
+                t0,
+                &language,
+                &stt_model,
+                llm_model.clone(),
+                audio_ms,
+                recording_meta.as_ref(),
             );
             return;
         }
@@ -450,6 +562,18 @@ async fn run_pipeline(
                                     format!("Transcription failed: {e}"),
                                 ),
                             );
+                            record_stt_failure(
+                                &app,
+                                db_arc.clone(),
+                                record_history,
+                                format!("Transcription failed: {e}"),
+                                t0,
+                                &language,
+                                &stt_model,
+                                llm_model.clone(),
+                                audio_ms,
+                                recording_meta.as_ref(),
+                            );
                             return;
                         }
                     }
@@ -469,6 +593,18 @@ async fn run_pipeline(
                     "toast",
                     crate::commands::toast("error", format!("Transcription failed: {e}")),
                 );
+                record_stt_failure(
+                    &app,
+                    db_arc.clone(),
+                    record_history,
+                    format!("Transcription failed: {e}"),
+                    t0,
+                    &language,
+                    &stt_model,
+                    llm_model.clone(),
+                    audio_ms,
+                    recording_meta.as_ref(),
+                );
                 return;
             }
         },
@@ -485,21 +621,6 @@ async fn run_pipeline(
         tracing::info!("run_pipeline: empty transcript — skipping inject + history");
         return;
     }
-
-    // Model ids for the history row, derived from the engine's live config.
-    // `stt_model` falls back to the default catalog id when unset (matching
-    // `ensure_stt`); `llm_model` is the LLM file's basename, or `None` in
-    // STT-only mode.
-    let cfg = engine.current_config();
-    let stt_model = cfg
-        .stt_model_id
-        .clone()
-        .unwrap_or_else(|| crate::stt::catalog::default_model_id().to_string());
-    let llm_model: Option<String> = cfg.llm_model_path.as_ref().and_then(|p| {
-        p.file_stem()
-            .and_then(|s| s.to_str())
-            .map(std::string::ToString::to_string)
-    });
 
     // 2. Clean (graceful degrade if LLM missing or fails). The engine
     // lazy-loads the LLM on demand; Ok(None) means no cleanup model is
@@ -636,6 +757,41 @@ async fn run_pipeline(
                 format!("Inject failed: {e} — clipboard copy also failed")
             };
             let _ = app.emit("toast", crate::commands::toast("error", msg));
+
+            // Record this failed dictation. STT + cleanup already ran (their
+            // text/timings are known), only inject fell through; best-effort,
+            // same as the success-path insert above.
+            if record_history {
+                let (target_app, target_bundle) = os_integration::frontmost_app()
+                    .map(|a| (a.name, a.bundle_id))
+                    .unwrap_or((None, None));
+                let entry = crate::db::history::NewDictation {
+                    created_at: now_millis(),
+                    language: Some(language.clone()),
+                    stt_model,
+                    audio_ms: Some(audio_ms),
+                    raw_text: raw_text.clone(),
+                    stt_ms: t1.as_millis() as i64,
+                    llm_model,
+                    cleaned_text: cleaned.clone(),
+                    clean_ms,
+                    cleanup_status: crate::db::history::INJECT_FAILED.to_string(),
+                    cleanup_error: Some(format!("Inject failed: {e}")),
+                    inject_method: "failed".to_string(),
+                    inject_ms: None,
+                    total_ms: t0.elapsed().as_millis() as i64,
+                    target_app,
+                    target_bundle,
+                    input_device: recording_meta.as_ref().map(|m| m.input_device.clone()),
+                    smart_routing_enabled: recording_meta
+                        .as_ref()
+                        .is_some_and(|m| m.smart_routing_enabled),
+                    smart_routing_applied: recording_meta
+                        .as_ref()
+                        .is_some_and(|m| m.smart_routing_applied),
+                };
+                spawn_failure_history_insert(&app, db_arc.clone(), entry);
+            }
         }
     }
 
