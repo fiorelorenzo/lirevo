@@ -17,6 +17,7 @@ export interface Settings {
   launchAtLogin: boolean;
   startMinimized: boolean;
   recordHistory: boolean;
+  styleLearningEnabled: boolean;
   profileMode: string;
   uiLanguage: string;
   onboardingComplete: boolean;

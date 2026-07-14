@@ -7,7 +7,7 @@ use crate::error::AppError;
 /// Bump when introducing a new one-shot migration in [`Settings::migrate`].
 /// Existing `settings.json` files written before the bump carry a lower
 /// `schema_version` (or none at all → 0) and the migration runs once.
-const SCHEMA_VERSION: u32 = 5;
+const SCHEMA_VERSION: u32 = 6;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -50,6 +50,12 @@ pub struct Settings {
     /// existing installs upgrading without the key opt in by default.
     #[serde(default = "default_true")]
     pub record_history: bool,
+    /// Gates style learning: whether the app may retrieve learned style
+    /// context (STYLE-4) and whether the pin action (STYLE-5) is available.
+    /// Defaults to `true` — MVP capture is 100% explicit manual pinning, so
+    /// there's no passive-collection concern to default off.
+    #[serde(default = "default_true")]
+    pub style_learning_enabled: bool,
     /// Energy-profile selection mode. `"auto"` lets the [`ProfileSelector`]
     /// decide; `"power_saver"` / `"balanced"` / `"performance"` pin a profile.
     /// Parsed by `inference_core::profile::mode_from_str`. Defaults to
@@ -86,6 +92,7 @@ impl Default for Settings {
             launch_at_login: false,
             start_minimized: false,
             record_history: true,
+            style_learning_enabled: true,
             profile_mode: default_profile_mode(),
             ui_language: "en".into(),
             onboarding_complete: false,
@@ -320,6 +327,7 @@ mod tests {
         assert_eq!(s.paste_delay_ms, 120);
         assert!(!s.onboarding_complete);
         assert!(s.record_history);
+        assert!(s.style_learning_enabled);
         assert!(s.smart_mic_routing);
         assert_eq!(s.profile_mode, "auto");
     }
@@ -344,8 +352,27 @@ mod tests {
         });
         let s: Settings = serde_json::from_value(legacy).unwrap();
         assert!(s.record_history);
+        assert!(s.style_learning_enabled);
         assert!(s.smart_mic_routing);
         assert_eq!(s.profile_mode, "auto");
+    }
+
+    #[test]
+    fn migrate_v5_style_learning_enabled_defaults_true() {
+        // Simulate a pre-6 settings.json (schema_version 5, the field absent
+        // from the JSON — serde's `default_true` populates it on parse).
+        let legacy = json!({
+            "schemaVersion": 5,
+        });
+        let mut s: Settings = serde_json::from_value(legacy).unwrap();
+        assert!(s.style_learning_enabled);
+        let dirty = s.migrate();
+        assert_eq!(s.schema_version, SCHEMA_VERSION);
+        assert!(s.style_learning_enabled);
+        assert!(
+            dirty,
+            "version bump alone should flag the settings as dirty"
+        );
     }
 
     #[test]

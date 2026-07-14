@@ -319,6 +319,18 @@
                 onCheckedChange={(v) => updateSettings({ recordHistory: v })}
               />
             </div>
+            <div class="p-4 flex items-center justify-between gap-4">
+              <div class="min-w-0">
+                <Label>{t("settings.general.style_learning_enabled")}</Label>
+                <p class="text-xs text-muted-foreground mt-1">
+                  {t("settings.general.style_learning_enabled_helper")}
+                </p>
+              </div>
+              <Switch
+                checked={$settings.styleLearningEnabled}
+                onCheckedChange={(v) => updateSettings({ styleLearningEnabled: v })}
+              />
+            </div>
             <div class="p-4 flex items-start justify-between gap-4">
               <div class="min-w-0">
                 <Label>{t("settings.general.energy")}</Label>
