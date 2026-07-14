@@ -141,6 +141,8 @@
       "start_minimized_helper": "Launch in the menu bar without opening the main window.",
       "record_history": "Record dictation history",
       "record_history_helper": "Keep a local history of your dictations on this device.",
+      "style_learning_enabled": "Style learning",
+      "style_learning_enabled_helper": "Let Lirevo learn your writing style from dictations you pin, and use it to personalize cleanup.",
       "smart_mic_routing": "Smart Microphone",
       "smart_mic_routing_helper": "When something is playing through Bluetooth headphones (e.g. AirPods), dictate with your backup mic so the audio stays in stereo.",
       "backup_mic": "Backup microphone",
