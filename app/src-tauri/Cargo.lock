@@ -3562,6 +3562,7 @@ dependencies = [
  "objc2-av-foundation",
  "objc2-foundation",
  "serde",
+ "sha2 0.10.9",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
