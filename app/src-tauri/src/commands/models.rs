@@ -35,20 +35,18 @@ pub async fn models_download(
 
 /// Download the STT GGUF into the app's models dir, emitting the same
 /// `download:progress` events as the LLM downloads so the wizard renders one
-/// progress bar per model. Uses the same streaming mechanism as
-/// `crate::models::download_inner` (reqwest bytes_stream + 100ms throttle +
-/// `.partial` temp file → rename, then SHA-256 verification via
-/// `crate::models::verify_and_cleanup`), and registers in `ACTIVE_DOWNLOADS`
-/// the same way so `models_cancel_download` can interrupt it mid-transfer
-/// (checked once per chunk via `cancel_rx.try_recv()`).
+/// progress bar per model. Delegates the streaming, `.partial` handling, and
+/// SHA-256 verification to `crate::models::download_file` — the same routine
+/// backing the LLM path (`crate::models::download_inner`) — and registers in
+/// `ACTIVE_DOWNLOADS` the same way so `models_cancel_download` can interrupt
+/// it mid-transfer (checked once per chunk via `cancel_rx.try_recv()`).
 #[tauri::command]
 pub async fn stt_download(app: AppHandle, id: String) -> Result<(), AppError> {
     use crate::models::{
-        models_dir, DownloadError, DownloadProgress, DownloadProgressState, ACTIVE_DOWNLOADS,
+        download_file, models_dir, DownloadError, DownloadProgress, DownloadProgressState,
+        ACTIVE_DOWNLOADS,
     };
-    use futures_util::StreamExt;
     use tauri::Emitter;
-    use tokio::io::AsyncWriteExt;
     use tokio::sync::oneshot;
 
     let known_total = crate::stt::catalog::model_metadata(&id)
@@ -63,6 +61,23 @@ pub async fn stt_download(app: AppHandle, id: String) -> Result<(), AppError> {
         dest.extension().and_then(|e| e.to_str()).unwrap_or("")
     ));
 
+    tracing::info!(id = %id, %url, "stt_download: starting");
+
+    if let Err(msg) = crate::models::check_disk_space(&app, known_total) {
+        tracing::error!(id = %id, error = %msg, "stt_download: insufficient disk space");
+        let _ = app.emit(
+            "download:progress",
+            DownloadProgress {
+                id: id.clone(),
+                state: DownloadProgressState::Error,
+                bytes_received: 0,
+                bytes_total: known_total,
+                error_message: Some(msg.clone()),
+            },
+        );
+        return Err(AppError::Download(msg));
+    }
+
     let (cancel_tx, mut cancel_rx) = oneshot::channel::<()>();
     {
         let mut g = ACTIVE_DOWNLOADS.lock().unwrap();
@@ -72,8 +87,6 @@ pub async fn stt_download(app: AppHandle, id: String) -> Result<(), AppError> {
         }
         map.insert(id.clone(), cancel_tx);
     }
-
-    tracing::info!(id = %id, %url, "stt_download: starting");
 
     let _ = app.emit(
         "download:progress",
@@ -86,87 +99,17 @@ pub async fn stt_download(app: AppHandle, id: String) -> Result<(), AppError> {
         },
     );
 
-    // Stream-download, mirroring download_inner exactly.
-    let do_download = async {
-        let client = reqwest::Client::new();
-        let resp = client
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| DownloadError::Failed(format!("http: {e}")))?;
-        if !resp.status().is_success() {
-            return Err(DownloadError::Failed(format!("HTTP {}", resp.status())));
-        }
-        let total = resp.content_length().unwrap_or(known_total);
-
-        let mut file = tokio::fs::File::create(&tmp)
-            .await
-            .map_err(|e| DownloadError::Failed(format!("create tmp: {e}")))?;
-
-        let mut received: u64 = 0;
-        let mut stream = resp.bytes_stream();
-        let mut last_emit = std::time::Instant::now();
-        while let Some(chunk_result) = stream.next().await {
-            if cancel_rx.try_recv().is_ok() {
-                drop(file);
-                let _ = tokio::fs::remove_file(&tmp).await;
-                return Err(DownloadError::Cancelled);
-            }
-            let chunk = chunk_result.map_err(|e| DownloadError::Failed(format!("stream: {e}")))?;
-            file.write_all(&chunk)
-                .await
-                .map_err(|e| DownloadError::Failed(format!("write: {e}")))?;
-            received += chunk.len() as u64;
-            if last_emit.elapsed() >= std::time::Duration::from_millis(100) {
-                last_emit = std::time::Instant::now();
-                let _ = app.emit(
-                    "download:progress",
-                    DownloadProgress {
-                        id: id.clone(),
-                        state: DownloadProgressState::Downloading,
-                        bytes_received: received,
-                        bytes_total: total,
-                        error_message: None,
-                    },
-                );
-            }
-        }
-        // Final 100% event before transitioning to Complete.
-        let _ = app.emit(
-            "download:progress",
-            DownloadProgress {
-                id: id.clone(),
-                state: DownloadProgressState::Downloading,
-                bytes_received: received,
-                bytes_total: total,
-                error_message: None,
-            },
-        );
-        file.flush()
-            .await
-            .map_err(|e| DownloadError::Failed(format!("flush: {e}")))?;
-        drop(file);
-        tokio::fs::rename(&tmp, &dest)
-            .await
-            .map_err(|e| DownloadError::Failed(format!("rename: {e}")))?;
-
-        if let Some(expected) = crate::stt::catalog::model_metadata(&id).map(|m| m.sha256) {
-            let _ = app.emit(
-                "download:progress",
-                DownloadProgress {
-                    id: id.clone(),
-                    state: DownloadProgressState::Verifying,
-                    bytes_received: received,
-                    bytes_total: total,
-                    error_message: None,
-                },
-            );
-            crate::models::verify_and_cleanup(&dest, expected).await?;
-        }
-        Ok::<(), DownloadError>(())
-    };
-
-    let result = do_download.await;
+    let expected_sha256 = crate::stt::catalog::model_metadata(&id).map(|m| m.sha256);
+    let result = download_file(
+        &app,
+        &url,
+        &dest,
+        &id,
+        known_total,
+        expected_sha256,
+        &mut cancel_rx,
+    )
+    .await;
 
     {
         let mut g = ACTIVE_DOWNLOADS.lock().unwrap();
