@@ -76,7 +76,7 @@ fn pin_dictation_as_style_example(db: &Db, dictation_id: i64) -> Result<(), AppE
         db,
         &style_examples::NewStyleExample {
             dictation_id: Some(dictation.id),
-            context_key: None,
+            context_key: dictation.context_key,
             target_bundle: Some(target_bundle),
             raw_text: dictation.raw_text,
             final_text: dictation.cleaned_text,
@@ -126,6 +126,7 @@ mod tests {
             input_device: None,
             smart_routing_enabled: false,
             smart_routing_applied: false,
+            context_key: None,
         }
     }
 
@@ -143,6 +144,56 @@ mod tests {
         assert_eq!(examples[0].dictation_id, Some(dictation_id));
         assert_eq!(examples[0].raw_text, "raw transcript");
         assert_eq!(examples[0].final_text, "Cleaned transcript.");
+    }
+
+    /// The fix at the heart of #137: pinning a dictation that was captured
+    /// with a recipient-level `context_key` (see `hotkey.rs::run_pipeline`)
+    /// must carry that key onto the resulting `style_examples` row, instead
+    /// of hardcoding `context_key: None` as before.
+    #[test]
+    fn pin_carries_dictation_context_key_through() {
+        let db = Db::memory().unwrap();
+        let mut dictation = sample_dictation(Some("com.apple.MobileSMS"));
+        dictation.context_key = Some("recipient-a".into());
+        let dictation_id = history::insert(&db, &dictation).unwrap();
+
+        pin_dictation_as_style_example(&db, dictation_id).unwrap();
+
+        let examples = style_examples::list_for_bundle(&db, "com.apple.MobileSMS").unwrap();
+        assert_eq!(examples.len(), 1);
+        assert_eq!(examples[0].context_key.as_deref(), Some("recipient-a"));
+    }
+
+    /// Proves the recipient tier — dead code before this issue, since every
+    /// pinned row had `context_key IS NULL` — is now actually reachable
+    /// end-to-end: pin a dictation with no recipient context, then pin a
+    /// second one scoped to a recipient, and confirm `top_k` prefers the
+    /// recipient-scoped pin for that recipient over the app-level one.
+    #[test]
+    fn pinned_recipient_example_outranks_app_level_pin_in_top_k() {
+        let db = Db::memory().unwrap();
+
+        let mut app_level = sample_dictation(Some("com.apple.MobileSMS"));
+        app_level.raw_text = "app-level raw".into();
+        app_level.cleaned_text = "app-level final".into();
+        let app_level_id = history::insert(&db, &app_level).unwrap();
+        pin_dictation_as_style_example(&db, app_level_id).unwrap();
+
+        let mut recipient = sample_dictation(Some("com.apple.MobileSMS"));
+        recipient.context_key = Some("recipient-a".into());
+        recipient.raw_text = "recipient raw".into();
+        recipient.cleaned_text = "recipient final".into();
+        let recipient_id = history::insert(&db, &recipient).unwrap();
+        pin_dictation_as_style_example(&db, recipient_id).unwrap();
+
+        let rows =
+            style_examples::top_k(&db, "com.apple.MobileSMS", Some("recipient-a"), 1).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            rows[0].final_text, "recipient final",
+            "recipient-scoped pin wins over the app-level one for its own recipient"
+        );
+        assert_eq!(rows[0].context_key.as_deref(), Some("recipient-a"));
     }
 
     #[test]

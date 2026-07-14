@@ -469,6 +469,10 @@ fn record_stt_failure(
         input_device: recording_meta.map(|m| m.input_device.clone()),
         smart_routing_enabled: recording_meta.is_some_and(|m| m.smart_routing_enabled),
         smart_routing_applied: recording_meta.is_some_and(|m| m.smart_routing_applied),
+        // STT failed before the frontmost app (and thus any recipient) was
+        // ever resolved — consistent with `target_app`/`target_bundle: None`
+        // above.
+        context_key: None,
     };
     spawn_failure_history_insert(app, db_arc, entry);
 }
@@ -666,13 +670,21 @@ async fn run_pipeline(
     // recipient -> app -> global on its own. A DB error here must never fail
     // the dictation — degrade to the empty-examples path (byte-identical
     // prompt) and log.
+    //
+    // `context_key` is resolved once here (alongside retrieval) and reused
+    // for the history row below, rather than re-querying — the frontmost app
+    // may have changed by the time inject runs. It stays `None` whenever
+    // retrieval doesn't run at all (style learning off, or no target app),
+    // matching `recipient_context_key`'s own "non-allowlisted app / no
+    // window title -> None" degradation.
     let mut style_examples_used: Vec<i64> = Vec::new();
+    let mut context_key: Option<String> = None;
     let examples: Vec<(String, String)> = if should_fetch_style_examples(
         style_learning_enabled,
         target_bundle.as_deref(),
     ) {
         let bundle = target_bundle.as_deref().expect("checked above");
-        let context_key =
+        context_key =
             os_integration::recipient_context_key(bundle, false).map(|ctx| ctx.context_key);
         match crate::db::style_examples::top_k(&db_arc, bundle, context_key.as_deref(), 3) {
             Ok(rows) => {
@@ -803,6 +815,7 @@ async fn run_pipeline(
                     smart_routing_applied: recording_meta
                         .as_ref()
                         .is_some_and(|m| m.smart_routing_applied),
+                    context_key,
                 };
                 let db = db_arc.clone();
                 let app2 = app.clone();
@@ -871,6 +884,7 @@ async fn run_pipeline(
                     smart_routing_applied: recording_meta
                         .as_ref()
                         .is_some_and(|m| m.smart_routing_applied),
+                    context_key,
                 };
                 spawn_failure_history_insert(&app, db_arc.clone(), entry);
             }
