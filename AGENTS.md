@@ -182,6 +182,35 @@ grants, wipe `settings.json`, and remove logs. `reset` keeps downloaded models;
 `reset-all` deletes them too (with a confirmation prompt). Both refuse to run
 while the app is alive. `just eval` is a dev-only refiner-stage model bake-off.
 
+### Local verification: run the minimal covering subset
+
+CI (`check-macos`) runs the full `just check` / `just lint` / `just test` on
+every push and PR — that's the gate. Locally you only need enough signal to
+catch an obviously broken PR, so **scope commands to the diff, not the whole
+suite**. Scope by *amount* (narrow to the crate/package/files you touched),
+never by *category* — don't run lint but skip typecheck, or clippy on the
+root workspace but skip `app/src-tauri`'s own fmt/clippy pass (it's a
+separate Cargo workspace, see Common commands above). Run the full suite
+(`just check && just lint && just test`) before release-critical changes
+(release pipeline, signing/notarization scripts, migrations).
+
+- **Rust tests, scoped:** `cargo nextest run -p <crate> <filter>`, e.g.
+  `cargo nextest run -p os-integration hotkey::`. For the Tauri host:
+  `cd app/src-tauri && cargo nextest run <filter>`.
+- **Frontend tests, scoped:** `cd app && pnpm exec vitest run <path>`, e.g.
+  `pnpm exec vitest run src/lib/__tests__/settings.test.ts`.
+- **Rust lint, scoped:** `cargo clippy -p <crate> --all-targets -- -D
+  warnings` (root workspace) or `cd app/src-tauri && cargo clippy
+  --all-targets -- -D warnings`. `cargo fmt --all --check` is whole-workspace
+  by nature but is fast — no need to scope it.
+- **Frontend lint, scoped:** `cd app && pnpm exec eslint <files>` and
+  `pnpm exec prettier --check <files>` directly — the `lint` recipe hardcodes
+  the full `src/**/*.{ts,svelte}` glob, so pass specific paths to the tools
+  yourself rather than editing the recipe.
+- **Type check:** `svelte-check` (`pnpm exec svelte-check --threshold
+  error`) and `cargo check` are whole-project/whole-crate by nature — there's
+  no useful narrower form, just run them as-is.
+
 ### Notarization (release `.dmg`)
 
 `just dmg` notarizes the release `.app` and `.dmg` via
@@ -345,9 +374,12 @@ draft PR — don't push to `main`.
 - **Scope:** Do what the task asks. Don't refactor unrelated code, don't
   rename files "while you're there", don't introduce new dependencies without
   flagging it in the PR description.
-- **Verification before claiming done:** Run `just check` and `just test`
-  (and `just lint` if you touched Rust) before saying a task is complete.
-  CI failure on `main` blocks everyone.
+- **Verification before claiming done:** Run the minimal covering subset of
+  tests/lint/typecheck for what you changed (see "Local verification" under
+  Common commands) before saying a task is complete — full `just check` /
+  `just lint` / `just test` only for release-critical changes. CI runs the
+  full matrix on every PR and is the actual gate; a CI failure on `main`
+  blocks everyone.
 - **Destructive ops** (force push, `git reset --hard`, deleting branches,
   rewriting history): get explicit confirmation from a human first.
 - **macOS permissions:** If a flow needs the real TCC prompt, say so in the
