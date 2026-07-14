@@ -5,6 +5,7 @@ use rusqlite::Connection;
 use rusqlite_migration::{Migrations, M};
 
 pub mod history;
+pub mod style_examples;
 
 /// Ordered, append-only migration list. NEVER edit a released migration; add a
 /// new one. `to_latest` applies only the not-yet-applied migrations and bumps
