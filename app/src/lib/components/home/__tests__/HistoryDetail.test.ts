@@ -80,9 +80,7 @@ describe("HistoryDetail pin action", () => {
     });
     render(HistoryDetail, { id: 1 });
 
-    await waitFor(() =>
-      expect(screen.getByText("Skipped (dictation-only)")).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByText("Skipped (dictation-only)")).toBeInTheDocument());
     expect(screen.queryByText(PIN_LABEL)).not.toBeInTheDocument();
   });
 

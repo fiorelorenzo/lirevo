@@ -211,8 +211,7 @@ export const lda = {
   historyGet: (id: number) => invoke<Dictation | null>("history_get", { id }),
   historyDelete: (id: number) => invoke<void>("history_delete", { id }),
   historyClear: () => invoke<void>("history_clear"),
-  styleExamplePin: (dictationId: number) =>
-    invoke<void>("style_example_pin", { dictationId }),
+  styleExamplePin: (dictationId: number) => invoke<void>("style_example_pin", { dictationId }),
 
   profileGet: () => invoke<ProfileStatus>("profile_get"),
   profileSetMode: (mode: string) => invoke<void>("profile_set_mode", { mode }),
