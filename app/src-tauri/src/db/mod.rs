@@ -15,6 +15,7 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("migrations/001_dictations.sql")),
         M::up(include_str!("migrations/002_smart_routing.sql")),
         M::up(include_str!("migrations/003_style_examples.sql")),
+        M::up(include_str!("migrations/004_dictations_context_key.sql")),
     ])
 }
 
@@ -170,6 +171,20 @@ mod tests {
                 "missing column {expected}"
             );
         }
+    }
+
+    #[test]
+    fn migration_004_adds_dictations_context_key_column() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrations().to_latest(&mut conn).unwrap();
+        let cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(dictations)")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        assert!(cols.iter().any(|c| c == "context_key"));
     }
 
     #[test]

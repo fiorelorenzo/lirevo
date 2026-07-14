@@ -40,6 +40,11 @@ pub struct NewDictation {
     pub smart_routing_enabled: bool,
     /// Whether smart routing actually rerouted to the built-in mic.
     pub smart_routing_applied: bool,
+    /// Recipient-level context key (`os_integration::recipient_context_key`),
+    /// resolved once alongside `target_bundle` right after STT. `None` when
+    /// the target app isn't in the recipient allowlist, no window title was
+    /// available, or the dictation predates migration 004.
+    pub context_key: Option<String>,
 }
 
 /// Lightweight row for the list (no full transcripts).
@@ -83,6 +88,9 @@ pub struct Dictation {
     pub smart_routing_enabled: Option<bool>,
     /// Whether smart routing rerouted to the built-in mic. `None` for pre-002 rows.
     pub smart_routing_applied: Option<bool>,
+    /// Recipient-level context key. `None` for pre-004 rows, or when no
+    /// recipient could be resolved for this dictation.
+    pub context_key: Option<String>,
 }
 
 const PREVIEW_CHARS: usize = 120;
@@ -101,8 +109,8 @@ pub fn insert(db: &Db, e: &NewDictation) -> rusqlite::Result<i64> {
             "INSERT INTO dictations (created_at, language, stt_model, audio_ms, raw_text, stt_ms,
                 llm_model, cleaned_text, clean_ms, cleanup_status, cleanup_error,
                 inject_method, inject_ms, total_ms, target_app, target_bundle,
-                input_device, smart_routing_enabled, smart_routing_applied)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)",
+                input_device, smart_routing_enabled, smart_routing_applied, context_key)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)",
             params![
                 e.created_at,
                 e.language,
@@ -123,6 +131,7 @@ pub fn insert(db: &Db, e: &NewDictation) -> rusqlite::Result<i64> {
                 e.input_device,
                 i64::from(e.smart_routing_enabled),
                 i64::from(e.smart_routing_applied),
+                e.context_key,
             ],
         )?;
         Ok(c.last_insert_rowid())
@@ -160,7 +169,7 @@ pub fn get(db: &Db, id: i64) -> rusqlite::Result<Option<Dictation>> {
             "SELECT id, created_at, language, stt_model, audio_ms, raw_text, stt_ms, llm_model,
                 cleaned_text, clean_ms, cleanup_status, cleanup_error, inject_method, inject_ms,
                 total_ms, target_app, target_bundle, input_device, smart_routing_enabled,
-                smart_routing_applied FROM dictations WHERE id = ?1",
+                smart_routing_applied, context_key FROM dictations WHERE id = ?1",
             params![id],
             |r| {
                 Ok(Dictation {
@@ -184,6 +193,7 @@ pub fn get(db: &Db, id: i64) -> rusqlite::Result<Option<Dictation>> {
                     input_device: r.get(17)?,
                     smart_routing_enabled: r.get::<_, Option<i64>>(18)?.map(|v| v != 0),
                     smart_routing_applied: r.get::<_, Option<i64>>(19)?.map(|v| v != 0),
+                    context_key: r.get(20)?,
                 })
             },
         )
@@ -235,6 +245,7 @@ mod tests {
             input_device: Some("MacBook Pro Microphone".into()),
             smart_routing_enabled: true,
             smart_routing_applied: stt_only,
+            context_key: None,
         }
     }
 
@@ -262,6 +273,28 @@ mod tests {
         assert_eq!(stt_only.llm_model, None);
         assert_eq!(stt_only.clean_ms, None);
         assert_eq!(stt_only.smart_routing_applied, Some(true));
+    }
+
+    /// `context_key` round-trips through insert/get both when a recipient was
+    /// resolved (allowlisted app with a window title) and when it wasn't
+    /// (`None` — non-allowlisted app, no window title, or pre-004 row).
+    #[test]
+    fn context_key_roundtrips_with_and_without_a_value() {
+        let db = Db::memory().unwrap();
+
+        let mut with_context = sample(1, "hey there", false);
+        with_context.target_bundle = Some("com.apple.MobileSMS".into());
+        with_context.context_key = Some("abcdef0123456789".into());
+        let with_context_id = insert(&db, &with_context).unwrap();
+
+        let without_context = sample(2, "unrelated app", false);
+        let without_context_id = insert(&db, &without_context).unwrap();
+
+        let got_with = get(&db, with_context_id).unwrap().unwrap();
+        assert_eq!(got_with.context_key.as_deref(), Some("abcdef0123456789"));
+
+        let got_without = get(&db, without_context_id).unwrap().unwrap();
+        assert_eq!(got_without.context_key, None);
     }
 
     #[test]
@@ -313,6 +346,7 @@ mod tests {
             input_device: None,
             smart_routing_enabled: false,
             smart_routing_applied: false,
+            context_key: None,
         };
         let stt_id = insert(&db, &stt_failed).unwrap();
         let got = get(&db, stt_id).unwrap().unwrap();
