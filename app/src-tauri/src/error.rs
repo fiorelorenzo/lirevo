@@ -10,6 +10,8 @@ pub enum AppError {
     Inference(String),
     #[error("Hotkey listener error: {0}")]
     Hotkey(String),
+    #[error("Can't change hotkey while recording")]
+    HotkeyBusy,
     #[error("Settings error: {0}")]
     Settings(String),
     #[error("Permission denied: {0}")]

@@ -40,8 +40,31 @@ pub fn install(app: AppHandle, spec: HotkeySpec, mode: ActivationMode) -> Result
     Ok(())
 }
 
+/// Reject a hotkey/activation-mode reinstall while a recording is in flight.
+///
+/// Swapping `COORDINATOR` drops the previously-installed `HotkeyListener`,
+/// tearing down its CGEventTap and abandoning the `dictation_loop` task that
+/// would have delivered the matching `Up` event. Without this guard, an
+/// in-flight `AppStateInner::recorder`/`streaming` would be stranded until
+/// app restart. Split out as a pure function so the decision is testable
+/// without a live `AppHandle`/`HotkeyListener`.
+fn reject_if_recording(recording: bool) -> Result<(), AppError> {
+    if recording {
+        return Err(AppError::HotkeyBusy);
+    }
+    Ok(())
+}
+
 pub fn reinstall(app: &AppHandle, spec: HotkeySpec, mode: ActivationMode) -> Result<(), AppError> {
     tracing::info!(?spec, ?mode, "hotkey::reinstall");
+    let recording = {
+        let state = app.state::<AppState>();
+        let inner = state.inner.lock().unwrap();
+        inner.recorder.is_some()
+    };
+    reject_if_recording(recording).inspect_err(|_| {
+        tracing::warn!("hotkey::reinstall: rejected — recording in progress");
+    })?;
     let coord = build_coordinator(app.clone(), spec, mode)?;
     // Replace (and thereby drop) the previous coordinator. Drop on the old
     // HotkeyListener stops its run loop + tears down the EventTap.
@@ -776,4 +799,22 @@ async fn run_pipeline(
     // preload / idle-unload refinement — `lifecycle_decision` does not yet
     // consume `last_dictation` (it takes it as `_last_dictation`).
     engine.mark_dictation();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reinstall_guard_rejects_while_recording() {
+        assert!(matches!(
+            reject_if_recording(true),
+            Err(AppError::HotkeyBusy)
+        ));
+    }
+
+    #[test]
+    fn reinstall_guard_allows_when_idle() {
+        assert!(reject_if_recording(false).is_ok());
+    }
 }

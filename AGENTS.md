@@ -32,7 +32,8 @@ See `README.md` for end-user setup and `CHANGELOG.md` for milestone status.
   fallback) and surfaces it in **Settings → About**. DL is enabled on
   macOS + Linux; Windows is static-linked (DL deferred there).
 - **OS integration:** `cocoa` / `core-foundation` / `core-graphics` for
-  CGEventTap (global hotkey) and AXUIElement (text injection).
+  CGEventTap (global hotkey); `objc2-app-kit` (`NSPasteboard`) + synthetic
+  Cmd+V for text injection.
 - **Build tooling:** `just`, `cargo`, `pnpm`, `cargo-nextest`. Node 22 (see
   `.nvmrc`; CI pins the same), pnpm 9.15.9 (pinned via `packageManager`; enable
   with `corepack enable`), Rust 1.88 (see `rust-toolchain.toml`).
@@ -306,11 +307,15 @@ hotkey, microphone, or injection code paths.
    commands to "granted" and makes `test_mic` return a synthetic envelope.
    Debug builds only. Use it for UI iteration when you don't need real audio
    or real prompts.
-7. **Text injection has two paths**: AXUIElement (preferred) with a pasteboard
-   fallback. Pasteboard fallback overwrites the user's clipboard, restores it
-   after the paste, and loses non-string clipboard content (images/files) in
-   the process. Don't add new code paths that change this without a settings
-   toggle.
+7. **Text injection always goes through `NSPasteboard`** — there is no
+   AXUIElement path and no `force_pasteboard` toggle. Injection snapshots the
+   *entire* current pasteboard (every item, every concrete type via
+   `dataForType:`, not just the string content), writes our text, synthesizes
+   a Cmd+V key event, waits for the target app to consume the paste, then
+   restores the full pre-injection snapshot via `setData:forType:`. Types
+   backed by promised/lazy data (`dataForType:` returns `nil`) can't be
+   snapshotted and are silently dropped — a known limitation, not a bug. Don't
+   add new code paths that change this without a settings toggle.
 
 ## What NOT to commit
 

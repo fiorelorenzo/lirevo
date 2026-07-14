@@ -19,12 +19,12 @@ use arc_swap::{ArcSwap, ArcSwapOption};
 use inference_core::profile::{policy_for, ProfileName, ProfilePolicy};
 use inference_core::{ChatRequest, ChatResponse, LlamaBackend, LlmError};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Mutex as AsyncMutex;
 
 use crate::engine::decision::resolve_n_threads;
 use crate::engine::slot::{LlmSlot, SlotSnapshot, SttSlotState};
-use crate::state::SttSlot;
+use crate::state::{AppState, ModelState, SttSlot};
 
 pub use crate::engine::backend::{backend_manifest_url, ActiveBackends, BackendManager};
 pub use crate::engine::decision::UnloadReason;
@@ -126,6 +126,22 @@ impl Engine {
         }
     }
 
+    /// Surface a background lifecycle-loop failure (e.g. the stuck-load
+    /// watchdog) as a user-facing `model:state` `Error`, reusing the same
+    /// managed `AppState` the request-scoped command handlers use. A no-op
+    /// (and in unit tests) before `set_state_reporter` has installed a handle.
+    fn emit_model_state_error(&self, reason: &str) {
+        if let Some(app) = self.state_reporter.load_full() {
+            let state = app.state::<AppState>();
+            state.set_model_state(
+                &app,
+                ModelState::Error {
+                    reason: reason.to_string(),
+                },
+            );
+        }
+    }
+
     pub fn set_policy(&self, policy: ProfilePolicy) {
         self.current_policy.store(Arc::new(policy));
     }
@@ -146,17 +162,23 @@ impl Engine {
 
     pub fn llm_snapshot(&self) -> SlotSnapshot {
         // try_lock: snapshotting must never block the caller; if the slot
-        // is mid-transition treat it as Loading for decision purposes.
+        // is mid-transition treat it as Loading (just-started, so it never
+        // spuriously trips the stuck-load watchdog on its own) for decision
+        // purposes.
         match self.llm.try_lock() {
             Ok(g) => g.snapshot(),
-            Err(_) => SlotSnapshot::Loading,
+            Err(_) => SlotSnapshot::Loading {
+                since: Instant::now(),
+            },
         }
     }
 
     pub fn stt_snapshot(&self) -> SlotSnapshot {
         match self.stt.try_lock() {
             Ok(g) => g.snapshot(),
-            Err(_) => SlotSnapshot::Loading,
+            Err(_) => SlotSnapshot::Loading {
+                since: Instant::now(),
+            },
         }
     }
 
@@ -226,7 +248,12 @@ impl Engine {
         res.map(Some)
     }
 
-    /// Unload the LLM. Idempotent.
+    /// Unload the LLM. Idempotent. Note: a `StuckLoad` reason force-resets
+    /// the slot from `Loading` to `Unloaded` while the wedged
+    /// `spawn_blocking` load may still be running — it holds no lock across
+    /// its await, so it races the reset (see `lifecycle_loop`'s doc comment
+    /// on tolerating stale overwrites) and will just overwrite `Unloaded`
+    /// with `Loaded`/`Unloaded` again once (if ever) it returns.
     pub async fn unload_llm(&self, reason: UnloadReason) {
         let transitioned = {
             let mut slot = self.llm.lock().await;
@@ -240,27 +267,42 @@ impl Engine {
         };
         if transitioned {
             self.emit_llm_state(false, Some(format!("{reason:?}")));
+            if reason == UnloadReason::StuckLoad {
+                self.emit_model_state_error("llm load timed out; retrying on next use");
+            }
         }
     }
 
     /// Unload the STT, but ONLY if not currently in use (the streaming
     /// worker holds the slot lock during a dictation). Returns true if it
-    /// actually unloaded.
+    /// actually unloaded. `StuckLoad` is the one reason that also force-resets
+    /// a wedged `Loading` slot (every other reason only acts on `Loaded`).
     pub async fn unload_stt(&self, reason: UnloadReason) -> bool {
-        let mut state = self.stt.lock().await;
-        match &*state {
-            SttSlotState::Loaded { slot, .. } => {
-                // Skip if the model is mid-dictation (worker holds it).
-                if slot.try_lock().is_err() {
-                    tracing::debug!(?reason, "engine: STT in use, deferring unload");
-                    return false;
+        let unloaded = {
+            let mut state = self.stt.lock().await;
+            match &*state {
+                SttSlotState::Loaded { slot, .. } => {
+                    // Skip if the model is mid-dictation (worker holds it).
+                    if slot.try_lock().is_err() {
+                        tracing::debug!(?reason, "engine: STT in use, deferring unload");
+                        return false;
+                    }
+                    tracing::info!(?reason, "engine: unloading STT");
+                    *state = SttSlotState::Unloaded;
+                    true
                 }
-                tracing::info!(?reason, "engine: unloading STT");
-                *state = SttSlotState::Unloaded;
-                true
+                SttSlotState::Loading { .. } if reason == UnloadReason::StuckLoad => {
+                    tracing::warn!(?reason, "engine: forcing stuck STT load back to Unloaded");
+                    *state = SttSlotState::Unloaded;
+                    true
+                }
+                _ => false,
             }
-            _ => false,
+        };
+        if unloaded && reason == UnloadReason::StuckLoad {
+            self.emit_model_state_error("stt load timed out; retrying on next use");
         }
+        unloaded
     }
 
     /// Lazy-load the STT model. Returns the slot, or `Ok(None)` if no model
