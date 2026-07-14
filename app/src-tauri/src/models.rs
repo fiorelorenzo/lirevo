@@ -478,14 +478,29 @@ pub async fn download(app: tauri::AppHandle, id: String) -> Result<(), crate::Ap
     }
 }
 
-async fn download_inner(
+/// Stream `url` to `dest` via a `.partial` temp file, emitting
+/// `download:progress` events (throttled to once per 100ms — a 2 GB download
+/// produces ~250k chunks; one emit per chunk made the JS progress bar visibly
+/// stutter and starved the rest of the app), then rename into place and
+/// optionally verify against `expected_sha256`. Shared by the LLM GGUF path
+/// (`download_inner`) and the STT GGUF path (`commands::models::stt_download`).
+/// The CoreML companion zip (`download_and_extract_coreml`) has its own
+/// extract step afterwards, so it stays a separate routine.
+///
+/// On cancellation the `.partial` file is removed before returning; on any
+/// other failure the `.partial` file is left in place for the caller to
+/// decide whether to clean it up (callers currently differ here — see
+/// TRUST-4).
+pub(crate) async fn download_file(
     app: &tauri::AppHandle,
-    entry: &CatalogEntry,
+    url: &str,
+    dest: &std::path::Path,
+    id: &str,
+    expected_total: u64,
+    expected_sha256: Option<&str>,
     cancel_rx: &mut oneshot::Receiver<()>,
 ) -> Result<(), DownloadError> {
     use tauri::Emitter;
-    let models_dir = models_dir(app).map_err(|e| DownloadError::Failed(e.to_string()))?;
-    let dest = models_dir.join(&entry.filename);
     let tmp = dest.with_extension(format!(
         "{}.partial",
         dest.extension().and_then(|e| e.to_str()).unwrap_or("")
@@ -493,14 +508,14 @@ async fn download_inner(
 
     let client = reqwest::Client::new();
     let resp = client
-        .get(&entry.url)
+        .get(url)
         .send()
         .await
         .map_err(|e| DownloadError::Failed(format!("http: {e}")))?;
     if !resp.status().is_success() {
         return Err(DownloadError::Failed(format!("HTTP {}", resp.status())));
     }
-    let total = resp.content_length().unwrap_or(entry.size_bytes);
+    let total = resp.content_length().unwrap_or(expected_total);
 
     let mut file = tokio::fs::File::create(&tmp)
         .await
@@ -508,9 +523,6 @@ async fn download_inner(
 
     let mut received: u64 = 0;
     let mut stream = resp.bytes_stream();
-    // Emit at most every 100ms so we don't flood the IPC channel (a 2 GB
-    // download produces ~250k chunks; one emit per chunk made the JS
-    // progress bar visibly stutter and starved the rest of the app).
     let mut last_emit = std::time::Instant::now();
     while let Some(chunk_result) = stream.next().await {
         if cancel_rx.try_recv().is_ok() {
@@ -528,7 +540,7 @@ async fn download_inner(
             let _ = app.emit(
                 "download:progress",
                 DownloadProgress {
-                    id: entry.id.clone(),
+                    id: id.to_string(),
                     state: DownloadProgressState::Downloading,
                     bytes_received: received,
                     bytes_total: total,
@@ -542,7 +554,7 @@ async fn download_inner(
     let _ = app.emit(
         "download:progress",
         DownloadProgress {
-            id: entry.id.clone(),
+            id: id.to_string(),
             state: DownloadProgressState::Downloading,
             bytes_received: received,
             bytes_total: total,
@@ -554,23 +566,45 @@ async fn download_inner(
         .map_err(|e| DownloadError::Failed(format!("flush: {e}")))?;
     drop(file);
 
-    tokio::fs::rename(&tmp, &dest)
+    tokio::fs::rename(&tmp, dest)
         .await
         .map_err(|e| DownloadError::Failed(format!("rename: {e}")))?;
 
-    if let Some(expected) = &entry.sha256 {
+    if let Some(expected) = expected_sha256 {
         let _ = app.emit(
             "download:progress",
             DownloadProgress {
-                id: entry.id.clone(),
+                id: id.to_string(),
                 state: DownloadProgressState::Verifying,
                 bytes_received: received,
                 bytes_total: total,
                 error_message: None,
             },
         );
-        verify_and_cleanup(&dest, expected).await?;
+        verify_and_cleanup(dest, expected).await?;
     }
+
+    Ok(())
+}
+
+async fn download_inner(
+    app: &tauri::AppHandle,
+    entry: &CatalogEntry,
+    cancel_rx: &mut oneshot::Receiver<()>,
+) -> Result<(), DownloadError> {
+    let models_dir = models_dir(app).map_err(|e| DownloadError::Failed(e.to_string()))?;
+    let dest = models_dir.join(&entry.filename);
+
+    download_file(
+        app,
+        &entry.url,
+        &dest,
+        &entry.id,
+        entry.size_bytes,
+        entry.sha256.as_deref(),
+        cancel_rx,
+    )
+    .await?;
 
     // Whisper CoreML companion (separate zip download + unzip).
     if entry.coreml_encoder_url.is_some() {
