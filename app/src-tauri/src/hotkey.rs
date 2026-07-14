@@ -369,6 +369,35 @@ fn now_millis() -> i64 {
         .unwrap_or(0)
 }
 
+/// Current wall-clock time in epoch seconds, matching `db::style_examples`'
+/// caller-owns-the-clock convention (see `style_examples::touch_use`).
+fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+/// Whether `run_pipeline` should attempt to fetch style examples at all:
+/// gated on the `style_learning_enabled` setting and on actually knowing
+/// which app to scope retrieval to. Split into a pure function (no `Db`/
+/// `AppHandle`) so the on/off gating — including the zero-regression
+/// fallback when the setting is off — is unit-testable in isolation.
+fn should_fetch_style_examples(style_learning_enabled: bool, target_bundle: Option<&str>) -> bool {
+    style_learning_enabled && target_bundle.is_some()
+}
+
+/// Splits `top_k` rows into the `(raw, final)` pairs consumed by
+/// `lirevo_prompts::build_clean_system_prompt_with_examples` and the ids to
+/// `touch_use` once the cleanup request actually goes out.
+fn style_examples_from_rows(
+    rows: Vec<crate::db::style_examples::StyleExample>,
+) -> (Vec<(String, String)>, Vec<i64>) {
+    rows.into_iter()
+        .map(|r| ((r.raw_text, r.final_text), r.id))
+        .unzip()
+}
+
 /// Best-effort history insert shared by the failure-path call sites below:
 /// runs the insert on a blocking task and, on success, emits `dictation:saved`
 /// so History updates live — same as the success-path insert further down,
@@ -473,12 +502,13 @@ async fn run_pipeline(
 
     // Snapshot what we need; release the lock before any heavy work so we
     // never hold the std::sync::Mutex across an await.
-    let (engine, language, record_history, recording_meta) = {
+    let (engine, language, record_history, style_learning_enabled, recording_meta) = {
         let inner = state.inner.lock().unwrap();
         (
             inner.engine.clone(),
             inner.settings.language.clone(),
             inner.settings.record_history,
+            inner.settings.style_learning_enabled,
             inner.recording_meta.clone(),
         )
     };
@@ -622,6 +652,42 @@ async fn run_pipeline(
         return;
     }
 
+    // Resolve the frontmost app once, right after STT, and reuse it both for
+    // style-example retrieval below and for the history row further down
+    // (rather than re-querying after inject, which could observe a different
+    // app if the user switched focus during cleanup latency).
+    let (target_app, target_bundle) = os_integration::frontmost_app()
+        .map(|a| (a.name, a.bundle_id))
+        .unwrap_or((None, None));
+
+    // Style-example retrieval: gated on the setting, scoped to the current
+    // app. A DB error here must never fail the dictation — degrade to the
+    // empty-examples path (byte-identical prompt) and log.
+    let mut style_examples_used: Vec<i64> = Vec::new();
+    let examples: Vec<(String, String)> = if should_fetch_style_examples(
+        style_learning_enabled,
+        target_bundle.as_deref(),
+    ) {
+        let bundle = target_bundle.as_deref().expect("checked above");
+        match crate::db::style_examples::top_k(&db_arc, bundle, None, 3) {
+            Ok(rows) => {
+                let (pairs, ids) = style_examples_from_rows(rows);
+                style_examples_used = ids;
+                pairs
+            }
+            Err(e) => {
+                tracing::warn!(
+                        ?e,
+                        bundle,
+                        "run_pipeline: style example retrieval failed — falling back to no-examples prompt"
+                    );
+                Vec::new()
+            }
+        }
+    } else {
+        Vec::new()
+    };
+
     // 2. Clean (graceful degrade if LLM missing or fails). The engine
     // lazy-loads the LLM on demand; Ok(None) means no cleanup model is
     // configured (STT-only mode), so we type the raw transcript as-is.
@@ -637,7 +703,9 @@ async fn run_pipeline(
     let mut cleanup_ran = true;
     let cleaned = match engine
         .chat(inference_core::ChatRequest {
-            system: Some(lirevo_prompts::build_clean_system_prompt(&language)),
+            system: Some(lirevo_prompts::build_clean_system_prompt_with_examples(
+                &language, &examples,
+            )),
             history: vec![],
             user: raw_text.clone(),
             temperature: 0.2,
@@ -672,6 +740,18 @@ async fn run_pipeline(
         None
     };
 
+    // The examples were actually spliced into a request only when a cleanup
+    // call was really made (Applied/Failed); in the Skipped (STT-only) case
+    // no LLM request went out, so don't record a use.
+    if cleanup_ran {
+        let now = now_secs();
+        for id in &style_examples_used {
+            if let Err(e) = crate::db::style_examples::touch_use(&db_arc, *id, now) {
+                tracing::warn!(?e, id, "run_pipeline: touch_use failed (non-fatal)");
+            }
+        }
+    }
+
     // 3. Inject (graceful degrade to clipboard).
     match os_integration::Injector::new().inject(&cleaned) {
         Ok(method) => {
@@ -687,10 +767,9 @@ async fn run_pipeline(
 
             // Record this successful dictation. Best-effort: a DB failure must
             // never disrupt the dictation flow (we've already typed the text).
+            // `target_app`/`target_bundle` were resolved once, right after STT
+            // (see above), and reused here rather than re-queried post-inject.
             if record_history {
-                let (target_app, target_bundle) = os_integration::frontmost_app()
-                    .map(|a| (a.name, a.bundle_id))
-                    .unwrap_or((None, None));
                 let created_at = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_millis() as i64)
@@ -760,11 +839,9 @@ async fn run_pipeline(
 
             // Record this failed dictation. STT + cleanup already ran (their
             // text/timings are known), only inject fell through; best-effort,
-            // same as the success-path insert above.
+            // same as the success-path insert above. `target_app`/`target_bundle`
+            // are the same values resolved once right after STT (see above).
             if record_history {
-                let (target_app, target_bundle) = os_integration::frontmost_app()
-                    .map(|a| (a.name, a.bundle_id))
-                    .unwrap_or((None, None));
                 let entry = crate::db::history::NewDictation {
                     created_at: now_millis(),
                     language: Some(language.clone()),
@@ -816,5 +893,84 @@ mod tests {
     #[test]
     fn reinstall_guard_allows_when_idle() {
         assert!(reject_if_recording(false).is_ok());
+    }
+
+    #[test]
+    fn style_examples_not_fetched_when_setting_disabled() {
+        assert!(!should_fetch_style_examples(false, Some("com.apple.mail")));
+    }
+
+    #[test]
+    fn style_examples_not_fetched_without_a_target_bundle() {
+        assert!(!should_fetch_style_examples(true, None));
+    }
+
+    #[test]
+    fn style_examples_fetched_when_enabled_with_a_target_bundle() {
+        assert!(should_fetch_style_examples(true, Some("com.apple.mail")));
+    }
+
+    /// Zero-regression guarantee at the call site: whenever
+    /// `should_fetch_style_examples` says "don't fetch" (setting off, or no
+    /// resolved app), the examples list stays empty and the system prompt
+    /// actually sent to the LLM is byte-identical to the pre-STYLE-4 prompt.
+    #[test]
+    fn style_examples_disabled_setting_yields_byte_identical_prompt() {
+        for target_bundle in [None, Some("com.apple.mail")] {
+            let examples: Vec<(String, String)> =
+                if should_fetch_style_examples(false, target_bundle) {
+                    panic!("should_fetch_style_examples must be false when the setting is off");
+                } else {
+                    Vec::new()
+                };
+            assert_eq!(
+                lirevo_prompts::build_clean_system_prompt_with_examples("en", &examples),
+                lirevo_prompts::build_clean_system_prompt("en")
+            );
+        }
+    }
+
+    #[test]
+    fn style_examples_from_rows_maps_pairs_and_ids() {
+        let rows = vec![
+            crate::db::style_examples::StyleExample {
+                id: 1,
+                dictation_id: None,
+                context_key: None,
+                target_bundle: Some("com.apple.mail".into()),
+                raw_text: "raw one".into(),
+                final_text: "final one".into(),
+                edit_distance_ratio: None,
+                source: "manual_pin".into(),
+                pinned: true,
+                use_count: 0,
+                last_used_at: None,
+                created_at: 1,
+            },
+            crate::db::style_examples::StyleExample {
+                id: 2,
+                dictation_id: None,
+                context_key: None,
+                target_bundle: Some("com.apple.mail".into()),
+                raw_text: "raw two".into(),
+                final_text: "final two".into(),
+                edit_distance_ratio: None,
+                source: "manual_pin".into(),
+                pinned: false,
+                use_count: 3,
+                last_used_at: Some(100),
+                created_at: 2,
+            },
+        ];
+
+        let (pairs, ids) = style_examples_from_rows(rows);
+        assert_eq!(
+            pairs,
+            vec![
+                ("raw one".to_string(), "final one".to_string()),
+                ("raw two".to_string(), "final two".to_string()),
+            ]
+        );
+        assert_eq!(ids, vec![1, 2]);
     }
 }

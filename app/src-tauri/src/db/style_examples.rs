@@ -1,9 +1,3 @@
-// This module's CRUD + ranking API lands ahead of its consumer: STYLE-4 wires
-// `top_k`/`touch_use` into the cleanup prompt. Until that lands, only this
-// module's own tests call these `pub` items, so the compiler sees them as
-// dead code.
-#![allow(dead_code)]
-
 use rusqlite::{params, OptionalExtension};
 use serde::Serialize;
 
@@ -87,6 +81,7 @@ pub fn insert(db: &Db, e: &NewStyleExample) -> rusqlite::Result<i64> {
     })
 }
 
+#[allow(dead_code)] // consumer lands with the Settings -> Writing Style page (#88)
 pub fn get(db: &Db, id: i64) -> rusqlite::Result<Option<StyleExample>> {
     db.with_conn(|c| {
         c.query_row(
@@ -98,6 +93,7 @@ pub fn get(db: &Db, id: i64) -> rusqlite::Result<Option<StyleExample>> {
     })
 }
 
+#[allow(dead_code)] // consumer lands with the Settings -> Writing Style page (#88)
 pub fn delete(db: &Db, id: i64) -> rusqlite::Result<()> {
     db.with_conn(|c| {
         c.execute("DELETE FROM style_examples WHERE id = ?1", params![id])
@@ -106,6 +102,7 @@ pub fn delete(db: &Db, id: i64) -> rusqlite::Result<()> {
 }
 
 /// All examples for a given app, newest first.
+#[allow(dead_code)] // consumer lands with the Settings -> Writing Style page (#88)
 pub fn list_for_bundle(db: &Db, target_bundle: &str) -> rusqlite::Result<Vec<StyleExample>> {
     db.with_conn(|c| {
         let mut stmt = c.prepare(&format!(
