@@ -8,10 +8,13 @@
     Languages,
     AppWindow,
     TriangleAlert,
+    Pin,
   } from "@lucide/svelte";
   import { lda, type Dictation } from "$lib/tauri";
   import Spinner from "$lib/components/Spinner.svelte";
   import { formatMs, formatAbsolute } from "./format";
+  import { settings } from "$lib/stores/settings.svelte";
+  import { toastSuccess, withErrorToast } from "$lib/stores/toasts";
 
   interface Props {
     id: number;
@@ -21,6 +24,8 @@
   let detail = $state<Dictation | null>(null);
   let loading = $state(true);
   let error = $state<string | null>(null);
+  let pinning = $state(false);
+  let pinned = $state(false);
 
   // Re-fetch whenever the selected id changes (the parent reuses one mounted
   // instance per selection, so a $effect on `id` is what drives the reload).
@@ -29,6 +34,7 @@
     loading = true;
     error = null;
     detail = null;
+    pinned = false;
     void lda
       .historyGet(wanted)
       .then((d) => {
@@ -46,6 +52,22 @@
 
   let cleanupSkipped = $derived(detail?.cleanupStatus === "skipped");
   let cleanupFailed = $derived(detail?.cleanupStatus === "failed");
+  let canPinAsStyleExample = $derived(
+    Boolean($settings?.styleLearningEnabled) && Boolean(detail?.targetBundle) && !cleanupSkipped,
+  );
+
+  async function pinAsStyleExample(): Promise<void> {
+    if (!detail || pinning) return;
+    pinning = true;
+    const result = await withErrorToast("Save as style example", () =>
+      lda.styleExamplePin(detail!.id),
+    );
+    pinning = false;
+    if (result !== null) {
+      pinned = true;
+      toastSuccess("Saved as style example.");
+    }
+  }
 </script>
 
 <div>
@@ -131,6 +153,17 @@
               <Clock class="h-3 w-3" />{formatMs(detail.cleanMs)}
             </span>
           </div>
+        {/if}
+        {#if canPinAsStyleExample}
+          <button
+            type="button"
+            class="inline-flex items-center gap-1.5 rounded-md border border-border/60 px-2.5 py-1 text-xs font-medium text-foreground/80 transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={pinning || pinned}
+            onclick={pinAsStyleExample}
+          >
+            <Pin class="h-3.5 w-3.5" />
+            {pinned ? "Saved as style example" : "Save as style example"}
+          </button>
         {/if}
       </section>
 
