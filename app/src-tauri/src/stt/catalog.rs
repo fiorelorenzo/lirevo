@@ -19,6 +19,12 @@ pub fn stt_gguf_url() -> String {
     format!("https://huggingface.co/{STT_HF_REPO}/resolve/main/{STT_GGUF_FILENAME}")
 }
 
+/// SHA-256 of [`STT_GGUF_FILENAME`], pinned from the published HF LFS object.
+/// Verified with `shasum -a 256` against the downloaded file and cross-checked
+/// against the HF tree API's `lfs.oid` for `mudler/parakeet-cpp-gguf`.
+pub const STT_GGUF_SHA256: &str =
+    "993d73feb4206dadda865ab25bd64b50c48dc4d013c3bf6126a721f28b1d5ee8";
+
 // Additional variants (Global30, Multilingual99) are present for future
 // catalog entries; the single current model uses European25.
 #[allow(dead_code)]
@@ -58,6 +64,9 @@ pub struct Metadata {
     pub languages: &'static [&'static str],
     /// Whether this entry is the default pick for a fresh install.
     pub default: bool,
+    /// Expected SHA-256 hex digest of the downloaded GGUF, verified by
+    /// `commands::models::stt_download` after the file lands on disk.
+    pub sha256: &'static str,
 }
 
 // Language list pinned per catalog spec. Kept as a module-level constant so
@@ -78,6 +87,7 @@ const PARAKEET_V3: Metadata = Metadata {
     license: "CC-BY-4.0",
     languages: PARAKEET_LANGUAGES,
     default: true,
+    sha256: STT_GGUF_SHA256,
 };
 
 const MODELS: &[Metadata] = &[PARAKEET_V3];
@@ -126,5 +136,12 @@ mod tests {
         assert_eq!(PARAKEET_V3.languages.len(), 25);
         assert!(PARAKEET_V3.languages.contains(&"it"));
         assert!(PARAKEET_V3.languages.contains(&"en"));
+    }
+
+    #[test]
+    fn sha256_is_a_valid_hex_digest() {
+        assert_eq!(PARAKEET_V3.sha256.len(), 64);
+        assert!(PARAKEET_V3.sha256.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_eq!(PARAKEET_V3.sha256, STT_GGUF_SHA256);
     }
 }
