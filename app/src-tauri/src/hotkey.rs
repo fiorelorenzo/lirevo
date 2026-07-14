@@ -661,15 +661,20 @@ async fn run_pipeline(
         .unwrap_or((None, None));
 
     // Style-example retrieval: gated on the setting, scoped to the current
-    // app. A DB error here must never fail the dictation — degrade to the
-    // empty-examples path (byte-identical prompt) and log.
+    // app and, when a recipient can be resolved (STYLE-14's allowlisted
+    // apps), further scoped by recipient — `top_k` degrades that to
+    // recipient -> app -> global on its own. A DB error here must never fail
+    // the dictation — degrade to the empty-examples path (byte-identical
+    // prompt) and log.
     let mut style_examples_used: Vec<i64> = Vec::new();
     let examples: Vec<(String, String)> = if should_fetch_style_examples(
         style_learning_enabled,
         target_bundle.as_deref(),
     ) {
         let bundle = target_bundle.as_deref().expect("checked above");
-        match crate::db::style_examples::top_k(&db_arc, bundle, None, 3) {
+        let context_key =
+            os_integration::recipient_context_key(bundle, false).map(|ctx| ctx.context_key);
+        match crate::db::style_examples::top_k(&db_arc, bundle, context_key.as_deref(), 3) {
             Ok(rows) => {
                 let (pairs, ids) = style_examples_from_rows(rows);
                 style_examples_used = ids;
