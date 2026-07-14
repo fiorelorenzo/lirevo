@@ -37,8 +37,10 @@ pub async fn models_download(
 /// `download:progress` events as the LLM downloads so the wizard renders one
 /// progress bar per model. Uses the same streaming mechanism as
 /// `crate::models::download_inner` (reqwest bytes_stream + 100ms throttle +
-/// `.partial` temp file → rename), and registers in `ACTIVE_DOWNLOADS` the
-/// same way so `models_cancel_download` can interrupt it mid-transfer.
+/// `.partial` temp file → rename, then SHA-256 verification via
+/// `crate::models::verify_and_cleanup`), and registers in `ACTIVE_DOWNLOADS`
+/// the same way so `models_cancel_download` can interrupt it mid-transfer
+/// (checked once per chunk via `cancel_rx.try_recv()`).
 #[tauri::command]
 pub async fn stt_download(app: AppHandle, id: String) -> Result<(), AppError> {
     use crate::models::{
@@ -147,6 +149,20 @@ pub async fn stt_download(app: AppHandle, id: String) -> Result<(), AppError> {
         tokio::fs::rename(&tmp, &dest)
             .await
             .map_err(|e| DownloadError::Failed(format!("rename: {e}")))?;
+
+        if let Some(expected) = crate::stt::catalog::model_metadata(&id).map(|m| m.sha256) {
+            let _ = app.emit(
+                "download:progress",
+                DownloadProgress {
+                    id: id.clone(),
+                    state: DownloadProgressState::Verifying,
+                    bytes_received: received,
+                    bytes_total: total,
+                    error_message: None,
+                },
+            );
+            crate::models::verify_and_cleanup(&dest, expected).await?;
+        }
         Ok::<(), DownloadError>(())
     };
 

@@ -21,6 +21,10 @@ const PRELOAD_MIN_FREE_RAM_MB: u32 = LOW_FREE_RAM_MB + 1024;
 /// A loaded-but-idle model is only unloaded for foreground-heavy pressure
 /// if it has been idle at least this long (avoid yanking mid-use).
 const FOREGROUND_IDLE_GRACE: Duration = Duration::from_secs(5);
+/// A slot stuck in `Loading` past this long (wedged Metal/ggml init, a
+/// corrupted GGUF that hangs the loader, ...) is force-reset to `Unloaded`
+/// by the watchdog rather than left to hang the app forever.
+const STUCK_LOAD_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Why a model was unloaded. Surfaced in tracing + the `*_state_changed`
 /// Tauri events.
@@ -35,6 +39,12 @@ pub enum UnloadReason {
     /// stale backend is unloaded to force a fresh load of the new config.
     /// Used only as a tracing label — not produced by `lifecycle_decision`.
     ConfigChanged,
+    /// The slot has been stuck in `Loading` past [`STUCK_LOAD_TIMEOUT`] — a
+    /// wedged Metal/ggml init or a corrupted GGUF that hangs the loader
+    /// forever. The watchdog force-resets it to `Unloaded` so a retry (next
+    /// dictation / next tick's preload) is possible instead of the app
+    /// silently hanging.
+    StuckLoad,
 }
 
 /// An action for the Engine shell to apply. Pure data — the shell does the
@@ -84,6 +94,24 @@ pub fn lifecycle_decision(
     foreground_heavy_streak: Duration,
 ) -> Vec<Action> {
     let mut actions = Vec::new();
+
+    // 0. Stuck-load watchdog: a slot wedged in `Loading` past the timeout is
+    // force-reset regardless of any other pressure signal. Checked first and
+    // independent of the rest — a `Loading` snapshot never matches the
+    // `Loaded` patterns below, so this can't double-fire with another reason.
+    if let SlotSnapshot::Loading { since } = llm {
+        if now.duration_since(since) > STUCK_LOAD_TIMEOUT {
+            actions.push(Action::UnloadLlm(UnloadReason::StuckLoad));
+        }
+    }
+    if let SlotSnapshot::Loading { since } = stt {
+        if now.duration_since(since) > STUCK_LOAD_TIMEOUT {
+            actions.push(Action::UnloadStt(UnloadReason::StuckLoad));
+        }
+    }
+    if !actions.is_empty() {
+        return actions; // stuck-load reset takes priority over anything else
+    }
 
     // 1. Hard pressure: memory critical → unload everything that is loaded.
     if signals.mem_pressure == MemoryPressure::Critical {
@@ -484,13 +512,75 @@ mod tests {
         let t0 = Instant::now();
         let mut sig = signals_ok();
         sig.mem_pressure = MemoryPressure::Critical;
-        // Loading state: nothing to unload yet.
+        // Loading state, well under the stuck-load timeout: nothing to
+        // unload yet, even under critical memory pressure.
         let actions = lifecycle_decision(
-            SlotSnapshot::Loading,
-            SlotSnapshot::Loading,
+            SlotSnapshot::Loading { since: t0 },
+            SlotSnapshot::Loading { since: t0 },
             &sig,
             &BALANCED,
+            t0 + Duration::from_secs(1),
             t0,
+            Duration::ZERO,
+        );
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn stuck_loading_llm_force_unloads_after_timeout() {
+        let t0 = Instant::now();
+        let actions = lifecycle_decision(
+            SlotSnapshot::Loading { since: t0 },
+            SlotSnapshot::Unloaded,
+            &signals_ok(),
+            &BALANCED,
+            t0 + STUCK_LOAD_TIMEOUT + Duration::from_secs(1),
+            t0,
+            Duration::ZERO,
+        );
+        assert_eq!(actions, vec![Action::UnloadLlm(UnloadReason::StuckLoad)]);
+    }
+
+    #[test]
+    fn stuck_loading_stt_force_unloads_after_timeout() {
+        let t0 = Instant::now();
+        let actions = lifecycle_decision(
+            SlotSnapshot::Unloaded,
+            SlotSnapshot::Loading { since: t0 },
+            &signals_ok(),
+            &BALANCED,
+            t0 + STUCK_LOAD_TIMEOUT + Duration::from_secs(1),
+            t0,
+            Duration::ZERO,
+        );
+        assert_eq!(actions, vec![Action::UnloadStt(UnloadReason::StuckLoad)]);
+    }
+
+    #[test]
+    fn stuck_loading_both_slots_force_unloads_both() {
+        let t0 = Instant::now();
+        let actions = lifecycle_decision(
+            SlotSnapshot::Loading { since: t0 },
+            SlotSnapshot::Loading { since: t0 },
+            &signals_ok(),
+            &BALANCED,
+            t0 + STUCK_LOAD_TIMEOUT + Duration::from_secs(1),
+            t0,
+            Duration::ZERO,
+        );
+        assert!(actions.contains(&Action::UnloadLlm(UnloadReason::StuckLoad)));
+        assert!(actions.contains(&Action::UnloadStt(UnloadReason::StuckLoad)));
+    }
+
+    #[test]
+    fn loading_just_under_timeout_does_not_force_unload() {
+        let t0 = Instant::now();
+        let actions = lifecycle_decision(
+            SlotSnapshot::Loading { since: t0 },
+            SlotSnapshot::Unloaded,
+            &signals_ok(),
+            &BALANCED,
+            t0 + STUCK_LOAD_TIMEOUT - Duration::from_secs(1),
             t0,
             Duration::ZERO,
         );

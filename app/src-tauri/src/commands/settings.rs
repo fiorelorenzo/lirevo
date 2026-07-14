@@ -47,6 +47,7 @@ pub async fn update_settings(
     if before.hotkey != after.hotkey || before.activation_mode != after.activation_mode {
         if let Err(e) = crate::hotkey::reinstall(&app, after.hotkey.clone(), after.activation_mode)
         {
+            let busy = matches!(e, AppError::HotkeyBusy);
             tracing::warn!(%e, "hotkey reinstall failed; restoring previous spec");
             let restored = {
                 let mut inner = state.inner.lock().unwrap();
@@ -55,11 +56,20 @@ pub async fn update_settings(
                 let _ = inner.settings.persist(&app);
                 inner.settings.clone()
             };
-            let _ = crate::hotkey::reinstall(&app, before.hotkey.clone(), before.activation_mode);
-            let _ = app.emit(
-                "toast",
-                toast("error", "Couldn't set that hotkey — reverted"),
-            );
+            // When rejected because a recording is active, `reinstall`'s guard
+            // fires before the old coordinator is ever swapped out, so it's
+            // still installed — re-issuing `reinstall(before)` would just hit
+            // the same guard again for no benefit.
+            if !busy {
+                let _ =
+                    crate::hotkey::reinstall(&app, before.hotkey.clone(), before.activation_mode);
+            }
+            let message = if busy {
+                "Can't change hotkey while recording — try again after"
+            } else {
+                "Couldn't set that hotkey — reverted"
+            };
+            let _ = app.emit("toast", toast("error", message));
             return Ok(restored);
         }
     }
