@@ -15,6 +15,7 @@ path = "src/lib.rs"
 
 [dependencies]
 inference-core = { path = "../inference-core" }
+lirevo-prompts = { path = "../lirevo-prompts" }
 anyhow = "1"
 thiserror = "2"
 clap = { version = "4", features = ["derive"] }

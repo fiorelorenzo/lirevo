@@ -3,8 +3,8 @@
 //! Reuses the exact production code path so quality measurements
 //! transfer directly to the shipped app.
 
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Once};
 use std::time::Instant;
 
 use async_trait::async_trait;
@@ -18,6 +18,31 @@ pub struct GgufBackend {
     inner: Arc<InnerBackend>,
 }
 
+static LOAD_LLM_BACKENDS: Once = Once::new();
+
+/// Dlopen the ggml compute backend modules (Metal, CPU variants) before the
+/// first `LlamaBackend::init`. `inference-core` is built with
+/// `dynamic-backends`, so those modules are not statically linked and
+/// nothing in `llama-cpp-2` loads them implicitly — the shipped app does
+/// this once in `app/src-tauri/src/engine/backend.rs`
+/// (`BackendManager::prepare`); the eval harness has no equivalent startup
+/// hook, so every path that can construct a [`GgufBackend`] (the top-level
+/// CLI, direct library callers, and the `bake-cell` subprocess spawned by
+/// `cli::run`) must call this itself. Doing it here, at the single
+/// construction choke point, covers all of them. `None` means a static
+/// build (e.g. Windows) — not an error, just nothing to load.
+fn ensure_llm_backends_loaded() {
+    LOAD_LLM_BACKENDS.call_once(|| {
+        if let Some(dir) = inference_core::llm_backends_dir() {
+            inference_core::load_llm_backends_from_path(Path::new(dir));
+        } else {
+            tracing::warn!(
+                "no llama backends dir at build time; LLM may fall back to a non-dynamic backend"
+            );
+        }
+    });
+}
+
 impl GgufBackend {
     /// Loads the model from `path`. Returns `ModelFileMissing(path)` if the
     /// file does not exist, mapping other init failures to `Inference`.
@@ -26,6 +51,7 @@ impl GgufBackend {
         if !path.exists() {
             return Err(BackendError::ModelFileMissing(path));
         }
+        ensure_llm_backends_loaded();
         let ctx_size: u32 = std::env::var("LIREVO_EVAL_CTX_SIZE")
             .ok()
             .and_then(|s| s.parse().ok())

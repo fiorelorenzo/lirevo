@@ -155,18 +155,18 @@ fn read_request() -> Result<BakeCellRequest> {
 
 /// Official sampling-parameter best practices per model family, mapped by
 /// backend id (the `<id>` part of the `<kind>:<id>[@<path>]` spec). Sources
-/// in the HF model cards' "Best Practices > Sampling Parameters" sections.
-/// Falls back to a permissive default (temperature 0.7, `top_p` 0.9, `top_k` 40,
-/// no penalties) for backend ids we don't recognize — covers Claude CLI and
-/// any newly-added GGUF before we record its recommended values.
+/// in the HF model cards' "Best Practices > Sampling Parameters" sections —
+/// **except Gemma, see below**. Falls back to a permissive default
+/// (temperature 0.7, `top_p` 0.9, `top_k` 40, no penalties) for backend ids
+/// we don't recognize — covers Claude CLI and any newly-added GGUF before we
+/// record its recommended values.
 ///
 /// Updated 2026-05-19. When new model families are added to the bake-off,
 /// re-read the model card here:
 /// - Qwen3 / Qwen3-Instruct-2507: `temp=0.7, top_p=0.8, top_k=20, min_p=0`
 /// - Qwen3.5 (non-thinking text):  `temp=1.0, top_p=1.0, top_k=20, min_p=0,
 ///   presence_penalty=2.0, repetition_penalty=1.0`
-/// - Gemma 3 1B / 270M: no official sampling recommendations on Google's
-///   model card — fall through to HF Transformers defaults.
+/// - Gemma 3 1B / 270M: **not** from a model card — see the branch below.
 fn best_practices_for(backend_id: &str) -> GenerateReq {
     // Match by family prefix so per-instance ids like "lms-q3.5-2b" or
     // "qwen3.5-2b@<path>" route to the right preset.
@@ -194,16 +194,27 @@ fn best_practices_for(backend_id: &str) -> GenerateReq {
         };
     }
     if id.contains("gemma") {
+        // Deliberately NOT a model-card value — Google publishes no sampling
+        // guidance for Gemma 3 1B/270M. Since v0.7 the shipped app has a
+        // fixed catalog of exactly one cleanup model, Gemma 3 1B (see
+        // `AGENTS.md`), so for Gemma the eval's job is to predict the
+        // product, not to guess at generic best practice. These are the
+        // app's real sampler values, sourced from the app itself rather than
+        // re-typed as literals: `app/src-tauri/src/hotkey.rs` sets
+        // `temperature: 0.2` explicitly and takes the rest from
+        // `inference_core::ChatRequest::default()`, which we read directly
+        // below (top_p 0.9, top_k 40, min_p 0.0, presence_penalty 0.0,
+        // repetition_penalty 1.0). Do not "upgrade" this back to a generic
+        // HF-Transformers default; that was the previous bug (see git
+        // history on this branch).
+        let app_defaults = inference_core::ChatRequest::default();
         return GenerateReq {
-            // No model-card guidance; HF Transformers defaults applied
-            // explicitly so the bake-off doesn't silently inherit our own
-            // historical 0.2-temperature legacy value.
-            temperature: 1.0,
-            top_p: 1.0,
-            top_k: 50,
-            min_p: 0.0,
-            presence_penalty: 0.0,
-            repetition_penalty: 1.0,
+            temperature: 0.2,
+            top_p: app_defaults.top_p,
+            top_k: app_defaults.top_k,
+            min_p: app_defaults.min_p,
+            presence_penalty: app_defaults.presence_penalty,
+            repetition_penalty: app_defaults.repetition_penalty,
             ..GenerateReq::default()
         };
     }
@@ -212,8 +223,36 @@ fn best_practices_for(backend_id: &str) -> GenerateReq {
 
 #[cfg(test)]
 mod tests {
-    use super::{BakeCellRequest, BakeCellResponse, BakeCellResult};
+    use super::{best_practices_for, BakeCellRequest, BakeCellResponse, BakeCellResult};
     use std::collections::HashMap;
+
+    /// Gemma has no HF model-card guidance, so its sampler params must match
+    /// the shipped app (`hotkey.rs` temperature + `ChatRequest::default()`
+    /// for the rest) rather than a generic fallback — see the comment on
+    /// `best_practices_for`. Pins the values so a future edit can't silently
+    /// drift the eval away from what v0.7+ actually ships.
+    #[test]
+    fn gemma_sampler_params_match_the_shipped_app() {
+        let req = best_practices_for("gguf:gemma-3-1b-it-q4@/tmp/m.gguf");
+        assert!(
+            (req.temperature - 0.2).abs() < 1e-6,
+            "got {}",
+            req.temperature
+        );
+        assert!((req.top_p - 0.9).abs() < 1e-6, "got {}", req.top_p);
+        assert_eq!(req.top_k, 40);
+        assert!(req.min_p.abs() < 1e-6, "got {}", req.min_p);
+        assert!(
+            req.presence_penalty.abs() < 1e-6,
+            "got {}",
+            req.presence_penalty
+        );
+        assert!(
+            (req.repetition_penalty - 1.0).abs() < 1e-6,
+            "got {}",
+            req.repetition_penalty
+        );
+    }
 
     #[test]
     fn request_roundtrips_through_json() {

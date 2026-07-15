@@ -1713,6 +1713,7 @@ dependencies = [
  "async-trait",
  "clap",
  "inference-core",
+ "lirevo-prompts",
  "mach2 0.4.3",
  "ndarray",
  "ort",
