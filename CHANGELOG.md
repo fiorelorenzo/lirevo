@@ -4,6 +4,96 @@ All notable changes to this project are documented in this file. The format foll
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-07-15 — v0.9: style learning MVP — per-app and per-recipient writing-style personalization
+
+This release ships together with the v0.8 hardening work below, which was
+merged but never tagged.
+
+### Added
+- **Style learning: Lirevo learns your writing style from examples you pin.**
+  Every dictation's History detail now has a **Save as style example** action
+  that pins its raw → cleaned pair as a sample of how you want dictation
+  cleaned up for that app. When style learning is on, up to three of your
+  best-matching examples for the app you're dictating into are added to the
+  cleanup prompt, steering the model toward your own phrasing instead of a
+  generic house style. Capture is entirely manual: nothing is learned from
+  ordinary dictations, only from examples you explicitly pin.
+- **Per-recipient personalization in Messages.** In Messages, Lirevo tells one
+  conversation apart from another using the focused window's title, so an
+  example pinned while writing to one person doesn't bleed into messages to
+  someone else. The recipient is never stored as readable text — only a
+  one-way hash of the window title is kept on device, and the raw title is
+  discarded. Examples resolve recipient → app → none: with no examples for
+  that recipient, Lirevo falls back to your app-level Messages examples, then
+  to the plain cleanup prompt. Recipient-aware matching applies to Messages
+  only; every other app is scoped at the app level.
+- **"Style learning" toggle in Settings → General**, on by default. Turning it
+  off disables both prompt personalization and the pin action everywhere.
+- **"N style examples active" indicator in Settings → About**, showing how many
+  pinned examples are available for the app you're using, so you can always
+  tell whether — and how much — personalization is in effect.
+
+### Changed
+- **Settings schema → v6.** Existing `settings.json` files upgrade cleanly;
+  the new `styleLearningEnabled` key defaults to on.
+- **`just reset` / `just reset-all` preserve pinned style examples**, the same
+  way they already preserve dictation history — resetting permissions or
+  first-run state won't cost you your learned writing style.
+
+### Notes
+- Style examples are stored only in the local SQLite database, like everything
+  else in Lirevo — no network calls, no cloud, no telemetry. Recipient
+  detection reuses the existing Accessibility grant and adds no new permission
+  prompt.
+- This is an MVP: there is no screen yet to browse, edit, or un-pin saved
+  examples, and deleting a dictation from History does not delete an example
+  pinned from it. A **Settings → Writing Style** management page is planned for
+  the next release.
+
+## [0.8.0] - 2026-07-14 — v0.8: trust, integrity & pipeline hardening
+
+Merged but never tagged; released as part of 0.9.0.
+
+### Added
+- **Dictation-model downloads are now checksum-verified.** The Parakeet TDT v3
+  GGUF download runs the same SHA-256 verification the cleanup model already
+  had: a corrupted or tampered download is caught as soon as it lands, the bad
+  file is deleted, and the failure is surfaced instead of a broken file being
+  kept silently.
+- **Pre-flight disk-space check before every model download.** Lirevo now
+  checks free space on the models volume up front and fails fast with a clear
+  "not enough disk space" message, instead of a confusing write error part-way
+  through a multi-hundred-megabyte transfer.
+- **Model integrity self-check.** A lightweight size check runs at startup and
+  flags a corrupted install; a new **Verify** action next to each model in
+  **Settings → Models** runs a full SHA-256 re-check on demand.
+
+### Fixed
+- **The app can no longer hang forever in a stuck loading state.** A watchdog
+  force-resets the dictation or cleanup model back to unloaded if it stays
+  stuck loading (a wedged Metal/ggml initialisation, a corrupted file), so the
+  next dictation gets a clean retry instead of a silently frozen app.
+- **Changing the hotkey mid-recording no longer strands the recording.**
+  Updating the shortcut or activation mode while actively recording used to
+  tear down the recorder with no way back short of restarting; it is now
+  refused with a toast and the previous hotkey stays live.
+- **Failed dictations are now recorded in History.** A dictation that failed to
+  transcribe, failed to load the model, or failed to inject its text left no
+  trace beyond a toast. These stages now persist a History row, so a failure
+  stays visible instead of disappearing.
+- **Cancelling a dictation-model download now works.** The Cancel action had no
+  effect on the dictation model — only the cleanup model's download could be
+  cancelled. Both now cancel and clean up their partial file.
+- **Leftover partial downloads no longer pile up.** A failed download always
+  removes its `.partial` file, and any left behind by a crash or force-quit are
+  swept on the next launch.
+- **"Check for updates" no longer claims you are up to date without checking.**
+  The Settings → About button reported "You are on the latest version"
+  regardless, having never performed a real check. It now opens the GitHub
+  Releases page until real update checking ships.
+- **Release DMG filenames now track the app version** instead of a stale
+  hardcoded name.
+
 ## [0.7.0] - 2026-07-09 — v0.7: fixed model catalog (no user model choice), release-gated hotkey capture
 
 ### Changed
