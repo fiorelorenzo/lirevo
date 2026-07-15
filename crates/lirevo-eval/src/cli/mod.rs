@@ -116,10 +116,13 @@ pub struct PrintShippedPromptArgs {
     #[arg(long)]
     pub language: String,
     /// Optional JSON array of `[raw, final]` pairs. When present, the prompt is
-    /// built with `build_clean_system_prompt_with_examples` — the exact call the
-    /// app makes when the user has pinned style examples. Absent = zero
-    /// examples, which that builder guarantees is byte-identical to
-    /// `build_clean_system_prompt`.
+    /// built with `build_clean_system_prompt_with_examples` — the pre-#144
+    /// splicing behaviour, kept for eval/historical comparisons. Since #144,
+    /// the shipped app carries pinned examples through `ChatRequest::history`
+    /// instead (see `app/src-tauri/src/hotkey.rs::examples_to_history`) and
+    /// its system prompt is always the plain `build_clean_system_prompt`,
+    /// regardless of examples. Absent = zero examples, which this builder
+    /// guarantees is byte-identical to `build_clean_system_prompt`.
     #[arg(long)]
     pub examples_json: Option<String>,
 }
