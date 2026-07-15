@@ -31,6 +31,18 @@ pub fn build_clean_system_prompt(language: &str) -> String {
 /// — the zero-regression guarantee existing callers depend on. When
 /// non-empty, each `(raw, final)` pair is appended as a clearly-delimited
 /// "Examples of this user's preferred style" section, formatted raw → final.
+///
+/// **Not used by the shipped app.** Splicing examples into the system prompt
+/// this way let a small cleanup model complete from a pinned example's
+/// `Final:` text instead of transforming the user's actual transcript
+/// (issue #144). The shipped path
+/// (`app/src-tauri/src/hotkey.rs::examples_to_history`) now carries examples
+/// through `ChatRequest::history` as alternating user/assistant turns
+/// instead, and always uses the plain [`build_clean_system_prompt`] for the
+/// system prompt. This function is kept for `lirevo-eval`'s historical
+/// baseline comparisons (the #140 style-card spike record and the #144
+/// spliced-vs-history experiment) — do not wire it back into the shipped
+/// cleanup call.
 #[must_use]
 pub fn build_clean_system_prompt_with_examples(
     language: &str,

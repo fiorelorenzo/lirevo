@@ -398,6 +398,36 @@ fn style_examples_from_rows(
         .unzip()
 }
 
+/// Turns pinned style examples into alternating `User`/`Assistant` turns for
+/// `ChatRequest::history`, in pinned order: each `(raw, final)` pair becomes
+/// a User turn (the raw transcript) followed by an Assistant turn (the
+/// desired cleaned output).
+///
+/// Examples used to be spliced as `Raw:`/`Final:` prose into the system
+/// prompt (`build_clean_system_prompt_with_examples`), with the real
+/// transcript arriving in a separate `user` turn. A small cleanup model could
+/// then complete from the examples instead of the transcript and emit a
+/// pinned example's `Final:` text verbatim (#144). Carrying examples as real
+/// chat turns lets the model's chat template make the "clean this" relation
+/// explicit for every turn, transcript included.
+fn examples_to_history(examples: &[(String, String)]) -> Vec<inference_core::ChatMessage> {
+    examples
+        .iter()
+        .flat_map(|(raw, final_text)| {
+            [
+                inference_core::ChatMessage {
+                    role: inference_core::ChatRole::User,
+                    content: raw.clone(),
+                },
+                inference_core::ChatMessage {
+                    role: inference_core::ChatRole::Assistant,
+                    content: final_text.clone(),
+                },
+            ]
+        })
+        .collect()
+}
+
 /// Best-effort history insert shared by the failure-path call sites below:
 /// runs the insert on a blocking task and, on success, emits `dictation:saved`
 /// so History updates live — same as the success-path insert further down,
@@ -720,10 +750,8 @@ async fn run_pipeline(
     let mut cleanup_ran = true;
     let cleaned = match engine
         .chat(inference_core::ChatRequest {
-            system: Some(lirevo_prompts::build_clean_system_prompt_with_examples(
-                &language, &examples,
-            )),
-            history: vec![],
+            system: Some(lirevo_prompts::build_clean_system_prompt(&language)),
+            history: examples_to_history(&examples),
             user: raw_text.clone(),
             temperature: 0.2,
             max_tokens: 2048,
@@ -929,12 +957,14 @@ mod tests {
         assert!(should_fetch_style_examples(true, Some("com.apple.mail")));
     }
 
-    /// Zero-regression guarantee at the call site: whenever
+    /// Zero-regression guarantee at the gate: whenever
     /// `should_fetch_style_examples` says "don't fetch" (setting off, or no
-    /// resolved app), the examples list stays empty and the system prompt
-    /// actually sent to the LLM is byte-identical to the pre-STYLE-4 prompt.
+    /// resolved app), the examples list stays empty and, fed through
+    /// `examples_to_history`, yields no history turns at all. See
+    /// `zero_examples_yields_empty_history_and_unchanged_system_prompt` below
+    /// for the accompanying system-prompt byte-identity guarantee.
     #[test]
-    fn style_examples_disabled_setting_yields_byte_identical_prompt() {
+    fn style_examples_disabled_setting_yields_no_history_turns() {
         for target_bundle in [None, Some("com.apple.mail")] {
             let examples: Vec<(String, String)> =
                 if should_fetch_style_examples(false, target_bundle) {
@@ -942,11 +972,74 @@ mod tests {
                 } else {
                     Vec::new()
                 };
+            assert!(examples_to_history(&examples).is_empty());
+        }
+    }
+
+    /// #144 fix: with no pinned examples, `history` is empty and the system
+    /// prompt sent to the LLM is byte-identical to `build_clean_system_prompt`
+    /// — anchored against the pre-fix zero-example baseline
+    /// (`build_clean_system_prompt_with_examples(lang, &[])`, still relied on
+    /// by `lirevo-eval`'s #140 spike record) so this doesn't just compare a
+    /// function to itself. This is the no-regression guard for every user who
+    /// has never pinned a style example.
+    #[test]
+    fn zero_examples_yields_empty_history_and_unchanged_system_prompt() {
+        assert!(examples_to_history(&[]).is_empty());
+
+        for language in ["en", "it", "fr", "de", "es", "auto", ""] {
             assert_eq!(
-                lirevo_prompts::build_clean_system_prompt_with_examples("en", &examples),
-                lirevo_prompts::build_clean_system_prompt("en")
+                lirevo_prompts::build_clean_system_prompt(language),
+                lirevo_prompts::build_clean_system_prompt_with_examples(language, &[]),
+                "language {language:?}: the fixed call site's zero-example system \
+                 prompt must match the pre-#144 baseline byte-for-byte"
             );
         }
+    }
+
+    /// #144 fix: pinned examples reach `ChatRequest::history` as alternating
+    /// User/Assistant turns, in pinned order — not spliced into the system
+    /// prompt as `Raw:`/`Final:` prose, which let a small model complete from
+    /// an example's `Final:` text instead of transforming the real
+    /// transcript.
+    #[test]
+    fn examples_to_history_alternates_user_assistant_in_order() {
+        let examples = vec![
+            ("raw one".to_string(), "final one".to_string()),
+            ("raw two".to_string(), "final two".to_string()),
+        ];
+
+        let history = examples_to_history(&examples);
+
+        assert_eq!(history.len(), 4);
+        assert_eq!(history[0].role, inference_core::ChatRole::User);
+        assert_eq!(history[0].content, "raw one");
+        assert_eq!(history[1].role, inference_core::ChatRole::Assistant);
+        assert_eq!(history[1].content, "final one");
+        assert_eq!(history[2].role, inference_core::ChatRole::User);
+        assert_eq!(history[2].content, "raw two");
+        assert_eq!(history[3].role, inference_core::ChatRole::Assistant);
+        assert_eq!(history[3].content, "final two");
+    }
+
+    /// #144 fix: the system prompt sent alongside `history` never carries the
+    /// spliced `Raw:`/`Final:` examples section that let the model emit a
+    /// pinned example's `Final:` text verbatim — examples travel exclusively
+    /// through `history` now, regardless of how many are pinned.
+    #[test]
+    fn system_prompt_has_no_spliced_examples_when_history_is_used() {
+        let examples = vec![(
+            "uh yeah see you tomorrow at eight".to_string(),
+            "no honestly i can't make it today, sorry".to_string(),
+        )];
+        let history = examples_to_history(&examples);
+        assert_eq!(history.len(), 2);
+
+        let system = lirevo_prompts::build_clean_system_prompt("en");
+        assert!(!system.contains("Raw:"));
+        assert!(!system.contains("Final:"));
+        assert!(!system.contains("Examples of this user's preferred style"));
+        assert!(!system.contains("i can't make it today"));
     }
 
     #[test]
