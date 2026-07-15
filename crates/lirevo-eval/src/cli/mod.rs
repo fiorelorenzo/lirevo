@@ -115,4 +115,11 @@ pub struct PrintShippedPromptArgs {
     /// the language-agnostic instruction, matching the shipped behaviour.
     #[arg(long)]
     pub language: String,
+    /// Optional JSON array of `[raw, final]` pairs. When present, the prompt is
+    /// built with `build_clean_system_prompt_with_examples` — the exact call the
+    /// app makes when the user has pinned style examples. Absent = zero
+    /// examples, which that builder guarantees is byte-identical to
+    /// `build_clean_system_prompt`.
+    #[arg(long)]
+    pub examples_json: Option<String>,
 }
