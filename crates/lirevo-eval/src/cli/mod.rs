@@ -2,6 +2,7 @@ pub mod bake_cell;
 pub mod bless;
 pub mod gen_corpus;
 pub mod judge;
+pub mod print_shipped_prompt;
 pub mod run;
 
 use clap::{Parser, Subcommand};
@@ -27,6 +28,10 @@ pub enum Command {
     Judge(JudgeArgs),
     /// Promote scores from a report JSON into the committed model catalog.
     Bless(BlessArgs),
+    /// Print the shipped cleanup system prompt for a language, so eval data
+    /// can be generated from the real prompt instead of a hand-transcribed
+    /// copy.
+    PrintShippedPrompt(PrintShippedPromptArgs),
     /// Internal: subprocess worker spawned by `run` to isolate per-backend
     /// RSS measurements. Hidden from `--help`; reads a JSON request from
     /// stdin and writes a JSON response to stdout.
@@ -102,4 +107,12 @@ pub struct JudgeArgs {
     pub judge: String,
     #[arg(long)]
     pub out: std::path::PathBuf,
+}
+
+#[derive(clap::Args, Debug)]
+pub struct PrintShippedPromptArgs {
+    /// Dictation language code (e.g. `it`, `en`). Unknown codes fall back to
+    /// the language-agnostic instruction, matching the shipped behaviour.
+    #[arg(long)]
+    pub language: String,
 }

@@ -22,6 +22,7 @@ fn main() -> anyhow::Result<()> {
             Command::GenCorpus(args) => lirevo_eval::cli::gen_corpus::run(args).await,
             Command::Judge(args) => lirevo_eval::cli::judge::run(args).await,
             Command::Bless(args) => lirevo_eval::cli::bless::run(&args),
+            Command::PrintShippedPrompt(args) => lirevo_eval::cli::print_shipped_prompt::run(&args),
             Command::BakeCell => lirevo_eval::cli::bake_cell::run().await,
         }
     })
