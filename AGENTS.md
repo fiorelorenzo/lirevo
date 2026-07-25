@@ -154,6 +154,7 @@ Use `just` recipes — they are the contract that CI runs.
 | Dev (HMR, no real TCC prompts)          | `just dev`                    |
 | Dev with mocked permissions             | `LIREVO_DEV_SKIP_PERMS=1 just dev` |
 | Dev with real TCC prompts (debug `.app`)| `just dev-bundle`             |
+| Bump the version + stub the CHANGELOG    | `just release <version>`      |
 | Release `.app` + `.dmg`                 | `just dmg`                    |
 | All tests (Rust nextest + Vitest)       | `just test`                   |
 | Type check (Rust + Svelte)              | `just check`                  |
@@ -255,11 +256,37 @@ The distributable, signed + notarized `.dmg` is built by a separate workflow:
   the App Store Connect API key into a temporary keychain, runs `just dmg` (which
   signs, notarizes, and staples), and uploads the `.dmg` to the GitHub Release.
   Signing/notarization secrets live in the repo's GitHub Actions secrets;
-  base CI has no Apple creds.
+  base CI has no Apple creds. Before the build it asserts the tag matches the
+  crate version and extracts the release notes from `CHANGELOG.md` — both fail
+  fast rather than after ~15 minutes of signing.
 - **`publish-backends.yml`** is a **skeleton** for publishing fetchable GPU
   backend module bundles (Linux/Windows Vulkan/CUDA) consumed by
   `engine/fetch.rs`. The actual build steps are TODO and the workflow is not
   enabled as a required check.
+
+### Versioning
+
+The app version has **one source of truth**: `[package] version` in
+`app/src-tauri/Cargo.toml`. Everything else derives from it:
+
+- `env!("CARGO_PKG_VERSION")` → `settings.app_version` → **Settings → About**.
+- Tauri's Cargo.toml fallback → `CFBundleShortVersionString` → `Info.plist` →
+  the `.dmg` filename (`just dmg` reads it back with PlistBuddy).
+  **`tauri.conf.json` deliberately has no `version` key** — that absence is what
+  makes the bundle and the in-app version the same value by construction.
+  Re-adding it fails `scripts/check-versions.sh`.
+- `app/package.json`'s version is inert (nothing reads it) but kept as an exact
+  mirror, so it can't rot the way it did at `0.1.0` while the app shipped
+  `0.9.0`.
+
+Never hand-edit those files: run **`just release <version>`**, which bumps
+`Cargo.toml`, re-resolves `Cargo.lock`, mirrors `package.json`, and inserts a
+dated `CHANGELOG.md` stub. Fill the stub in — it becomes the GitHub Release
+body verbatim. `scripts/check-versions.sh` runs inside `just lint` (so, in CI)
+and fails on any drift.
+
+Releasing is: `just release <version>` → fill the CHANGELOG → PR → merge →
+tag `v<version>` on `main` → `release.yml` publishes.
 
 ### Platform support status
 

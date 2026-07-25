@@ -38,6 +38,29 @@ jobs:
 
       - uses: taiki-e/install-action@just
 
+      # Both gates run BEFORE the ~15-minute signed build: a tag that disagrees
+      # with the crate version would publish a .dmg labelled with the wrong
+      # version, and a missing changelog section would publish empty notes.
+      # Cheaper to fail here than after the build.
+      - name: Verify the version matches the tag
+        env:
+          TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+        run: |
+          if [ -n "$TAG" ]; then
+            scripts/check-versions.sh --tag "$TAG"
+          else
+            scripts/check-versions.sh
+          fi
+
+      # Release notes are authored in CHANGELOG.md and propagated from there, so
+      # the release page cannot silently go empty (every release up to v0.9.0
+      # shipped with a blank body).
+      - name: Extract the release notes from the CHANGELOG
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          TAG: ${{ github.ref_name }}
+        run: scripts/changelog-section.sh "$TAG" > "$RUNNER_TEMP/release-notes.md"
+
       - name: Install deps
         working-directory: app
         run: pnpm install --frozen-lockfile
@@ -93,5 +116,6 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          body_path: ${{ runner.temp }}/release-notes.md
           files: app/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
           fail_on_unmatched_files: true
