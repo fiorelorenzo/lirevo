@@ -2,6 +2,7 @@
   "name": "lirevo-scripts",
   "version": "0.0.0",
   "private": true,
+  "license": "Apache-2.0",
   "type": "module",
   "packageManager": "pnpm@9.15.9",
   "description": "Build/utility scripts for the Lirevo repo (icons, etc.)",

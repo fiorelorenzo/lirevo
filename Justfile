@@ -55,6 +55,56 @@ dev-bundle:
     fi
     open "$app"
 
+# Bump the app version and stub its CHANGELOG entry. Run this, fill in the
+# stub, open the PR; tagging `v<version>` on main after the merge is what
+# actually publishes (release.yml).
+#
+# The version has ONE source of truth: `[package] version` in
+# app/src-tauri/Cargo.toml. Settings > About reads it via CARGO_PKG_VERSION,
+# and the .app/.dmg get it from tauri's Cargo.toml fallback (tauri.conf.json
+# intentionally has no `version` key). This recipe keeps the two derived
+# copies — Cargo.lock and app/package.json — in step; scripts/check-versions.sh
+# fails the lint gate if they ever drift.
+release VERSION:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    version="{{VERSION}}"
+    version="${version#v}"
+    if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo "not a version number: '{{VERSION}}' (expected e.g. 0.9.1)" >&2
+        exit 1
+    fi
+    tmp="$(mktemp)"
+    # Scoped to the [package] table so no dependency's version is touched.
+    awk -v v="$version" '
+        /^\[/ { in_package = ($0 == "[package]") }
+        in_package && /^version[[:space:]]*=/ && !done { sub(/"[^"]+"/, "\"" v "\""); done = 1 }
+        { print }
+    ' app/src-tauri/Cargo.toml > "$tmp" && mv "$tmp" app/src-tauri/Cargo.toml
+    # Re-resolve so Cargo.lock carries the new member version. --offline: the
+    # dependency graph is unchanged, only our own version moved.
+    ( cd app/src-tauri && cargo update --offline --workspace >/dev/null )
+    awk -v v="$version" '
+        !done && /^  "version":/ { sub(/: *"[^"]*"/, ": \"" v "\""); done = 1 }
+        { print }
+    ' app/package.json > "$tmp" && mv "$tmp" app/package.json
+    if ! grep -q "^## \[$version\]" CHANGELOG.md; then
+        awk -v v="$version" -v today="$(date +%F)" '
+            !done && /^## \[/ {
+                print "## [" v "] - " today " — TODO: one-line release summary"
+                print ""
+                print "### Fixed"
+                print "- TODO"
+                print ""
+                done = 1
+            }
+            { print }
+        ' CHANGELOG.md > "$tmp" && mv "$tmp" CHANGELOG.md
+        echo "CHANGELOG.md: added a stub for $version — fill it in, it becomes the GitHub Release body"
+    fi
+    rm -f "$tmp"
+    scripts/check-versions.sh
+
 # Release build → self-contained .app + .dmg under
 # app/src-tauri/target/aarch64-apple-darwin/release/bundle/
 #
@@ -136,6 +186,7 @@ fmt:
 # Lint gate (same checks CI runs): rustfmt + clippy on both workspaces,
 # prettier + eslint on the frontend.
 lint:
+    scripts/check-versions.sh
     cargo fmt --all --check
     cd app/src-tauri && cargo fmt --all --check
     cargo clippy --workspace --all-targets -- -D warnings

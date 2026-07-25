@@ -1,7 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Lirevo",
-  "version": "0.9.0",
   "identifier": "ai.lirevo.app",
   "build": {
     "beforeDevCommand": "pnpm run dev",

@@ -4,6 +4,29 @@ All notable changes to this project are documented in this file. The format foll
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-07-25 — v0.9.1: pinned style examples no longer leak into dictated text
+
+### Fixed
+- **A pinned style example could be injected into your app instead of what you
+  just dictated.** With style learning on and at least one example pinned for
+  the app you were dictating into, the cleanup stage could return an example's
+  text verbatim — measured on 2 of 4 English casual dictations. The examples
+  were spliced into the system prompt as prose while your transcript arrived as
+  a separate turn, so the model could simply continue from the examples rather
+  than clean up your words. They are now carried the way the model expects
+  them — as alternating user/assistant turns of conversation history — with the
+  plain cleanup prompt. Verbatim contamination at app parity: 2/4 → 0/4. If you
+  never pinned a style example, your output is byte-identical to 0.9.0, guarded
+  by a test anchored against the pre-fix baseline.
+
+### Notes
+- This removes a hazard; it does not make few-shot examples helpful. On the
+  casual-dictation eval the fixed path still scores below the no-examples
+  baseline (chrF 0.7444 vs 0.8172, n=4) — whether pinned examples improve
+  output at all is still an open question.
+- Release notes are now published to the GitHub Release from this file.
+  Releases up to 0.9.0 have an empty body on GitHub; their notes are here.
+
 ## [0.9.0] - 2026-07-15 — v0.9: style learning MVP — per-app and per-recipient writing-style personalization
 
 This release ships together with the v0.8 hardening work below, which was

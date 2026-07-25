@@ -4,9 +4,11 @@
 
 [package]
 name = "lirevo"
-version = "0.9.0"
+version = "0.9.1"
 description = "Lirevo — local AI scribe and agent for macOS"
 edition = "2021"
+# Not a member of the root workspace, so it cannot inherit license.workspace.
+license = "Apache-2.0"
 
 [lib]
 name = "lirevo_lib"
