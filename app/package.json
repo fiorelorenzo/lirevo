@@ -1,6 +1,7 @@
 {
   "name": "app",
   "version": "0.9.1",
+  "private": true,
   "description": "",
   "type": "module",
   "packageManager": "pnpm@9.15.9",
