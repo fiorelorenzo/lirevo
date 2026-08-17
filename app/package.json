@@ -36,7 +36,7 @@
     "@internationalized/date": "^3.12.1",
     "@lucide/svelte": "^1.16.0",
     "@sveltejs/adapter-static": "^3.0.10",
-    "@sveltejs/kit": "^2.60.1",
+    "@sveltejs/kit": "^2.70.2",
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
     "@tailwindcss/vite": "^4",
     "@tauri-apps/cli": "^2",
