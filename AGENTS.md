@@ -298,6 +298,55 @@ platform-neutral abstractions, plus a stub fallback, and the `ci` workflow's
 **compile-validated only, not runtime-tested**.
 Do not describe Linux/Windows as usable; they are in progress / planned for v2.
 
+## Working in a worktree, next to other agents
+
+**Share the `target` dir, or a second worktree cold-builds it.** There are two
+Cargo workspaces here: the root workspace (8 crates, see Common commands above)
+and `app/src-tauri` (the shipped host, its own workspace, per the CI
+`rust-cache` config in `.github/workflows/ci.yml`). Neither `.cargo/config.toml`
+nor either workspace sets `target-dir`, so each checkout gets its own multi-GB
+`target/` by default. Point a second worktree at the main checkout's cache
+before building: from the repo root, `export CARGO_TARGET_DIR=$(git -C
+<main-checkout> rev-parse --show-toplevel)/target`; from `app/src-tauri`, the
+same idea points at `<main-checkout>/app/src-tauri/target`. Cargo's own target
+lock then serializes the heavy parts, so two worktrees building at once do not
+both peak RAM.
+
+**Only one worktree can run the app at a time.** `just dev` and
+`just dev-bundle` fix Vite on `:1420` with `strictPort: true`
+(`app/vite.config.js`), with no per-checkout override, so a second worktree's
+`just dev` fails loudly with "Port 1420 is already in use" instead of quietly
+moving to the next port. That is the failure you want; it just means you
+cannot run two dev sessions side by side.
+
+**The app-data dir is shared by app name, not by checkout path.**
+`paths::data_dir` (`app/src-tauri/src/paths.rs`) resolves to `~/Library/
+Application Support/Lirevo` (release) or the `Lirevo (Dev)` sibling (debug),
+the same path no matter which worktree launched the process. Two worktrees
+running `just dev-bundle` at once share the same `data.db` (dictation
+history), the same `settings.json`, and the same downloaded `models/`, which
+is actually useful for the multi-GB GGUF files since nothing needs a copy per
+worktree. It also means one worktree's settings change or history write shows
+up in the other's live session, and both hold the same stable-signing TCC
+identity. There is no per-worktree isolation for any of this today, so
+sequence UI verification across worktrees rather than running it at the same
+time.
+
+**There is a GitHub Project.** An earlier read of this repo said otherwise;
+`gh project view 1 --owner fiorelorenzo` resolves it: Project #1, "Lirevo
+roadmap", public, with active items. It is real, it just was not written down
+here yet. Treat it as the board for anything you plan against this repo, and
+read its field, label and milestone schema from the API before filing against
+it rather than guessing the shape.
+
+**Pushing to `main` is blocked, not just discouraged.** The
+`require-pull-request` ruleset enforces it: squash is the only allowed merge
+method, no approving review is required, and `protect-default-branch`
+requires `check-macos`, `check-linux` and `check-windows` to pass with the
+branch up to date first (`strict_required_status_checks_policy`).
+`delete_branch_on_merge` is on, so a merged branch disappears from the remote
+on its own; no manual `git push -d` needed.
+
 ## Code conventions
 
 - **License headers:** **Do not** add per-file SPDX/Copyright headers. The
