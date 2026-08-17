@@ -332,12 +332,10 @@ identity. There is no per-worktree isolation for any of this today, so
 sequence UI verification across worktrees rather than running it at the same
 time.
 
-**There is a GitHub Project.** An earlier read of this repo said otherwise;
-`gh project view 1 --owner fiorelorenzo` resolves it: Project #1, "Lirevo
-roadmap", public, with active items. It is real, it just was not written down
-here yet. Treat it as the board for anything you plan against this repo, and
-read its field, label and milestone schema from the API before filing against
-it rather than guessing the shape.
+**The board is Project #1, and its conventions are at the end of this file.** An earlier
+read of this repo concluded there was no board; `gh project view 1 --owner fiorelorenzo`
+resolves it, so plan against it and read its field, label and milestone schema from the API
+before filing rather than guessing the shape.
 
 **Pushing to `main` is blocked, not just discouraged.** The
 `require-pull-request` ruleset enforces it: squash is the only allowed merge
@@ -469,3 +467,100 @@ draft PR — don't push to `main`.
   `crates/` for inference / OS plumbing.
 - **What's the user-visible behaviour?** `README.md` ("Using the app" and the
   model-provisioning sections).
+
+## The GitHub Project is the source of truth
+
+Current state and future roadmap live on **Project #1 "Lirevo roadmap"** (owner
+`fiorelorenzo`), not in this file and not in a chat transcript. Keeping it
+current is part of doing the work, not paperwork at the end: the board is how
+Lorenzo sees where the project stands without reading session logs, so a board
+that lags reality is worse than no board.
+
+**Status is a claim about reality, keep it true.**
+
+- Before you write code for an issue, move it to `In Progress`. If what you are
+  about to do has no issue, create one first (see below), then start.
+- Move it to `Done` only when the change is merged and verified, not when the
+  code is written. Merged but something is still open? Say so in a comment and
+  leave it `In Progress`.
+- Board fields, the same four on every one of Lorenzo's roadmap boards on
+  purpose: `Status` (`Todo` / `In Progress` / `Done`), `Priority` (P0-P3),
+  `Effort` (S/M/L/XL) and `Parallel` (Yes/No, whether a parallel agent can take
+  the issue without colliding with other work). Set all four on anything you
+  file. Never write a value that is not already an option, read the schema
+  instead of guessing, and never add, rename or drop a field on this board
+  alone: the convention is shared across the projects.
+
+**Comment when a reader would want to know.** A decision taken, an approach
+tried and abandoned, a blocker hit, a surprise in the code, a scope change, a
+finding that invalidates the issue as written. One comment per meaningful turn
+in the work, not one per commit, and no routine progress narration.
+
+**File the work you discover.** When something real surfaces mid-task or in a
+conversation with Lorenzo (a bug you noticed on the way, a follow-up the fix
+implies, an idea worth doing later), open an issue for it instead of silently
+widening the current change or letting it evaporate. Then say in the current
+issue that you split it out, with a link.
+
+**Conventions for a new issue.** Match what the board already shows, do not
+invent a parallel style:
+
+- Title in conventional-commit form, lowercase after the colon, e.g.
+  `fix(style): few-shot examples can make cleanup emit an example's text`.
+- Labels follow one taxonomy, identical in every repo: exactly one `type:*`
+  (`feature`, `fix`, `refactor`, `test`, `chore`, `ci`, `docs`, `design`,
+  `security`, `spike`), exactly one of `priority:P0`-`priority:P3`, and one or
+  more `area:*` naming the surfaces the change touches. `epic` and `flagship`
+  (an epic, and headline work) are the only unprefixed labels. Priority is
+  deliberately in two places, the `Priority` board field and the `priority:*`
+  label, so set both.
+- `area:*` values here: `cleanup`, `cross-platform`, `docs`, `eval`, `frontend`,
+  `models`, `observability`, `os-integration`, `persistence`, `pipeline`,
+  `release`, `stt`, `style`. Add one only when the surface really is new, and
+  never reintroduce an unprefixed or differently shaped label.
+- Milestone: one of the milestones still open (`v0.10`, `v1.0`, `v1.1`; `v0.8`
+  and `v0.9` have shipped). Read the exact strings from the API, they contain em
+  dashes and are easy to mistype:
+  `gh api repos/fiorelorenzo/lirevo/milestones --jq '.[].title'`.
+- **Every issue hangs off an epic.** Epics are titled `[Epic] Name` and carry
+  the `epic` label. Open ones today: #49 Eval Harness, #50 Frontend Quality, #51
+  Persistence, #52 Local Observability, #53 Release Pipeline, #54 Cross-Platform
+  v2, #55 Local Fine-Tuning. If none of them fits, create a new epic (same title
+  format, `epic` label, one per coherent area) and parent the issue to it. An
+  issue with no parent is a defect in the board.
+
+```bash
+# Read the schema, never guess an option value
+gh project field-list 1 --owner fiorelorenzo --format json
+gh api repos/fiorelorenzo/lirevo/milestones --jq '.[].title'
+
+# Fill these three in; everything below runs as written, no placeholders to edit
+ISSUE=123                 # the issue you are working on
+EPIC=456                  # its parent epic
+STATUS="In Progress"      # Todo | In Progress | Done
+
+PROJECT_ID=$(gh project view 1 --owner fiorelorenzo --format json --jq '.id')
+STATUS_FIELD=$(gh project field-list 1 --owner fiorelorenzo --format json \
+  --jq '.fields[] | select(.name=="Status") | .id')
+OPTION_ID=$(gh project field-list 1 --owner fiorelorenzo --format json \
+  --jq ".fields[] | select(.name==\"Status\") | .options[] | select(.name==\"$STATUS\") | .id")
+ITEM_ID=$(gh project item-list 1 --owner fiorelorenzo --format json --limit 300 \
+  --jq ".items[] | select(.content.number==$ISSUE) | .id")
+gh project item-edit --id "$ITEM_ID" --project-id "$PROJECT_ID" \
+  --field-id "$STATUS_FIELD" --single-select-option-id "$OPTION_ID"
+
+# New issue: create, put it on the board, hang it off its epic.
+# `gh issue create` prints the new issue's URL, so capture it and reuse it.
+ISSUE_URL=$(gh issue create -R fiorelorenzo/lirevo --title "fix(area): ..." --body "..." \
+  --label "area:style,type:fix,priority:P1" --milestone "v1.0 — Polish, Reliability & Release Confidence")
+gh project item-add 1 --owner fiorelorenzo --url "$ISSUE_URL"
+gh api graphql -f query='mutation($p:ID!,$c:ID!){addSubIssue(input:{issueId:$p,subIssueId:$c}){subIssue{number}}}' \
+  -f p="$(gh issue view $EPIC -R fiorelorenzo/lirevo --json id --jq '.id')" \
+  -f c="$(gh issue view "$ISSUE_URL" --json id --jq '.id')"
+```
+
+`item-edit` is idempotent, so re-setting a value that is already correct is a
+fine way to make sure the board is right. An issue can have only one parent: to
+move it to a different epic, pass `replaceParent: true` in the same mutation.
+Everything you write on an issue or a card is repo-facing text, so the writing
+conventions above apply to it.
