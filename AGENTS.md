@@ -522,12 +522,30 @@ invent a parallel style:
   and `v0.9` have shipped). Read the exact strings from the API, they contain em
   dashes and are easy to mistype:
   `gh api repos/fiorelorenzo/lirevo/milestones --jq '.[].title'`.
-- **Every issue hangs off an epic.** Epics are titled `[Epic] Name` and carry
-  the `epic` label. Open ones today: #49 Eval Harness, #50 Frontend Quality, #51
-  Persistence, #52 Local Observability, #53 Release Pipeline, #54 Cross-Platform
-  v2, #55 Local Fine-Tuning. If none of them fits, create a new epic (same title
-  format, `epic` label, one per coherent area) and parent the issue to it. An
-  issue with no parent is a defect in the board.
+- **Every issue hangs off an epic, with no exceptions, and that includes an
+  issue filed in the middle of an agent run.** Epics are titled `[Epic] Name`
+  and carry the `epic` label; read the current ones rather than trusting a list
+  in this file: `gh issue list -R fiorelorenzo/lirevo --label epic --state all`.
+  If none of them fits, create a new epic (same title format, `epic` label, one
+  per coherent area) and parent the issue to it. An issue with no parent is a
+  defect in the board, and it is a defect that accumulates in exactly one way:
+  an agent files a real finding mid-run, sets its labels and its four fields,
+  and forgets the one step that is a separate GraphQL mutation. **So parent it
+  in the same turn you create it**, and when a subagent files something on your
+  behalf, parenting it is yours rather than theirs. This board was clean on
+  2026-08-23, all 75 issues parented, which is the state to keep it in.
+
+  The audit, worth running at the end of any run that filed issues. It pages 100
+  at a time, so re-run it with `-f c=<endCursor>` until `hasNextPage` is false;
+  empty output on every page is the passing state.
+
+  ```bash
+  gh api graphql -f query='query($c:String){repository(owner:"fiorelorenzo",name:"lirevo"){
+    issues(first:100,after:$c,states:[OPEN,CLOSED]){pageInfo{hasNextPage endCursor}
+    nodes{number parent{number} labels(first:20){nodes{name}}}}}}' \
+    --jq '.data.repository.issues.nodes[] | select(.parent==null)
+          | select([.labels.nodes[].name] | index("epic") | not) | .number'
+  ```
 
 ```bash
 # Read the schema, never guess an option value
