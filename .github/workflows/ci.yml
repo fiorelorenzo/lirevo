@@ -47,11 +47,11 @@ jobs:
         working-directory: app
         run: pnpm install --frozen-lockfile
 
-      - name: Type check
-        run: just check
-
       - name: Lint
         run: just lint
+
+      - name: Type check
+        run: just check
 
       - name: Tests
         run: just test
