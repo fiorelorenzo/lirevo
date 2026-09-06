@@ -44,6 +44,14 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # Job-level permissions REPLACE the workflow-level block rather than
+    # merging with it: dorny/paths-filter lists the PR's files through the
+    # API (that's the whole point of needing no checkout), which needs
+    # pull-requests: read on top of contents: read. Every other job stays on
+    # the workflow-level contents: read only.
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
     steps:
