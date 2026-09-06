@@ -1,11 +1,26 @@
 name: ci
 
-# Base CI: checks only, no artifacts. Runs on every push to main + PRs.
-#   - check-macos:               type-check, lint, and tests on the primary platform.
-#   - check-linux / check-windows: compile-only guard that the shipped app still
-#     builds cross-platform (per AGENTS.md). These prove it COMPILES — not that
-#     Lirevo is functional there (os-integration is macOS-only with stubs
-#     elsewhere; GPU backends ship separately — both are v2 milestones).
+# Three tiers (estate-wide CI contract, 2026-09-06):
+#   1. `preflight` (`.github/preflight.json`), run locally before a push - the
+#      full `just check` + `just test` on Linux.
+#   2. `check-linux` on `pull_request`: a scoped cargo-check compile guard for
+#      the shipped app (app/src-tauri) - proves it COMPILES on Linux, not that
+#      Lirevo is functional there (os-integration is macOS-only with stubs
+#      elsewhere; GPU backends ship separately - both are v2 milestones). Cheap,
+#      and the only PR-path job.
+#   3. `push: main` (and `release.yml` on a version tag): the full suite.
+#      `check-macos` runs `just lint` + `just check` + `just test` on the
+#      primary platform - a change that breaks any of them breaks CI.
+#      `check-windows` is the same compile-only guard as check-linux, on
+#      Windows. Both now run after the merge, where nobody waits on them.
+#
+# Why Linux carries the PR-path guard rather than macOS or Windows: macOS
+# runners are this estate's worst queueing latency, check-macos (lint +
+# type-check + the full test suite) is inherently the heaviest of the three,
+# and check-linux's own 10.0m median was only that slow for lack of a cargo
+# cache - see the `Swatinem/rust-cache` step below. check-macos and
+# check-windows still prove real platform coverage; it is also re-proven by
+# `release.yml` on every version tag.
 # The signed + notarized .dmg is produced by release.yml on a version tag.
 
 on:
@@ -14,9 +29,83 @@ on:
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
+  # PR-only. dorny/paths-filter answers from the API on a pull_request, so
+  # this job needs no checkout. Not used on push: main always runs everything.
+  changes:
+    name: changes
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+    steps:
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            rust:
+              - 'app/src-tauri/**'
+              - 'crates/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - '.cargo/**'
+
+  # Tier 2: the only job on the PR path. Scoped to Rust changes; a docs- or
+  # frontend-only PR skips it and `ci` goes green on the skip.
+  check-linux:
+    name: check-linux
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+
+      # Tauri 2 Linux system deps + a C/C++ toolchain (cmake/clang) for the
+      # vendored ggml CPU build and bindgen.
+      #
+      # The os-integration Linux backend (evdev hotkey, enigo paste, arboard
+      # clipboard with wayland-data-control) needs NO extra system -dev packages
+      # to COMPILE: evdev/enigo/x11rb/xkbcommon/wl-clipboard-rs have no build
+      # scripts that link system libs, and wayland-sys uses its pure-Rust default
+      # (no `client`/`dlopen` feature) so its pkg-config probe is skipped.
+      # libxdo-dev below is already present and unrelated to enigo here (enigo's
+      # X11 path is x11rb, pure Rust). See crates/os-integration/src/linux/.
+      - name: Install build deps (Linux)
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev libssl-dev \
+            build-essential cmake clang libclang-dev libasound2-dev
+
+      # rust-toolchain.toml pins the channel; rustup on the runner honors it.
+      # Check the SHIPPED app only. The root workspace also has Unix-only dev
+      # tooling (the HTTP-over-unix-socket sidecar + lirevo-cli/prototype) that
+      # is not part of the cross-platform app surface.
+      - name: cargo check (shipped app)
+        working-directory: app/src-tauri
+        run: cargo check
+
+  # Tier 3: main only.
   check-macos:
+    name: check-macos
+    if: github.event_name != 'pull_request'
     runs-on: macos-15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
 
@@ -56,54 +145,31 @@ jobs:
       - name: Tests
         run: just test
 
-  check-cross-platform:
-    name: check-${{ matrix.label }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            label: linux
-          - os: windows-latest
-            label: windows
+  # Tier 3: main only.
+  check-windows:
+    name: check-windows
+    if: github.event_name != 'pull_request'
+    runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
 
-      # Tauri 2 Linux system deps + a C/C++ toolchain (cmake/clang) for the
-      # vendored ggml CPU build and bindgen.
-      #
-      # The os-integration Linux backend (evdev hotkey, enigo paste, arboard
-      # clipboard with wayland-data-control) needs NO extra system -dev packages
-      # to COMPILE: evdev/enigo/x11rb/xkbcommon/wl-clipboard-rs have no build
-      # scripts that link system libs, and wayland-sys uses its pure-Rust default
-      # (no `client`/`dlopen` feature) so its pkg-config probe is skipped.
-      # libxdo-dev below is already present and unrelated to enigo here (enigo's
-      # X11 path is x11rb, pure Rust). See crates/os-integration/src/linux/.
-      - name: Install build deps (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
-            librsvg2-dev libxdo-dev libssl-dev \
-            build-essential cmake clang libclang-dev libasound2-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
 
       # Windows MAX_PATH(260): the nested cargo target + cmake build paths
       # overflow it for the native ggml builds. A short target dir avoids it.
       - name: Use a short target dir (Windows, avoid MAX_PATH)
-        if: runner.os == 'Windows'
         run: echo "CARGO_TARGET_DIR=C:\b" >> $env:GITHUB_ENV
         shell: pwsh
 
       # The parakeet-cpp build.rs uses the Ninja generator on Windows; Ninja
       # needs an MSVC dev environment (cl.exe on PATH) + ninja itself.
       - name: Setup MSVC dev environment (Windows)
-        if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
 
       - name: Install Ninja (Windows)
-        if: runner.os == 'Windows'
         run: choco install ninja
         shell: pwsh
 
@@ -114,3 +180,21 @@ jobs:
       - name: cargo check (shipped app)
         working-directory: app/src-tauri
         run: cargo check
+
+  # The single required status check. Never rename it: it is the one context
+  # in the ruleset, so the job names above it can change forever without
+  # touching a ruleset again.
+  ci:
+    name: ci
+    if: always()
+    needs: [changes, check-linux, check-macos, check-windows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: A needed job failed or was cancelled
+        run: |
+          printf '%s\n' '${{ toJSON(needs) }}'
+          printf '%s' '${{ toJSON(needs) }}' | jq -e '
+            to_entries
+            | map(select(.value.result == "failure" or .value.result == "cancelled"))
+            | length == 0'

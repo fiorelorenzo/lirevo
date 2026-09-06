@@ -1,0 +1,22 @@
+{
+  "base": "origin/main",
+  "jobs": 4,
+  "checks": [
+    {
+      "id": "local-build-test",
+      "run": "just check && just test",
+      "when": [
+        "app/**",
+        "crates/**",
+        "Cargo.toml",
+        "Cargo.lock",
+        "rust-toolchain.toml",
+        ".cargo/**",
+        "Justfile"
+      ],
+      "serial": true,
+      "lock": "cargo-build",
+      "why": "check-macos (lint+check+test) and check-windows (compile guard) moved off the PR path to main-only; this is the reproducible-on-Linux subset of that coverage (Rust workspace + app/src-tauri type-check and nextest, plus the Svelte frontend). The macOS-only surface (os-integration's macos module, Metal/parakeet backends) and the Windows compile guard aren't reproducible on this machine and stay covered by push:main and release.yml, per the CI contract. serial+lock: a full workspace cargo build is memory-hungry on this shared box, so it queues against other checkouts' cargo builds rather than piling on"
+    }
+  ]
+}

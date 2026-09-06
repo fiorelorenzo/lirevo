@@ -185,15 +185,23 @@ while the app is alive. `just eval` is a dev-only refiner-stage model bake-off.
 
 ### Local verification: run the minimal covering subset
 
-CI (`check-macos`) runs the full `just check` / `just lint` / `just test` on
-every push and PR — that's the gate. Locally you only need enough signal to
-catch an obviously broken PR, so **scope commands to the diff, not the whole
+CI now has three tiers (2026-09-06). `check-macos` (`just lint`/`just check`/
+`just test`) and `check-windows` (a Windows compile guard) moved to `push:
+main` only — nobody waits on them on a PR. The PR path runs one job,
+`check-linux`, a scoped `cargo check` compile guard for the shipped app, and
+skips it entirely for a diff that can't touch `app/src-tauri` or the crates
+it depends on. `preflight` (`.github/preflight.json`) is the local
+replacement for the coverage that moved off the PR path — see "CI and the
+release pipeline" below. Locally you only need enough signal to catch an
+obviously broken PR, so **scope commands to the diff, not the whole
 suite**. Scope by *amount* (narrow to the crate/package/files you touched),
 never by *category* — don't run lint but skip typecheck, or clippy on the
 root workspace but skip `app/src-tauri`'s own fmt/clippy pass (it's a
 separate Cargo workspace, see Common commands above). Run the full suite
 (`just check && just lint && just test`) before release-critical changes
 (release pipeline, signing/notarization scripts, migrations).
+`preflight`'s `local-build-test` check runs `just check && just test` (no
+lint - see "CI and the release pipeline" below) before every push.
 
 - **Rust tests, scoped:** `cargo nextest run -p <crate> <filter>`, e.g.
   `cargo nextest run -p os-integration hotkey::`. For the Tauri host:
@@ -239,16 +247,29 @@ notarization happens in the explicit post-bundle step.
 
 ### CI and the release pipeline
 
-Base CI is **checks-only** — one workflow, `ci.yml`, on push/PR:
+`ci.yml` is checks-only, three tiers (2026-09-06):
 
-- **`check-macos`** (`macos-15`) runs `just check` + `just test`. No artifacts.
-  A change that breaks either breaks CI.
-- **`check-linux` / `check-windows`** (Ubuntu + Windows) `cargo check` the
-  shipped app (`app/src-tauri`) to guard cross-platform compilation. They prove
-  the workspace **compiles** on those targets — they do **not** mean Lirevo runs
-  there (see "Platform support status" below).
+- **`check-linux`** (`ubuntu-latest`) is the only job on the PR path: a
+  scoped `cargo check` on the shipped app (`app/src-tauri`), skipped when the
+  diff can't touch it. It only proves the workspace **compiles** on Linux —
+  it does not mean Lirevo runs there (see "Platform support status" below).
+- **`check-macos`** (`macos-15`) runs `just lint` + `just check` + `just
+  test` on the primary platform. No artifacts. A change that breaks any of
+  them breaks CI.
+- **`check-windows`** (`windows-latest`) is the same compile-only guard as
+  `check-linux`.
 
-All three jobs are required status checks on `main`.
+`check-macos` and `check-windows` moved to `push: main` only — they still
+run on every merge, just not on every PR push. The one required status check
+on `main` is `ci`, an aggregate job that needs `changes`, `check-linux`,
+`check-macos` and `check-windows`, and treats a `skipped` dependency as
+passing — that's what lets a docs/frontend-only PR go green on `check-linux`
+alone. `preflight` (`.github/preflight.json`) is the PR-path stand-in for the
+coverage that's reproducible on this machine: its `local-build-test` check
+runs `just check && just test` (the Linux-reachable subset of what
+`check-macos` runs) before every push, via the installed `pre-push` hook.
+The macOS-only surface and the Windows compile guard aren't locally
+reproducible and stay covered by `push: main` and `release.yml`.
 
 The distributable, signed + notarized `.dmg` is built by a separate workflow:
 
@@ -340,8 +361,10 @@ before filing rather than guessing the shape.
 **Pushing to `main` is blocked, not just discouraged.** The
 `require-pull-request` ruleset enforces it: squash is the only allowed merge
 method, no approving review is required, and `protect-default-branch`
-requires `check-macos`, `check-linux` and `check-windows` to pass with the
-branch up to date first (`strict_required_status_checks_policy`).
+requires the single `ci` context to pass, branch-up-to-date not enforced
+(`strict_required_status_checks_policy: false` - `ci` aggregates
+`check-linux`, `check-macos` and `check-windows` with `skipped` counting as
+passing, see "CI and the release pipeline" above).
 `delete_branch_on_merge` is on, so a merged branch disappears from the remote
 on its own; no manual `git push -d` needed.
 
