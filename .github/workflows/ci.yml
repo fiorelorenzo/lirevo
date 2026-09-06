@@ -72,7 +72,12 @@ jobs:
   check-linux:
     name: check-linux
     needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+    # !cancelled() (not always()) defeats needs-cascade-skip: a job with
+    # `needs` is skipped whenever the dependency was skipped, regardless of
+    # its own `if`, unless that `if` contains a status-check function. changes
+    # is always skipped on push, so without this, check-linux silently
+    # skipped on every push:main too.
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
