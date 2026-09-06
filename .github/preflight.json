@@ -3,11 +3,24 @@
   "jobs": 4,
   "checks": [
     {
-      "id": "local-build-test",
-      "run": "just check && just test",
+      "id": "app-check",
+      "run": "cd app && pnpm exec svelte-kit sync && pnpm exec svelte-check --threshold error && pnpm test -- --run",
+      "setup": "cd app && pnpm install --frozen-lockfile",
       "when": [
         "app/**",
+        "Justfile"
+      ],
+      "unless": [
+        "app/src-tauri/**"
+      ],
+      "why": "The frontend half of `just check` and `just test`. The setup step is not optional and not a convenience: this repo keeps its real lockfile in app/, while the root pnpm-lock.yaml has a single empty importer, so `pnpm install` at the root reports 'Already up to date' and installs nothing at all. CI gets this right by running its install step with working-directory: app; a local run that skips it fails svelte-check with four 'Cannot find name process / node:fs' errors that look like a tsconfig defect and are actually an empty node_modules"
+    },
+    {
+      "id": "rust-check",
+      "run": "cargo check --workspace && cd app/src-tauri && cargo check",
+      "when": [
         "crates/**",
+        "app/src-tauri/**",
         "Cargo.toml",
         "Cargo.lock",
         "rust-toolchain.toml",
@@ -16,7 +29,20 @@
       ],
       "serial": true,
       "lock": "cargo-build",
-      "why": "check-macos (lint+check+test) and check-windows (compile guard) moved off the PR path to main-only; this is the reproducible-on-Linux subset of that coverage (Rust workspace + app/src-tauri type-check and nextest, plus the Svelte frontend). The macOS-only surface (os-integration's macos module, Metal/parakeet backends) and the Windows compile guard aren't reproducible on this machine and stay covered by push:main and release.yml, per the CI contract. serial+lock: a full workspace cargo build is memory-hungry on this shared box, so it queues against other checkouts' cargo builds rather than piling on"
+      "why": "Mirrors check-linux, the one Rust job left on the PR path, plus the workspace check from check-macos. KNOWN TO FAIL ON THIS BOX, and the cause is upstream rather than this manifest: llama-cpp-sys-2 0.1.146's build.rs runs cmake --target install into a prefix it does not own and panics at build.rs:1110 with Os { code: 17, AlreadyExists } the moment that prefix is already populated. Once one build wedges that way, every later cargo invocation reusing the same build directory fails identically in about a minute, which reads like a code error and is not one. Reproduced four times, including from a clean target/ and with --all-targets dropped. To unwedge: rm -rf target/debug/build/llama-cpp-sys-2-* and cargo clean -p llama-cpp-sys-2. Nothing is left unverified by this: check-linux still runs cargo check on the shipped app on every PR, and check-macos runs the full lint/check/test on every push to main. serial+lock:cargo-build because a full workspace build is memory-hungry on this shared box, so it queues behind another checkout's cargo build rather than piling onto it"
+    },
+    {
+      "id": "rust-test",
+      "run": "cargo nextest run --workspace",
+      "when": [
+        "crates/**",
+        "Cargo.toml",
+        "Cargo.lock",
+        "rust-toolchain.toml"
+      ],
+      "serial": true,
+      "lock": "cargo-build",
+      "why": "KNOWN TO FAIL ON THIS BOX for the same upstream reason as rust-check, see that check's note for the diagnosis and the unwedge recipe. Left here rather than deleted because the check itself is right: check-macos runs it for real on every push to main, so this is a local gap and not a verification hole"
     }
   ]
 }
