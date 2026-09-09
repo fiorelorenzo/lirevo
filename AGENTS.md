@@ -353,10 +353,9 @@ identity. There is no per-worktree isolation for any of this today, so
 sequence UI verification across worktrees rather than running it at the same
 time.
 
-**The board is Project #1, and its conventions are at the end of this file.** An earlier
-read of this repo concluded there was no board; `gh project view 1 --owner fiorelorenzo`
-resolves it, so plan against it and read its field, label and milestone schema from the API
-before filing rather than guessing the shape.
+**Project tracking lives in Linear, and its conventions are at the end of this file.** Read that
+section before filing or updating anything: it covers the initiative/project/milestone structure,
+the label taxonomy, and the workspace check to run before the first write of a session.
 
 **Pushing to `main` is blocked, not just discouraged.** The
 `require-pull-request` ruleset enforces it: squash is the only allowed merge
@@ -491,117 +490,79 @@ draft PR — don't push to `main`.
 - **What's the user-visible behaviour?** `README.md` ("Using the app" and the
   model-provisioning sections).
 
-## The GitHub Project is the source of truth
+## Linear is the source of truth
 
-Current state and future roadmap live on **Project #1 "Lirevo roadmap"** (owner
-`fiorelorenzo`), not in this file and not in a chat transcript. Keeping it
-current is part of doing the work, not paperwork at the end: the board is how
-Lorenzo sees where the project stands without reading session logs, so a board
-that lags reality is worse than no board.
+Current state and future roadmap live in **Linear** (workspace `fiorelorenzo`, one team, issue
+prefix `LOR-`), not in this file and not in a chat transcript. Keeping it current is part of doing
+the work, not paperwork at the end: it's how Lorenzo sees where the project stands without reading
+session logs, and a tracker that lags reality is worse than no tracker. Writes go through the
+`linear-personal` MCP server.
 
-**Status is a claim about reality, keep it true.**
+**Check the workspace before the first write of a session.** Two Linear workspaces are reachable
+from this box. Run a read first (`list_projects` or `list_issues`) and confirm the workspace name
+in the response before creating or editing anything; writing to the wrong one puts this work on a
+client's board.
 
-- Before you write code for an issue, move it to `In Progress`. If what you are
-  about to do has no issue, create one first (see below), then start.
-- Move it to `Done` only when the change is merged and verified, not when the
-  code is written. Merged but something is still open? Say so in a comment and
-  leave it `In Progress`.
-- Board fields, the same four on every one of Lorenzo's roadmap boards on
-  purpose: `Status` (`Todo` / `In Progress` / `Done`), `Priority` (P0-P3),
-  `Effort` (S/M/L/XL) and `Parallel` (Yes/No, whether a parallel agent can take
-  the issue without colliding with other work). Set all four on anything you
-  file. Never write a value that is not already an option, read the schema
-  instead of guessing, and never add, rename or drop a field on this board
-  alone: the convention is shared across the projects.
+**Structure.**
 
-**Comment when a reader would want to know.** A decision taken, an approach
-tried and abandoned, a blocker hit, a surprise in the code, a scope change, a
-finding that invalidates the issue as written. One comment per meaningful turn
-in the work, not one per commit, and no routine progress narration.
+- The initiative is `lirevo`. An initiative is permanent, it doesn't close; it carries a
+  description, an owner (Lorenzo), and a Resources section with the links that matter.
+- Three projects: `lirevo v0.10` and `lirevo v1.0` (both in progress) and `lirevo v1.1` (planned).
+  A project is a release with work inside it: it has an end and closes when that work ships. Every
+  project has a lead and at least one member.
+- 10 milestones across the three projects, 38 issues migrated from GitHub. A milestone is what
+  used to be an epic: it isn't an issue anymore, doesn't take up a slot against the plan's issue
+  cap, and shows progress on its own.
+- One thing worth knowing about this repo specifically: the GitHub epic `Eval Harness & Quality
+  Gates` (#49) had children on two different releases, so in Linear it exists as a milestone inside
+  two of the three projects, not one. The identity of a milestone is the (project, milestone) pair,
+  so the same name can repeat across projects without conflict.
 
-**File the work you discover.** When something real surfaces mid-task or in a
-conversation with Lorenzo (a bug you noticed on the way, a follow-up the fix
-implies, an idea worth doing later), open an issue for it instead of silently
-widening the current change or letting it evaporate. Then say in the current
-issue that you split it out, with a link.
+**Filing an issue.** Every issue belongs to a project and, inside it, the milestone it fits.
+Missing one is an error, not the side effect of a forgotten second call: `save_issue` takes
+project, milestone, labels, priority, and estimate in the same call.
 
-**Conventions for a new issue.** Match what the board already shows, do not
-invent a parallel style:
+- Labels: the `repo` group is mutually exclusive, use `lirevo`. The `type` group is mutually
+  exclusive too, exactly one of `feature`, `fix`, `refactor`, `test`, `chore`, `ci`, `docs`,
+  `design`, `security`, `spike`. `area:*` labels are flat and an issue can carry more than one; the
+  values in use here are `cleanup`, `cross-platform`, `docs`, `eval`, `frontend`, `models`,
+  `observability`, `os-integration`, `persistence`, `pipeline`, `release`, `stt`, `style`, add a
+  new one only when the surface is genuinely new. `flagship` and `parallel` are flat labels on
+  their own (`parallel` means a parallel agent can take the issue without colliding with other
+  work, same meaning as the old board field).
+- Priority and effort are native Linear fields now, not labels. There is no `priority:P0`..
+  `priority:P3` label to set anymore.
+- Six states: `Backlog`, `Todo`, `In Progress`, `In Review`, `Done`, `Canceled`. `In Review` is
+  where an issue sits while its PR is open on GitHub.
 
-- Title in conventional-commit form, lowercase after the colon, e.g.
-  `fix(style): few-shot examples can make cleanup emit an example's text`.
-- Labels follow one taxonomy, identical in every repo: exactly one `type:*`
-  (`feature`, `fix`, `refactor`, `test`, `chore`, `ci`, `docs`, `design`,
-  `security`, `spike`), exactly one of `priority:P0`-`priority:P3`, and one or
-  more `area:*` naming the surfaces the change touches. `epic` and `flagship`
-  (an epic, and headline work) are the only unprefixed labels. Priority is
-  deliberately in two places, the `Priority` board field and the `priority:*`
-  label, so set both.
-- `area:*` values here: `cleanup`, `cross-platform`, `docs`, `eval`, `frontend`,
-  `models`, `observability`, `os-integration`, `persistence`, `pipeline`,
-  `release`, `stt`, `style`. Add one only when the surface really is new, and
-  never reintroduce an unprefixed or differently shaped label.
-- Milestone: one of the milestones still open (`v0.10`, `v1.0`, `v1.1`; `v0.8`
-  and `v0.9` have shipped). Read the exact strings from the API, they contain em
-  dashes and are easy to mistype:
-  `gh api repos/fiorelorenzo/lirevo/milestones --jq '.[].title'`.
-- **Every issue hangs off an epic, with no exceptions, and that includes an
-  issue filed in the middle of an agent run.** Epics are titled `[Epic] Name`
-  and carry the `epic` label; read the current ones rather than trusting a list
-  in this file: `gh issue list -R fiorelorenzo/lirevo --label epic --state all`.
-  If none of them fits, create a new epic (same title format, `epic` label, one
-  per coherent area) and parent the issue to it. An issue with no parent is a
-  defect in the board, and it is a defect that accumulates in exactly one way:
-  an agent files a real finding mid-run, sets its labels and its four fields,
-  and forgets the one step that is a separate GraphQL mutation. **So parent it
-  in the same turn you create it**, and when a subagent files something on your
-  behalf, parenting it is yours rather than theirs. This board was clean on
-  2026-08-23, all 75 issues parented, which is the state to keep it in.
+**Status is a claim about reality, keep it true.** Before you write code for an issue, move it to
+`In Progress`; if what you're about to do has no issue, create one first, then start. The GitHub
+connection on this workspace moves states on its own from PR activity, so don't move a card by hand
+when a PR merges: verified today, 26 issues closed on GitHub already showed `Done` in Linear with
+no manual step. Move something to `Done` yourself only in the cases the connection can't see, like
+work that never goes through a PR.
 
-  The audit, worth running at the end of any run that filed issues. It pages 100
-  at a time, so re-run it with `-f c=<endCursor>` until `hasNextPage` is false;
-  empty output on every page is the passing state.
+**Comment when a reader would want to know.** A decision taken, an approach tried and abandoned, a
+blocker hit, a surprise in the code, a scope change, a finding that invalidates the issue as
+written. One comment per meaningful turn in the work, not one per commit, and no routine progress
+narration.
 
-  ```bash
-  gh api graphql -f query='query($c:String){repository(owner:"fiorelorenzo",name:"lirevo"){
-    issues(first:100,after:$c,states:[OPEN,CLOSED]){pageInfo{hasNextPage endCursor}
-    nodes{number parent{number} labels(first:20){nodes{name}}}}}}' \
-    --jq '.data.repository.issues.nodes[] | select(.parent==null)
-          | select([.labels.nodes[].name] | index("epic") | not) | .number'
-  ```
+**File the work you discover.** When something real surfaces mid-task or in a conversation with
+Lorenzo (a bug noticed on the way, a follow-up the fix implies, an idea worth doing later), create
+an issue for it in Linear instead of silently widening the current change or letting it evaporate.
+Then say in the current issue that you split it out, with a link.
 
-```bash
-# Read the schema, never guess an option value
-gh project field-list 1 --owner fiorelorenzo --format json
-gh api repos/fiorelorenzo/lirevo/milestones --jq '.[].title'
+**Write a project update when something changed that the issue list alone doesn't show:** a
+milestone that slipped, a change in project health, a decision, a release.
 
-# Fill these three in; everything below runs as written, no placeholders to edit
-ISSUE=123                 # the issue you are working on
-EPIC=456                  # its parent epic
-STATUS="In Progress"      # Todo | In Progress | Done
+**What stays on GitHub.** Code and PRs. Review still happens on GitHub as before (Linear's in-app
+review is a Business-plan feature and isn't active on this workspace).
 
-PROJECT_ID=$(gh project view 1 --owner fiorelorenzo --format json --jq '.id')
-STATUS_FIELD=$(gh project field-list 1 --owner fiorelorenzo --format json \
-  --jq '.fields[] | select(.name=="Status") | .id')
-OPTION_ID=$(gh project field-list 1 --owner fiorelorenzo --format json \
-  --jq ".fields[] | select(.name==\"Status\") | .options[] | select(.name==\"$STATUS\") | .id")
-ITEM_ID=$(gh project item-list 1 --owner fiorelorenzo --format json --limit 300 \
-  --jq ".items[] | select(.content.number==$ISSUE) | .id")
-gh project item-edit --id "$ITEM_ID" --project-id "$PROJECT_ID" \
-  --field-id "$STATUS_FIELD" --single-select-option-id "$OPTION_ID"
+**The old board is a read-only archive.** Project #1 ("Lirevo roadmap") and the GitHub issues under
+it don't sync with Linear in either direction, and nothing bidirectional should be built against
+them. GitHub issues that were open when they got migrated stay open for now, but they are no longer
+the source of truth: file new work in Linear.
 
-# New issue: create, put it on the board, hang it off its epic.
-# `gh issue create` prints the new issue's URL, so capture it and reuse it.
-ISSUE_URL=$(gh issue create -R fiorelorenzo/lirevo --title "fix(area): ..." --body "..." \
-  --label "area:style,type:fix,priority:P1" --milestone "v1.0 — Polish, Reliability & Release Confidence")
-gh project item-add 1 --owner fiorelorenzo --url "$ISSUE_URL"
-gh api graphql -f query='mutation($p:ID!,$c:ID!){addSubIssue(input:{issueId:$p,subIssueId:$c}){subIssue{number}}}' \
-  -f p="$(gh issue view $EPIC -R fiorelorenzo/lirevo --json id --jq '.id')" \
-  -f c="$(gh issue view "$ISSUE_URL" --json id --jq '.id')"
-```
-
-`item-edit` is idempotent, so re-setting a value that is already correct is a
-fine way to make sure the board is right. An issue can have only one parent: to
-move it to a different epic, pass `replaceParent: true` in the same mutation.
-Everything you write on an issue or a card is repo-facing text, so the writing
-conventions above apply to it.
+**Mind the plan's cap.** The Free plan allows 250 active issues; archived issues don't count
+against it, and archiving only happens automatically after a period of inactivity (at least a
+month). The workspace is at 117 active issues today.
