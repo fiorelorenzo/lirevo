@@ -481,6 +481,30 @@ draft PR — don't push to `main`.
 - **macOS permissions:** If a flow needs the real TCC prompt, say so in the
   PR — reviewers will need to test with `just dev-bundle` or a fresh `.dmg`.
 
+## Pull requests
+
+One shape for every repo of mine: `skill://opening-a-pull-request`. The issue and its
+neighbours before the branch, the branch name Linear renders on the issue, Conventional
+Commits in the first person, the body's four sections from
+`.github/PULL_REQUEST_TEMPLATE.md` (Screenshots is never deleted), an independent review
+applied in a second commit, and the card closed only against evidence. What is true only
+here:
+
+- **Scopes** for the subject: the crate or surface touched, e.g. `hotkey`, `models`,
+  `ui`, `style`, `os-integration`, `release`, `agents`, `settings`, `eval`, `db`. Read
+  what a change actually touches; don't reach for one of these by habit.
+- **Required check**: the aggregate `ci` job (`.github/workflows/ci.yml`), not one of
+  its three platform legs. `ci` waits on `changes`, `check-linux`, `check-macos` and
+  `check-windows` with `if: always()` and passes as long as none of them failed or was
+  cancelled, a skip counts as fine. The ruleset names only `ci` on purpose:
+  `check-macos` and `check-windows` run on pushes to `main` only, so a PR that required
+  either leg by name would sit unmergeable forever waiting for a status that never
+  reports on a PR.
+- **Merge**: `gh pr merge <n> --auto --squash --delete-branch`, the only method the
+  ruleset allows (`allowed_merge_methods: ["squash"]`) and auto-merge is on, then
+  `git checkout main && git reset --hard origin/main`, because local `main` diverges on
+  every squash.
+
 ## Where to look first
 
 - **What changed recently?** `CHANGELOG.md` and `git log --oneline -20`.
