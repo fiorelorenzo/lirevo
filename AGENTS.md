@@ -527,9 +527,10 @@ project, milestone, labels, priority, and estimate in the same call.
   `design`, `security`, `spike`. `area:*` labels are flat and an issue can carry more than one; the
   values in use here are `cleanup`, `cross-platform`, `docs`, `eval`, `frontend`, `models`,
   `observability`, `os-integration`, `persistence`, `pipeline`, `release`, `stt`, `style`, add a
-  new one only when the surface is genuinely new. `flagship` and `parallel` are flat labels on
-  their own (`parallel` means a parallel agent can take the issue without colliding with other
-  work, same meaning as the old board field).
+  new one only when the surface is genuinely new. `flagship` is a flat label on its own. Parallel
+  safety is two labels, `parallel:yes` and `parallel:no`, never a bare `parallel`: one label
+  would conflate "must not run concurrently" with "never assessed", and the absence of both is
+  that third state, assessed at wave time rather than assumed safe.
 - Priority and effort are native Linear fields now, not labels. There is no `priority:P0`..
   `priority:P3` label to set anymore.
 - Six states: `Backlog`, `Todo`, `In Progress`, `In Review`, `Done`, `Canceled`. `In Review` is
