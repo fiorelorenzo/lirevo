@@ -531,8 +531,10 @@ client's board.
 
 - The initiative is `lirevo`. An initiative is permanent, it doesn't close; it carries a
   description, an owner (Lorenzo), and a Resources section with the links that matter.
-- Three projects: `lirevo v0.10` and `lirevo v1.0` (both in progress) and `lirevo v1.1` (planned).
-  A project is a release with work inside it: it has an end and closes when that work ships. Every
+- Three projects, one per release, named for the work they do: `Make Style Learning
+  mature and measurable` and `Make everyday quality release-ready` (both in progress)
+  and `Take the first real steps onto Linux and Windows` (planned). A project is a
+  release with work inside it: it has an end and closes when that work ships. Every
   project has a lead and at least one member.
 - 10 milestones across the three projects, 38 issues migrated from GitHub. A milestone is what
   used to be an epic: it isn't an issue anymore, doesn't take up a slot against the plan's issue
@@ -542,10 +544,23 @@ client's board.
   two of the three projects, not one. The identity of a milestone is the (project, milestone) pair,
   so the same name can repeat across projects without conflict.
 
+**Naming, on the board.** Every name starts with a verb and names the work, under
+80 characters: an issue title, a project, a milestone. One clause, or two when the
+second only names what makes the first visible. No `type(scope):` prefix on a
+Linear title (commits and PR titles keep Conventional Commits), no product prefix
+or `vN` on a project name, no state word anywhere. An end-state clause reads as a
+riddle to whoever did not write it. The body fits one screen: at most four bold
+lead words (`**Observed.**`, `**Needed.**`, and `**Done when.**` as one line,
+`**Not here.**`, `**Adjacent.**` when they speak), two or three sentences each. A
+comment is two or three sentences plus the closing evidence bullets; a project
+update is three sentences.
+
 **Filing an issue.** Every issue belongs to a project and, inside it, the milestone it fits.
 Missing one is an error, not the side effect of a forgotten second call: `save_issue` takes
 project, milestone, labels, priority, and estimate in the same call.
 
+- Title: a verb and the work it does, under 80 characters (§ Naming above). The
+  `type(scope):` form belongs to commits and PR titles, not to the card.
 - Labels: the `repo` group is mutually exclusive, use `lirevo`. The `type` group is mutually
   exclusive too, exactly one of `feature`, `fix`, `refactor`, `test`, `chore`, `ci`, `docs`,
   `design`, `security`, `spike`. `area:*` labels are flat and an issue can carry more than one; the
