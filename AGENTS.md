@@ -500,13 +500,16 @@ The procedure from the card to the merge is the workflow kit's: the skills `line
 `.claude/skills/`). Its data is `.github/workflow.json` (tracker, commit types and scopes, PR
 sections, merge method); `ci` checks it in the `kit` job (`kit.py check` always, `pr_lint.py` on
 the PR title and body), and in Claude Code and omp a gate refuses a malformed Linear write before
-it is sent. Do not edit the kit's files here (`.github/kit/`, those three skills, the PR template,
+it is sent. Do not edit the kit's files here (`.github/kit/`, those three skills,
 `.omp/hooks/pre/linear-gate.ts`): change the source, `tooling/workflow-kit/` in
-letsrebase/rebase, and sync. The steps only this repo takes are in `docs/agents/pr-creation.md`.
-With no skills loaded, the rules in five lines:
+letsrebase/rebase, and sync. The PR template is generated: change `pr.sections` in
+`.github/workflow.json` and run `python3 .github/kit/bin/kit.py sync`. The steps only this
+repo takes are in `docs/agents/pr-creation.md`. With no skills loaded, the rules in five lines:
 
 1. A Linear card (`LOR-N`) exists and is `In Progress` before the branch does; the branch is
-   the card's Linear branch name, in a worktree.
+   the card's Linear branch name, in a worktree. Confirm the workspace is `fiorelorenzo`
+   before the first Linear write; a card title starts with a verb, stays under 80 characters
+   and has no `type(scope):` prefix.
 2. Conventional Commits in the first person, subject under 72 characters, the card as the
    last line (`LOR-N.`), staged by path, never `git add -A`.
 3. The PR title is the commit subject; the body has the sections of

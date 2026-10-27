@@ -20,7 +20,7 @@
   "commits": {
     "types": ["feat", "fix", "refactor", "perf", "test", "docs", "build", "ci", "chore", "style", "revert"],
     "scope_required": false,
-    "scopes": ["stt", "engine", "settings", "ui", "tray", "wizard", "os-integration", "models", "hotkey", "home", "prompts", "style", "release", "dev", "db", "agents", "history", "eval", "profile", "resource-monitor", "audio-capture", "overlay", "preflight", "reset", "updater", "ci", "repo", "deps", "kit"]
+    "scopes": ["stt", "engine", "settings", "ui", "tray", "wizard", "os-integration", "models", "hotkey", "home", "prompts", "style", "release", "dev", "db", "agents", "history", "eval", "profile", "resource-monitor", "audio-capture", "inference-core", "overlay", "preflight", "reset", "updater", "dictation", "window", "data", "app", "onboarding", "macos", "llama", "inject", "energy", "catalog", "changelog", "build", "docs", "scripts", "ci", "repo", "deps", "kit"]
   },
   "pr": {
     "title_max": 72,
