@@ -187,10 +187,11 @@ while the app is alive. `just eval` is a dev-only refiner-stage model bake-off.
 
 CI now has three tiers (2026-09-06). `check-macos` (`just lint`/`just check`/
 `just test`) and `check-windows` (a Windows compile guard) moved to `push:
-main` only — nobody waits on them on a PR. The PR path runs one job,
+main` only — nobody waits on them on a PR. The PR path builds one thing,
 `check-linux`, a scoped `cargo check` compile guard for the shipped app, and
 skips it entirely for a diff that can't touch `app/src-tauri` or the crates
-it depends on. `preflight` (`.github/preflight.json`) is the local
+it depends on; `kit` (seconds, no build) checks the workflow kit's copy and the
+PR text. `python3 .github/kit/bin/preflight` (config `.github/preflight.json`) is the local
 replacement for the coverage that moved off the PR path — see "CI and the
 release pipeline" below. Locally you only need enough signal to catch an
 obviously broken PR, so **scope commands to the diff, not the whole
@@ -200,8 +201,9 @@ root workspace but skip `app/src-tauri`'s own fmt/clippy pass (it's a
 separate Cargo workspace, see Common commands above). Run the full suite
 (`just check && just lint && just test`) before release-critical changes
 (release pipeline, signing/notarization scripts, migrations).
-`preflight`'s `local-build-test` check runs `just check && just test` (no
-lint - see "CI and the release pipeline" below) before every push.
+`preflight` runs `app-check`, `rust-check` and `rust-test` (the Linux-reachable
+subset of `just check && just test`, selected by the diff, no lint - see "CI and
+the release pipeline" below) before every push.
 
 - **Rust tests, scoped:** `cargo nextest run -p <crate> <filter>`, e.g.
   `cargo nextest run -p os-integration hotkey::`. For the Tauri host:
@@ -249,7 +251,7 @@ notarization happens in the explicit post-bundle step.
 
 `ci.yml` is checks-only, three tiers (2026-09-06):
 
-- **`check-linux`** (`ubuntu-latest`) is the only job on the PR path: a
+- **`check-linux`** (`ubuntu-latest`) is the only build job on the PR path: a
   scoped `cargo check` on the shipped app (`app/src-tauri`), skipped when the
   diff can't touch it. It only proves the workspace **compiles** on Linux —
   it does not mean Lirevo runs there (see "Platform support status" below).
@@ -260,16 +262,19 @@ notarization happens in the explicit post-bundle step.
   `check-linux`.
 
 `check-macos` and `check-windows` moved to `push: main` only — they still
-run on every merge, just not on every PR push. The one required status check
-on `main` is `ci`, an aggregate job that needs `changes`, `check-linux`,
-`check-macos` and `check-windows`, and treats a `skipped` dependency as
-passing — that's what lets a docs/frontend-only PR go green on `check-linux`
-alone. `preflight` (`.github/preflight.json`) is the PR-path stand-in for the
-coverage that's reproducible on this machine: its `local-build-test` check
-runs `just check && just test` (the Linux-reachable subset of what
-`check-macos` runs) before every push, via the installed `pre-push` hook.
-The macOS-only surface and the Windows compile guard aren't locally
-reproducible and stay covered by `push: main` and `release.yml`.
+run on every merge, just not on every PR push. `kit` (`ubuntu-latest`) runs
+`python3 .github/kit/bin/kit.py check` always and `pr_lint.py --github` on a
+pull request. The one required status check on `main` is `ci`, an aggregate
+job that needs `changes`, `check-linux`, `check-macos`, `check-windows` and
+`kit`, and treats a `skipped` dependency as passing — that's what lets a
+docs/frontend-only PR go green on `check-linux` alone.
+`python3 .github/kit/bin/preflight` (`.github/preflight.json`) is the PR-path
+stand-in for the coverage that's reproducible on this machine: its
+`app-check`, `rust-check` and `rust-test` checks run the Linux-reachable
+subset of what `check-macos` runs before every push, via the pre-push hook
+(`python3 .github/kit/bin/preflight --install-hook` installs it). The
+macOS-only surface and the Windows compile guard aren't locally reproducible
+and stay covered by `push: main` and `release.yml`.
 
 The distributable, signed + notarized `.dmg` is built by a separate workflow:
 
@@ -321,6 +326,12 @@ Do not describe Linux/Windows as usable; they are in progress / planned for v2.
 
 ## Working in a worktree, next to other agents
 
+**A fresh worktree has no dependencies.** The real lockfile is in `app/`, so run
+`cd app && pnpm install --frozen-lockfile` in the worktree before `svelte-check` or
+`vitest` (the root `pnpm install` installs nothing); the Rust side needs no setup beyond
+the shared `CARGO_TARGET_DIR` below. Copy the untracked `.env` from the main checkout
+only when you will run `just dev-bundle` or `just dmg`.
+
 **Share the `target` dir, or a second worktree cold-builds it.** There are two
 Cargo workspaces here: the root workspace (8 crates, see Common commands above)
 and `app/src-tauri` (the shipped host, its own workspace, per the CI
@@ -353,16 +364,15 @@ identity. There is no per-worktree isolation for any of this today, so
 sequence UI verification across worktrees rather than running it at the same
 time.
 
-**Project tracking lives in Linear, and its conventions are at the end of this file.** Read that
-section before filing or updating anything: it covers the initiative/project/milestone structure,
-the label taxonomy, and the workspace check to run before the first write of a session.
+**Project tracking lives in Linear, and its conventions are in "Linear and the workflow kit" at the end of this file.** Read that
+section before filing or updating anything.
 
 **Pushing to `main` is blocked, not just discouraged.** The
 `require-pull-request` ruleset enforces it: squash is the only allowed merge
 method, no approving review is required, and `protect-default-branch`
 requires the single `ci` context to pass, branch-up-to-date not enforced
 (`strict_required_status_checks_policy: false` - `ci` aggregates
-`check-linux`, `check-macos` and `check-windows` with `skipped` counting as
+`check-linux`, `check-macos`, `check-windows` and `kit` with `skipped` counting as
 passing, see "CI and the release pipeline" above).
 `delete_branch_on_merge` is on, so a merged branch disappears from the remote
 on its own; no manual `git push -d` needed.
@@ -388,7 +398,8 @@ on its own; no manual `git push -d` needed.
   bug). Don't restate what well-named code already says.
 - **Commits:** Conventional Commits (`feat(scope):`, `fix(scope):`,
   `chore:`, `docs:`, `ci:`, `test:`, `refactor:`). Keep the subject under
-  ~72 chars; put detail in the body. PR titles follow the same convention.
+  ~72 chars; put detail in the body; the card (`LOR-N.`) is the last line.
+  PR titles follow the same convention.
 
 ## macOS-specific gotchas
 
@@ -455,7 +466,8 @@ add to git as world-readable forever.
 - **Local working docs** (`docs/plans/`, `docs/specs/`). The `docs/` directory
   is intentionally not tracked beyond the gitignore entries — design docs are
   local-only.
-- **Tool-local state** (`.claude/`, `.vscode/`, `.idea/`).
+- **Tool-local state** (`.claude/` except `.claude/skills/` and `.claude/settings.json`,
+  which the workflow kit ships; `.vscode/`, `.idea/`).
 - **Secrets of any kind.** This codebase does not call any cloud API; there
   should be no API keys, tokens, or credentials anywhere. If you find one,
   treat it as a leak — rotate immediately and rewrite history.
@@ -465,8 +477,8 @@ draft PR — don't push to `main`.
 
 ## Working safely as an agent
 
-- **Branch:** Never commit directly to `main`. Create a feature branch
-  (`feat/...`, `fix/...`) and open a PR.
+- **Branch:** Never commit directly to `main`. Work on the card's Linear branch in a
+  worktree and open a PR.
 - **Scope:** Do what the task asks. Don't refactor unrelated code, don't
   rename files "while you're there", don't introduce new dependencies without
   flagging it in the PR description.
@@ -483,19 +495,36 @@ draft PR — don't push to `main`.
 
 ## Pull requests
 
-One shape for every repo of mine: `skill://opening-a-pull-request`. The issue and its
-neighbours before the branch, the branch name Linear renders on the issue, Conventional
-Commits in the first person, the body's four sections from
-`.github/PULL_REQUEST_TEMPLATE.md` (Screenshots is never deleted), an independent review
-applied in a second commit, and the card closed only against evidence. What is true only
-here:
+The procedure from the card to the merge is the workflow kit's: the skills `linear-ticket`,
+`linear-content` and `pr-creation` in `.agents/skills/` (Claude Code reads the copy in
+`.claude/skills/`). Its data is `.github/workflow.json` (tracker, commit types and scopes, PR
+sections, merge method); `ci` checks it in the `kit` job (`kit.py check` always, `pr_lint.py` on
+the PR title and body), and in Claude Code and omp a gate refuses a malformed Linear write before
+it is sent. Do not edit the kit's files here (`.github/kit/`, those three skills,
+`.omp/hooks/pre/linear-gate.ts`): change the source, `tooling/workflow-kit/` in
+letsrebase/rebase, and sync. The PR template is generated: change `pr.sections` in
+`.github/workflow.json` and run `python3 .github/kit/bin/kit.py sync`. The steps only this
+repo takes are in `docs/agents/pr-creation.md`. With no skills loaded, the rules in five lines:
 
-- **Scopes** for the subject: the crate or surface touched, e.g. `hotkey`, `models`,
-  `ui`, `style`, `os-integration`, `release`, `agents`, `settings`, `eval`, `db`. Read
-  what a change actually touches; don't reach for one of these by habit.
+1. A Linear card (`LOR-N`) exists and is `In Progress` before the branch does; the branch is
+   the card's Linear branch name, in a worktree. Confirm the workspace is `fiorelorenzo`
+   before the first Linear write; a card title starts with a verb, stays under 80 characters
+   and has no `type(scope):` prefix.
+2. Conventional Commits in the first person, subject under 72 characters, the card as the
+   last line (`LOR-N.`), staged by path, never `git add -A`.
+3. The PR title is the commit subject; the body has the sections of
+   `.github/PULL_REQUEST_TEMPLATE.md` (Screenshots is never deleted).
+4. The body's last line is `Linear: LOR-N.`
+5. An independent review before the PR is open for review, then squash merge on green `ci`.
+
+What is true only here:
+
+- **Scopes** for the subject: the crate or surface touched; the list is `commits.scopes` in
+  `.github/workflow.json`, and `scope_required` is false (`chore:`, `docs:` and `ci:` without a
+  scope are normal here). Read what a change actually touches; don't reach for a scope by habit.
 - **Required check**: the aggregate `ci` job (`.github/workflows/ci.yml`), not one of
-  its three platform legs. `ci` waits on `changes`, `check-linux`, `check-macos` and
-  `check-windows` with `if: always()` and passes as long as none of them failed or was
+  its platform legs. `ci` waits on `changes`, `check-linux`, `check-macos`, `check-windows` and
+  `kit` with `if: always()` and passes as long as none of them failed or was
   cancelled, a skip counts as fine. The ruleset names only `ci` on purpose:
   `check-macos` and `check-windows` run on pushes to `main` only, so a PR that required
   either leg by name would sit unmergeable forever waiting for a status that never
@@ -514,18 +543,14 @@ here:
 - **What's the user-visible behaviour?** `README.md` ("Using the app" and the
   model-provisioning sections).
 
-## Linear is the source of truth
+## Linear and the workflow kit
 
 Current state and future roadmap live in **Linear** (workspace `fiorelorenzo`, one team, issue
-prefix `LOR-`), not in this file and not in a chat transcript. Keeping it current is part of doing
-the work, not paperwork at the end: it's how Lorenzo sees where the project stands without reading
-session logs, and a tracker that lags reality is worse than no tracker. Writes go through the
-`linear-personal` MCP server.
-
-**Check the workspace before the first write of a session.** Two Linear workspaces are reachable
-from this box. Run a read first (`list_projects` or `list_issues`) and confirm the workspace name
-in the response before creating or editing anything; writing to the wrong one puts this work on a
-client's board.
+prefix `LOR-`), not in this file and not in a chat transcript. Writes go through the
+`linear-personal` MCP server. How a card is filed, moved, worded and closed is the workflow
+kit's `linear-ticket` and `linear-content` skills (see "Pull requests" above for what the kit
+is and where its data lives); `tracker.contract` in `.github/workflow.json` names this file,
+so what follows is the contract those skills read: only what is true of this repo.
 
 **Structure.**
 
@@ -544,29 +569,17 @@ client's board.
   two of the three projects, not one. The identity of a milestone is the (project, milestone) pair,
   so the same name can repeat across projects without conflict.
 
-**Naming, on the board.** Every name starts with a verb and names the work, under
-80 characters: an issue title, a project, a milestone. One clause, or two when the
-second only names what makes the first visible. No `type(scope):` prefix on a
-Linear title (commits and PR titles keep Conventional Commits), no product prefix
-or `vN` on a project name, no state word anywhere. An end-state clause reads as a
-riddle to whoever did not write it. The body fits one screen: at most four bold
-lead words (`**Observed.**`, `**Needed.**`, and `**Done when.**` as one line,
-`**Not here.**`, `**Adjacent.**` when they speak), two or three sentences each. A
-comment is two or three sentences plus the closing evidence bullets; a project
-update is three sentences.
-
-**Filing an issue.** Every issue belongs to a project and, inside it, the milestone it fits.
+**What an issue carries.** Every issue belongs to a project and, inside it, the milestone it fits.
 Missing one is an error, not the side effect of a forgotten second call: `save_issue` takes
 project, milestone, labels, priority, and estimate in the same call.
 
-- Title: a verb and the work it does, under 80 characters (§ Naming above). The
-  `type(scope):` form belongs to commits and PR titles, not to the card.
 - Labels: the `repo` group is mutually exclusive, use `lirevo`. The `type` group is mutually
   exclusive too, exactly one of `feature`, `fix`, `refactor`, `test`, `chore`, `ci`, `docs`,
   `design`, `security`, `spike`. `area:*` labels are flat and an issue can carry more than one; the
   values in use here are `cleanup`, `cross-platform`, `docs`, `eval`, `frontend`, `models`,
   `observability`, `os-integration`, `persistence`, `pipeline`, `release`, `stt`, `style`, add a
-  new one only when the surface is genuinely new. `flagship` is a flat label on its own. Parallel
+  new one only when the surface is genuinely new (and add it to `tracker.labels.area` in
+  `.github/workflow.json`). `flagship` is a flat label on its own. Parallel
   safety is two labels, `parallel:yes` and `parallel:no`, never a bare `parallel`: one label
   would conflate "must not run concurrently" with "never assessed", and the absence of both is
   that third state, assessed at wave time rather than assumed safe.
@@ -575,25 +588,10 @@ project, milestone, labels, priority, and estimate in the same call.
 - Six states: `Backlog`, `Todo`, `In Progress`, `In Review`, `Done`, `Canceled`. `In Review` is
   where an issue sits while its PR is open on GitHub.
 
-**Status is a claim about reality, keep it true.** Before you write code for an issue, move it to
-`In Progress`; if what you're about to do has no issue, create one first, then start. The GitHub
-connection on this workspace moves states on its own from PR activity, so don't move a card by hand
-when a PR merges: verified today, 26 issues closed on GitHub already showed `Done` in Linear with
+**The GitHub connection moves states on its own** from PR activity, so don't move a card by hand
+when a PR merges: verified once, 26 issues closed on GitHub already showed `Done` in Linear with
 no manual step. Move something to `Done` yourself only in the cases the connection can't see, like
 work that never goes through a PR.
-
-**Comment when a reader would want to know.** A decision taken, an approach tried and abandoned, a
-blocker hit, a surprise in the code, a scope change, a finding that invalidates the issue as
-written. One comment per meaningful turn in the work, not one per commit, and no routine progress
-narration.
-
-**File the work you discover.** When something real surfaces mid-task or in a conversation with
-Lorenzo (a bug noticed on the way, a follow-up the fix implies, an idea worth doing later), create
-an issue for it in Linear instead of silently widening the current change or letting it evaporate.
-Then say in the current issue that you split it out, with a link.
-
-**Write a project update when something changed that the issue list alone doesn't show:** a
-milestone that slipped, a change in project health, a decision, a release.
 
 **What stays on GitHub.** Code and PRs. Review still happens on GitHub as before (Linear's in-app
 review is a Business-plan feature and isn't active on this workspace).

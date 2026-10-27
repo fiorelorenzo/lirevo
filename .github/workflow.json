@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "tracker": {
+    "kind": "linear",
+    "workspace": "fiorelorenzo",
+    "team": "Lorenzo Fiore",
+    "prefix": "LOR",
+    "language": "English",
+    "contract": "AGENTS.md",
+    "labels": {
+      "type": ["feature", "fix", "refactor", "chore", "docs", "test", "ci", "design", "security", "spike"],
+      "area": ["area:cleanup", "area:cross-platform", "area:docs", "area:eval", "area:frontend", "area:models", "area:observability", "area:os-integration", "area:persistence", "area:pipeline", "area:release", "area:stt", "area:style"]
+    }
+  },
+  "github": {
+    "merge": "squash",
+    "required_check": "ci",
+    "review_bots": []
+  },
+  "commits": {
+    "types": ["feat", "fix", "refactor", "perf", "test", "docs", "build", "ci", "chore", "style", "revert"],
+    "scope_required": false,
+    "scopes": ["stt", "engine", "settings", "ui", "tray", "wizard", "os-integration", "models", "hotkey", "home", "prompts", "style", "release", "dev", "db", "agents", "history", "eval", "profile", "resource-monitor", "audio-capture", "inference-core", "overlay", "preflight", "reset", "updater", "dictation", "window", "data", "app", "onboarding", "macos", "llama", "inject", "energy", "catalog", "changelog", "build", "docs", "scripts", "ci", "repo", "deps", "kit"]
+  },
+  "pr": {
+    "title_max": 72,
+    "card_line": true,
+    "milestone_card_line": true,
+    "exempt_authors": ["dependabot[bot]", "app/dependabot"],
+    "sections": [
+      {"title": "What this changes", "required": true},
+      {"title": "How I verified it", "required": true},
+      {"title": "Anything a reviewer should look at twice"},
+      {"title": "Screenshots", "required": true, "hint": "For anything a person could see: one before-and-after pair per change, composed into a single side-by-side image and attached with `gh pr edit <n> --attach`. If nothing visible changed, or a pair cannot be captured, say so and why. Keep this section either way."}
+    ]
+  },
+  "extras": "docs/agents"
+}
