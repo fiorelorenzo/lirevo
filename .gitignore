@@ -53,7 +53,9 @@ docs/superpowers/
 
 # Test audio fixtures (provided locally, not committed)
 crates/inference-core/tests/fixtures/*.wav
-.claude/
+.claude/*
+!.claude/skills/
+!.claude/settings.json
 
 # Local-only env (e.g. APPLE_SIGNING_IDENTITY for dev-bundle signing)
 .env

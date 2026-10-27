@@ -7,7 +7,8 @@ name: ci
 #      the shipped app (app/src-tauri) - proves it COMPILES on Linux, not that
 #      Lirevo is functional there (os-integration is macOS-only with stubs
 #      elsewhere; GPU backends ship separately - both are v2 milestones). Cheap,
-#      and the only PR-path job.
+#      and the only job that builds anything on the PR path (`kit` below is a
+#      seconds-long check of the workflow kit's copy and the PR text).
 #   3. `push: main` (and `release.yml` on a version tag): the full suite.
 #      `check-macos` runs `just lint` + `just check` + `just test` on the
 #      primary platform - a change that breaks any of them breaks CI.
@@ -194,13 +195,35 @@ jobs:
         working-directory: app/src-tauri
         run: cargo check
 
+  # The workflow kit's copy here matches its manifest, and on a pull request the title
+  # and body follow .github/workflow.json. No paths filter: every PR has a title, and
+  # the check is seconds. pr_lint reads the PR from the API, not from the event, so after
+  # `gh pr edit` a re-run of the failed jobs checks the new text without a push.
+  kit:
+    name: kit · check and PR lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # A job-level block replaces the workflow-level one, so `contents: read` is restated.
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v6
+      - name: The kit's copy is intact
+        run: python3 .github/kit/bin/kit.py check
+      - name: The PR's title and body follow .github/workflow.json
+        if: github.event_name == 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 .github/kit/bin/pr_lint.py --github
+
   # The single required status check. Never rename it: it is the one context
   # in the ruleset, so the job names above it can change forever without
   # touching a ruleset again.
   ci:
     name: ci
     if: always()
-    needs: [changes, check-linux, check-macos, check-windows]
+    needs: [changes, check-linux, check-macos, check-windows, kit]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
